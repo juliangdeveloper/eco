@@ -5,17 +5,35 @@ import { createChat } from "./chat.js";
 import { metaDeclararProyecto, metaUpdate } from "./meta.js";
 import { loadAgent } from "./pyodide.js";
 import { createSessions } from "./sessions.js";
-import { bindSettings } from "./settings.js";
+import { bindSettings, renderConnectors } from "./settings.js";
 import { json, store } from "./storage.js";
 import { autoExpand, byId, pretty, renderEmpty, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "Nueva conversación";
 const LOAD_ERROR = "No se pudo preparar el agente. Recarga la página.";
 const CONFIRM_LABELS = {
-  github_write_file: (args) => "Escribir " + args.path + " en " + args.repo,
-  github_create_pr: (args) => "Crear PR «" + args.title + "» en " + args.repo + " (" + args.head + " → " + args.base + ")",
-  gmail_create_draft: (args) => "Crear borrador para " + args.to + ": " + args.subject,
+  create_connector: (args) => "Crear conector " + (args.definition?.name || "") + " (" + (args.definition?.base_url || "") + ")",
+  call_connector: (args) => args.connector + ": " + args.operation + " (" + args.method + " " + args.path + ")",
   skill_manage: (args) => (args.action === "delete" ? "Borrar" : args.action === "edit" ? "Editar" : "Crear") + " habilidad " + args.name
+};
+
+const AUTH_LABELS = {
+  none: "Sin inicio de sesión",
+  bearer: "Token",
+  api_key: "Clave de API",
+  basic: "Usuario y contraseña",
+  oauth2: "Inicio de sesión con la cuenta del servicio"
+};
+
+const CONFIRM_DETAILS = {
+  create_connector: (args) => {
+    const definition = args.definition || {};
+    const operations = (definition.operations || []).map((operation) => {
+      const write = operation.write === true || String(operation.method || "").toUpperCase() !== "GET";
+      return "• " + operation.name + " · " + (write ? "escritura, pedirá aprobación" : "lectura");
+    });
+    return ["Acceso: " + (AUTH_LABELS[definition.auth?.type] || ""), "Operaciones:", ...operations].join("\n");
+  }
 };
 
 let pyodide;
@@ -75,7 +93,7 @@ function bindConfirm() {
   return (name, raw) => new Promise((done) => {
     const args = parseArgs(raw);
     byId("confirmText").textContent = CONFIRM_LABELS[name]?.(args) || name;
-    byId("confirmArgs").textContent = pretty(args);
+    byId("confirmArgs").textContent = CONFIRM_DETAILS[name]?.(args) || pretty(args);
     resolve = done;
     dialog.showModal();
   });
@@ -167,6 +185,7 @@ async function main() {
   });
   setBridgeState({
     refreshAgent: () => agentPanel.render(),
+    refreshConnectors: () => renderConnectors(),
     sessionId: () => currentSession().id,
     setTodos: chat.setTodos,
     todos: chat.currentTodos

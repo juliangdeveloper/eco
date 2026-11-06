@@ -11,15 +11,10 @@ export const TOOL_LABELS = {
   skills_list: "Habilidades",
   skill_view: "Habilidades",
   skill_manage: "Habilidades",
-  github_list_repos: "GitHub · Repos",
-  github_list_issues: "GitHub · Issues",
-  github_list_prs: "GitHub · Pull requests",
-  github_read_file: "GitHub · Leer archivo",
-  github_write_file: "GitHub · Escribir archivo",
-  github_create_pr: "GitHub · Crear PR",
-  gmail_search: "Gmail · Buscar",
-  gmail_read: "Gmail · Leer correo",
-  gmail_create_draft: "Gmail · Crear borrador"
+  create_connector: "Crear conector",
+  list_connectors: "Conectores",
+  call_connector: "Conector",
+  request_sign_in: "Iniciar sesión"
 };
 
 const CANCELLED_ERROR = "Acción cancelada";
@@ -101,7 +96,7 @@ export function renderEmpty(send) {
   empty.id = "empty";
   empty.append(element("div", "¿En qué te ayudo?"));
   const suggestions = element("div", "", "suggestions");
-  const texts = ["Lista mis repos de GitHub", "Busca correos de hoy", "Organiza mis tareas"];
+  const texts = ["Conéctate a mi Gmail", "Conecta mi GitHub", "Organiza mis tareas"];
   for (const text of texts) {
     const button = element("button", text);
     button.type = "button";
@@ -126,7 +121,7 @@ export function updateToolCard(name, status, value) {
   const shown = value && value.error === CANCELLED_ERROR ? STATUS_CANCELLED : status;
   const title = name === "contexto" ? "Contexto resumido" : toolLabel(name) + " · " + shown;
   card.dataset.status = status;
-  card.open = status === "trabajando";
+  card.open = false;
   card.replaceChildren(element("summary", title), element("pre", preview(value)));
   if (status !== "trabajando") {
     card.dataset.active = "false";

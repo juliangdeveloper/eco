@@ -1,6 +1,7 @@
 import { DEFAULT_MODEL } from "./config.js";
 import { all, remove, setting, store } from "./storage.js";
-import { gmailToken } from "./gmail.js";
+import { connectorFetch, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
+import { showCredentialCard } from "./credentials.js";
 import { searchSessions } from "./sessions.js";
 
 let toolListener = () => {};
@@ -38,11 +39,7 @@ window.ecoBridge = {
     return JSON.stringify({
       key: setting("openrouterKey"),
       model: setting("model") || DEFAULT_MODEL,
-      origin: location.origin,
-      githubToken: setting("githubToken"),
-      githubEnabled: setting("githubEnabled") !== "false",
-      gmailEnabled: setting("gmailEnabled") !== "false",
-      gmailToken: gmailToken()
+      origin: location.origin
     });
   },
   async state() {
@@ -59,6 +56,40 @@ window.ecoBridge = {
     await stateApi?.setTodos(Array.isArray(value.todos) ? value.todos : []);
     stateApi?.refreshAgent();
     return true;
+  },
+  async connectors() {
+    return JSON.stringify(await publicConnectors());
+  },
+  async createConnector(raw) {
+    let definition;
+    try {
+      definition = parsed(raw);
+    } catch {
+      return JSON.stringify({ ok: false, error: "Definición inválida" });
+    }
+    const check = validateConnector(definition);
+    if (!check.ok) {
+      return JSON.stringify(check);
+    }
+    const previous = await getConnector(definition.id);
+    const connector = await saveConnector({ ...normalizeConnector(definition), createdAt: previous?.createdAt });
+    stateApi?.refreshConnectors();
+    const status = connector.auth.type === "none" ? "conectado" : await showCredentialCard(connector);
+    stateApi?.refreshConnectors();
+    return JSON.stringify({ ok: true, id: connector.id, status });
+  },
+  async requestSignIn(id) {
+    const connector = await getConnector(String(id));
+    if (!connector) {
+      return JSON.stringify({ ok: false, error: "Conector no encontrado" });
+    }
+    const status = await showCredentialCard(connector);
+    stateApi?.refreshConnectors();
+    return JSON.stringify({ ok: true, id: connector.id, status });
+  },
+  async connectorFetch(id, method, path, queryJson, bodyJson) {
+    const result = await connectorFetch(String(id), String(method), String(path), parsed(queryJson) || {}, parsed(bodyJson));
+    return JSON.stringify(result);
   },
   async skills() {
     return JSON.stringify(await all("skills"));

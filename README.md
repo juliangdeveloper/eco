@@ -1,6 +1,6 @@
 # Eco
 
-Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de OpenRouter, usa herramientas y se conecta directamente a GitHub y Gmail.
+Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de OpenRouter, usa herramientas y crea sus propios conectores a APIs externas.
 
 ![Eco](assets/screenshot.png)
 
@@ -8,28 +8,33 @@ Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de 
 
 1. Abre la app en GitHub Pages.
 2. En **Ajustes** pon tu clave de OpenRouter y, si quieres, el modelo (por defecto `openrouter/auto`).
-3. Escribe. Las acciones que escriben (archivos, pull requests, borradores, habilidades) piden tu aprobación antes de ejecutarse.
+3. Pide lo que necesites, por ejemplo «Conéctate a mi Gmail». Eco propone el conector, tú lo apruebas y la app te muestra un formulario seguro para iniciar sesión.
 
-## Configuración
+## Conectores
 
-- **OpenRouter**: clave de API de openrouter.ai.
-- **GitHub** (opcional): token fine-grained con acceso a los repos que elijas y permisos Metadata: read, Contents: read and write, Issues: read, Pull requests: read and write. Sin token solo lee repos públicos.
-- **Gmail** (opcional): Client ID OAuth 2.0 de Google tipo «Aplicación web», con la API de Gmail habilitada, el origen JavaScript autorizado igual al de tu Pages (`https://<usuario>.github.io`) y los scopes `gmail.readonly` y `gmail.compose`. Luego toca **Conectar Gmail**.
+- Se crean con la herramienta `create_connector`: URL base, tipo de acceso y operaciones HTTP. Crear un conector y toda operación de escritura piden tu aprobación.
+- Acceso: token, clave de API (cabecera o query), usuario y contraseña, u OAuth 2 (código con PKCE o token implícito) con tu propio Client ID.
+- Las credenciales se cifran con AES-GCM usando una clave no exportable guardada en IndexedDB y solo se descifran al hacer la petición. El modelo nunca las ve: solo sabe si el conector está conectado.
+- En **Ajustes › Conectores** puedes conectar, quitar el acceso o eliminar cada conector.
+
+### OAuth (por ejemplo Gmail)
+
+Crea un Client ID OAuth tipo «Aplicación web» en la consola del servicio (en Google: Google Cloud Console, con la API de Gmail habilitada) y autoriza:
+
+- Origen JavaScript: el origen de tu Pages, `https://<usuario>.github.io`
+- URL de redirección: `https://<usuario>.github.io/eco/oauth.html`
+
+Pega el Client ID cuando Eco te lo pida. Con Google el acceso dura una hora; después Eco te pedirá iniciar sesión de nuevo.
 
 ## Herramientas
 
-- `memory`, `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `session_search`, `clarify`
-- `delegate_task`: encarga una tarea a un subagente con contexto limpio y recibe su resumen.
-- GitHub: `github_list_repos`, `github_list_issues`, `github_list_prs`, `github_read_file`, `github_write_file`, `github_create_pr`
-- Gmail: `gmail_search`, `gmail_read`, `gmail_create_draft` (no envía correos)
+`create_connector`, `list_connectors`, `call_connector`, `request_sign_in`, `memory`, `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `session_search`, `clarify` y `delegate_task` (encarga una tarea a un subagente con contexto limpio).
 
-Las APIs se definen de forma declarativa en `py/eco/apis.py` (URL base, autenticación bearer u OAuth de Google, rutas y parámetros).
-
-El historial largo se resume automáticamente para no exceder el contexto. Las respuestas se muestran con formato Markdown seguro (sin HTML; solo enlaces http y https).
+El historial largo se resume automáticamente. Las respuestas se muestran con formato Markdown seguro.
 
 ## Privacidad
 
-Claves, tokens, sesiones, memoria y habilidades se guardan solo en el navegador (localStorage e IndexedDB). Las llamadas van directo del navegador a OpenRouter, GitHub y Google.
+Todo se guarda solo en tu navegador (localStorage e IndexedDB). Las llamadas van directo del navegador a OpenRouter y a los servicios que conectes.
 
 ## Local
 

@@ -1,7 +1,7 @@
 import { DATABASE_NAME, STORAGE_PREFIX } from "./config.js";
 
-const DATABASE_VERSION = 1;
-const STORES = ["sessions", "skills"];
+const DATABASE_VERSION = 2;
+const STORES = ["sessions", "skills", "connectors", "secrets", "keys"];
 
 const key = (name) => STORAGE_PREFIX + name;
 

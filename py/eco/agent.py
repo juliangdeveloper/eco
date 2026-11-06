@@ -2,7 +2,7 @@ import json
 from datetime import date
 from js import ecoBridge
 from .registry import Registry, js_value
-from . import tools_memory, tools_todo, tools_extra, apis
+from . import tools_memory, tools_todo, tools_extra, connectors
 from .compression import compact
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -19,6 +19,8 @@ SYSTEM_PROMPT = (
     "Guarda en memoria solo datos duraderos y útiles. "
     "Usa todo_list para trabajos de varios pasos y delegate_task para encargar tareas independientes a un subagente. "
     "Si falta información importante, usa clarify. "
+    "Para conectarte a un servicio externo usa create_connector y luego call_connector; las credenciales las ingresa la persona en la app y tú solo ves si el conector está conectado. "
+    "Para Gmail usa base_url https://gmail.googleapis.com, auth oauth2 con flow implicit, authorize_url https://accounts.google.com/o/oauth2/v2/auth y scopes de Gmail. "
     "Las acciones de escritura piden aprobación a la persona antes de ejecutarse."
 )
 SUBAGENT_PROMPT = (
@@ -32,7 +34,7 @@ def registry(config, child=False):
     tools_memory.register(result)
     tools_todo.register(result)
     tools_extra.register(result, child)
-    apis.register(result, config)
+    connectors.register(result)
     return result
 
 

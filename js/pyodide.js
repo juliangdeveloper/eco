@@ -7,7 +7,7 @@ const FILES = [
   "tools_todo.py",
   "tools_extra.py",
   "compression.py",
-  "apis.py",
+  "connectors.py",
   "agent.py"
 ];
 

@@ -444,6 +444,7 @@ h2 {
 
 .panel input,
 .panel textarea,
+.credentialCard input,
 dialog input,
 dialog textarea {
   width: 100%;
@@ -554,21 +555,6 @@ dialog small {
   margin-top: -2px;
 }
 
-.gmailRow,
-.toggle {
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.toggle {
-  flex-direction: row;
-}
-
-.toggle input {
-  width: auto;
-  min-height: 0;
-}
-
 .danger {
   margin-top: 14px;
   background: color-mix(in srgb, var(--red) 12%, var(--surface));
@@ -655,4 +641,111 @@ dialog small {
   #prompt {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
   }
+}
+
+.sectionTitle {
+  margin: 22px 0 6px;
+  font-size: 15px;
+}
+
+.connectorList {
+  display: grid;
+  gap: 8px;
+}
+
+.connectorList small {
+  color: var(--text-muted);
+}
+
+.connectorRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--background);
+}
+
+.connectorRow > div:first-child {
+  display: grid;
+  min-width: 0;
+}
+
+.connectorRow small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectorActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.connectorActions button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.connectorActions .danger {
+  margin-top: 0;
+}
+
+.credentialCard {
+  align-self: stretch;
+  max-width: 420px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.credentialCard form {
+  display: grid;
+  gap: 8px;
+}
+
+.credentialCard label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.credentialCard small {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.credentialCard .actions {
+  margin-top: 6px;
+}
+
+.credentialCard .primary {
+  background: var(--blue);
+  color: #ffffff;
+}
+
+.credentialCard.done {
+  padding: 10px 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.credentialError {
+  margin: 0;
+  color: var(--red);
+  font-size: 13px;
+}
+
+#confirmArgs {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#chat > * {
+  flex-shrink: 0;
 }
