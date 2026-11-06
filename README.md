@@ -25,7 +25,7 @@ Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de 
 
 Las APIs se definen de forma declarativa en `py/eco/apis.py` (URL base, autenticación bearer u OAuth de Google, rutas y parámetros).
 
-El historial largo se resume automáticamente para no exceder el contexto.
+El historial largo se resume automáticamente para no exceder el contexto. Las respuestas se muestran con formato Markdown seguro (sin HTML; solo enlaces http y https).
 
 ## Privacidad
 

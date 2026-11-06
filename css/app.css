@@ -212,6 +212,74 @@ small {
   align-self: flex-start;
   background: var(--surface);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  white-space: normal;
+}
+
+.message.assistant p,
+.message.assistant ul,
+.message.assistant ol,
+.message.assistant pre {
+  margin: 4px 0;
+}
+
+.message.assistant p:first-child,
+.message.assistant ul:first-child,
+.message.assistant ol:first-child,
+.message.assistant h3:first-child,
+.message.assistant h4:first-child,
+.message.assistant h5:first-child,
+.message.assistant h6:first-child,
+.message.assistant pre:first-child {
+  margin-top: 0;
+}
+
+.message.assistant p:last-child,
+.message.assistant ul:last-child,
+.message.assistant ol:last-child,
+.message.assistant h3:last-child,
+.message.assistant h4:last-child,
+.message.assistant h5:last-child,
+.message.assistant h6:last-child,
+.message.assistant pre:last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant ul,
+.message.assistant ol {
+  padding-left: 20px;
+}
+
+.message.assistant li {
+  margin: 2px 0;
+}
+
+.message.assistant h3,
+.message.assistant h4,
+.message.assistant h5,
+.message.assistant h6 {
+  margin: 6px 0 3px;
+  font-size: 14px;
+}
+
+.message.assistant code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.message.assistant pre {
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  white-space: pre;
+}
+
+.message.assistant pre code {
+  padding: 0;
+  background: transparent;
 }
 
 .empty {

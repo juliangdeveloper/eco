@@ -1,3 +1,5 @@
+import { renderMarkdown } from "./markdown.js";
+
 export const MAX_TOOL_PREVIEW = 2400;
 
 export const TOOL_LABELS = {
@@ -59,7 +61,11 @@ export function preview(value) {
 export function appendMessage(role, content) {
   byId("empty")?.remove();
   const message = element("div", "", "message " + role);
-  appendTextWithLinks(message, content || "");
+  if (role === "assistant") {
+    renderMarkdown(message, content || "");
+  } else {
+    appendTextWithLinks(message, content || "");
+  }
   byId("chat").append(message);
   scrollChat();
   return message;
