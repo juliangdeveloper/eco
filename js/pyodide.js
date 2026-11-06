@@ -23,6 +23,9 @@ export async function loadAgent() {
   pyodide.FS.mkdirTree("/home/pyodide/eco");
   for (const file of FILES) {
     const response = await fetch("py/eco/" + file + "?v=" + APP_VERSION);
+    if (!response.ok) {
+      throw new Error(file);
+    }
     pyodide.FS.writeFile("/home/pyodide/eco/" + file, await response.text());
   }
   await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); from eco.agent import run_turn, run_delegate");

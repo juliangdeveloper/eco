@@ -10,6 +10,7 @@ import { json, store } from "./storage.js";
 import { autoExpand, byId, pretty, renderEmpty, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "Nueva conversación";
+const LOAD_ERROR = "No se pudo preparar el agente. Recarga la página.";
 const CONFIRM_LABELS = {
   github_write_file: (args) => "Escribir " + args.path + " en " + args.repo,
   github_create_pr: (args) => "Crear PR «" + args.title + "» en " + args.repo + " (" + args.head + " → " + args.base + ")",
@@ -182,7 +183,12 @@ async function main() {
     }
   });
   bindComposer();
-  pyodide = await loadAgent();
+  try {
+    pyodide = await loadAgent();
+  } catch (error) {
+    byId("empty").textContent = LOAD_ERROR;
+    throw error;
+  }
   chat.setSending(false);
   renderEmpty(chat.send);
 }
