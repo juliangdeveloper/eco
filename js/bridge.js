@@ -72,7 +72,13 @@ window.ecoBridge = {
       return JSON.stringify(check);
     }
     const previous = await getConnector(definition.id);
-    const connector = await saveConnector({ ...normalizeConnector(definition), createdAt: previous?.createdAt });
+    const normalized = normalizeConnector(definition);
+    const auth = { ...normalized.auth };
+    delete auth.client_id;
+    if (previous?.auth?.client_id && auth.type === "oauth2") {
+      auth.client_id = previous.auth.client_id;
+    }
+    const connector = await saveConnector({ ...normalized, auth, createdAt: previous?.createdAt });
     stateApi?.refreshConnectors();
     const status = connector.auth.type === "none" ? "conectado" : await showCredentialCard(connector);
     stateApi?.refreshConnectors();

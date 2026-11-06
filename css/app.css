@@ -749,3 +749,47 @@ dialog small {
 #chat > * {
   flex-shrink: 0;
 }
+
+.oauthGuide {
+  border-radius: 12px;
+  background: var(--background);
+  font-size: 13px;
+}
+
+.oauthGuide summary {
+  padding: 9px 12px;
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.oauthGuide ol {
+  margin: 0;
+  padding: 0 12px 4px 30px;
+  display: grid;
+  gap: 4px;
+}
+
+.copyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 12px 10px;
+}
+
+.copyRow > div {
+  display: grid;
+  min-width: 0;
+}
+
+.copyRow code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.copyRow button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}

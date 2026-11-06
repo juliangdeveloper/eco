@@ -24,7 +24,7 @@ Crea un Client ID OAuth tipo «Aplicación web» en la consola del servicio (en 
 - Origen JavaScript: el origen de tu Pages, `https://<usuario>.github.io`
 - URL de redirección: `https://<usuario>.github.io/eco/oauth.html`
 
-Pega el Client ID cuando Eco te lo pida. Con Google el acceso dura una hora; después Eco te pedirá iniciar sesión de nuevo.
+Eco nunca trae un Client ID propio: cada persona usa el suyo. La tarjeta de inicio de sesión incluye una guía paso a paso y botones para copiar el origen y la URL de redirección exactos. Pega el Client ID cuando Eco te lo pida. Con Google el acceso dura una hora; después Eco te pedirá iniciar sesión de nuevo.
 
 ## Herramientas
 
