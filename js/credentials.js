@@ -7,17 +7,20 @@ const EXPIRED_TEXT = "Tu acceso expiró y no se pudo renovar solo. Inicia sesió
 const GOOGLE_HOST = "accounts.google.com";
 const COPY_DONE_MS = 1500;
 const GUIDE_TITLE = "¿Cómo obtengo un Client ID?";
+const GOOGLE_CONSOLE = "https://console.cloud.google.com";
+const GOOGLE_API_HOST_SUFFIX = ".googleapis.com";
 const GOOGLE_STEPS = [
-  "Abre console.cloud.google.com y crea un proyecto nuevo.",
-  "En «APIs y servicios › Biblioteca», habilita la API del servicio (por ejemplo Gmail API).",
-  "En «Pantalla de consentimiento de OAuth», elige Externo y agrégate como usuario de prueba.",
-  "En «Credenciales», crea un «ID de cliente de OAuth» de tipo «Aplicación web».",
-  "Agrega estos dos valores y copia el Client ID que te entrega:"
+  ["Crea un ", ["proyecto nuevo", GOOGLE_CONSOLE + "/projectcreate"], " en Google Cloud."],
+  ["Habilita la ", ["API del servicio", "API"], " en la biblioteca de APIs."],
+  ["Configura la ", ["Plataforma de autenticación de Google", GOOGLE_CONSOLE + "/auth/overview"], " y elige Externo."],
+  ["En ", ["Público", GOOGLE_CONSOLE + "/auth/audience"], ", agrégate como usuario de prueba."],
+  ["En ", ["Clientes", GOOGLE_CONSOLE + "/auth/clients"], ", crea un cliente de tipo «Aplicación web»."],
+  ["Agrega estos dos valores y copia el Client ID que te entrega:"]
 ];
 const GENERIC_STEPS = [
-  "Entra a la consola de desarrolladores del servicio y crea una aplicación OAuth.",
-  "Elige el tipo «aplicación web» o «cliente público».",
-  "Agrega estos dos valores y copia el Client ID que te entrega:"
+  ["Entra a la ", ["consola de desarrolladores del servicio", "DEVELOPER"], " y crea una aplicación OAuth."],
+  ["Elige el tipo «aplicación web» o «cliente público»."],
+  ["Agrega estos dos valores y copia el Client ID que te entrega:"]
 ];
 const FIELDS = {
   bearer: [{ name: "token", label: "Token", secret: true }],
@@ -69,6 +72,36 @@ function copyRow(label, value) {
   return row;
 }
 
+function httpsUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function googleLibrary(connector) {
+  const library = GOOGLE_CONSOLE + "/apis/library";
+  try {
+    const host = new URL(connector.base_url).host;
+    return host.endsWith(GOOGLE_API_HOST_SUFFIX) ? library + "/" + host : library;
+  } catch {
+    return library;
+  }
+}
+
+function link(text, href) {
+  if (!href) {
+    return text;
+  }
+  const anchor = create("a", text);
+  anchor.href = href;
+  anchor.target = "_blank";
+  anchor.rel = "noopener noreferrer";
+  return anchor;
+}
+
 function guide(connector) {
   const details = create("details", "", "oauthGuide");
   details.append(create("summary", GUIDE_TITLE));
@@ -79,8 +112,13 @@ function guide(connector) {
     host = "";
   }
   const list = document.createElement("ol");
+  const targets = { API: googleLibrary(connector), DEVELOPER: httpsUrl(connector.auth.developer_url) };
   for (const step of host === GOOGLE_HOST ? GOOGLE_STEPS : GENERIC_STEPS) {
-    list.append(create("li", step));
+    const item = document.createElement("li");
+    for (const part of step) {
+      item.append(Array.isArray(part) ? link(part[0], targets[part[1]] ?? part[1]) : part);
+    }
+    list.append(item);
   }
   details.append(list, copyRow("Origen de JavaScript autorizado", location.origin), copyRow("URI de redireccionamiento", redirectUri()));
   return details;

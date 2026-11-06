@@ -1,5 +1,5 @@
 export const APP_ID = "eco";
-export const APP_VERSION = "0.2.2";
+export const APP_VERSION = "0.2.3";
 export const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js";
 export const DEFAULT_MODEL = "openrouter/auto";
 export const STORAGE_PREFIX = "eco.";

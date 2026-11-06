@@ -61,6 +61,9 @@ export function validateConnector(definition) {
     if (flow === "pkce" && !isHttpsUrl(auth.token_url)) {
       return { ok: false, error: "auth.token_url debe ser https" };
     }
+    if (auth.developer_url !== undefined && !isHttpsUrl(auth.developer_url)) {
+      return { ok: false, error: "auth.developer_url debe ser https" };
+    }
     if (auth.renewal !== undefined && !RENEWAL_MODES.includes(auth.renewal)) {
       return { ok: false, error: "auth.renewal inválido" };
     }

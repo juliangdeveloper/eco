@@ -24,6 +24,7 @@ DEFINITION_SCHEMA = {
                 "prefix": {"type": "string", "description": "Prefijo para bearer, por defecto 'Bearer '."},
                 "authorize_url": {"type": "string"},
                 "token_url": {"type": "string"},
+                "developer_url": {"type": "string", "description": "Opcional: página https del proveedor para registrar la aplicación OAuth y obtener el Client ID."},
                 "scopes": {"type": "array", "items": {"type": "string"}},
                 "flow": {"type": "string", "enum": ["pkce", "implicit"], "description": "Para Google usa implicit."},
                 "extra_params": {"type": "object"},
