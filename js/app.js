@@ -4,6 +4,9 @@ import { APP_ID, APP_VERSION, STATS } from "./config.js";
 import { createChat } from "./chat.js";
 import { metaDeclararProyecto, metaUpdate } from "./meta.js";
 import { loadAgent } from "./pyodide.js";
+import { startRenewal } from "./renewal.js";
+import { listConnectors, connectorStatus, STATUS } from "./connectors.js";
+import { showCredentialCard } from "./credentials.js";
 import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
 import { json, store } from "./storage.js";
@@ -25,6 +28,12 @@ const AUTH_LABELS = {
   oauth2: "Inicio de sesión con la cuenta del servicio"
 };
 
+const RENEWAL_LABELS = {
+  refresh_token: "Renovación: automática, sin pedirte nada.",
+  silent: "Renovación: automática mientras Eco esté abierto, sin pedirte nada. Si el servicio no lo permite, te pedirá iniciar sesión de nuevo.",
+  none: "Renovación: tendrás que iniciar sesión cuando expire."
+};
+
 const CONFIRM_DETAILS = {
   create_connector: (args) => {
     const definition = args.definition || {};
@@ -32,7 +41,11 @@ const CONFIRM_DETAILS = {
       const write = operation.write === true || String(operation.method || "").toUpperCase() !== "GET";
       return "• " + operation.name + " · " + (write ? "escritura, pedirá aprobación" : "lectura");
     });
-    return ["Acceso: " + (AUTH_LABELS[definition.auth?.type] || ""), "Operaciones:", ...operations].join("\n");
+    const lines = ["Acceso: " + (AUTH_LABELS[definition.auth?.type] || "")];
+    if (definition.auth?.type === "oauth2") {
+      lines.push(RENEWAL_LABELS[definition.auth.renewal] || RENEWAL_LABELS[definition.auth.flow === "implicit" ? "silent" : "refresh_token"]);
+    }
+    return [...lines, "Operaciones:", ...operations].join("\n");
   }
 };
 
@@ -146,6 +159,25 @@ function bindCloseButtons() {
   });
 }
 
+const promptedExpired = new Set();
+
+async function promptExpired() {
+  for (const connector of await listConnectors()) {
+    if (promptedExpired.has(connector.id)) {
+      continue;
+    }
+    if ((await connectorStatus(connector.id)) === STATUS.EXPIRED) {
+      promptedExpired.add(connector.id);
+      showCredentialCard(connector, { expired: true }).then((status) => {
+        if (status === STATUS.CONNECTED) {
+          promptedExpired.delete(connector.id);
+        }
+        renderConnectors();
+      });
+    }
+  }
+}
+
 function bindComposer() {
   const prompt = byId("prompt");
   prompt.oninput = () => autoExpand(prompt);
@@ -155,6 +187,7 @@ function bindComposer() {
     prompt.value = "";
     autoExpand(prompt);
     chat.send(text);
+    promptExpired();
   };
 }
 
@@ -202,6 +235,7 @@ async function main() {
     }
   });
   bindComposer();
+  startRenewal(() => renderConnectors());
   try {
     pyodide = await loadAgent();
   } catch (error) {

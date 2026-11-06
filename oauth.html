@@ -26,9 +26,12 @@
         params[key] = value;
       }
     }
-    if (window.opener) {
-      window.opener.postMessage({ type: MESSAGE_TYPE, params }, location.origin);
-      window.close();
+    const target = window.opener || (window.parent !== window ? window.parent : null);
+    if (target) {
+      target.postMessage({ type: MESSAGE_TYPE, params }, location.origin);
+      if (window.opener) {
+        window.close();
+      }
     } else {
       document.getElementById("status").textContent = "Puedes cerrar esta ventana.";
     }

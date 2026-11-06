@@ -19,6 +19,9 @@ const EXPIRY_MARGIN_MS = 60000;
 const DEFAULT_API_KEY_HEADER = "X-API-Key";
 const DEFAULT_BEARER_PREFIX = "Bearer ";
 const NOT_CONNECTED = "not_connected";
+const RENEWAL_MODES = ["refresh_token", "silent", "none"];
+const SILENT_TIMEOUT_MS = 20000;
+const SILENT_FRAME_ID = "ecoSilentAuth";
 
 export const STATUS = Object.freeze({ CONNECTED: "conectado", DISCONNECTED: "sin conectar", EXPIRED: "expirado" });
 
@@ -58,6 +61,9 @@ export function validateConnector(definition) {
     if (flow === "pkce" && !isHttpsUrl(auth.token_url)) {
       return { ok: false, error: "auth.token_url debe ser https" };
     }
+    if (auth.renewal !== undefined && !RENEWAL_MODES.includes(auth.renewal)) {
+      return { ok: false, error: "auth.renewal inválido" };
+    }
   }
   const operations = definition.operations;
   if (!Array.isArray(operations) || !operations.length || operations.length > MAX_OPERATIONS) {
@@ -82,6 +88,7 @@ export function normalizeConnector(definition) {
   if (auth.type === "oauth2") {
     auth.flow = auth.flow || "pkce";
     auth.scopes = Array.isArray(auth.scopes) ? auth.scopes.map(String) : [];
+    auth.renewal = RENEWAL_MODES.includes(auth.renewal) ? auth.renewal : auth.flow === "implicit" ? "silent" : "refresh_token";
   }
   return {
     id: definition.id,
@@ -136,7 +143,7 @@ export async function connectorStatus(id) {
     if (!secret || !secret.access_token) {
       return STATUS.DISCONNECTED;
     }
-    if (secret.expires_at && secret.expires_at < Date.now() && !secret.refresh_token) {
+    if (secret.renewal_failed || (secret.expires_at && secret.expires_at < Date.now() && !secret.refresh_token)) {
       return STATUS.EXPIRED;
     }
   }
@@ -196,7 +203,8 @@ async function refreshToken(connector, secret) {
     ...secret,
     access_token: data.access_token,
     refresh_token: data.refresh_token || secret.refresh_token,
-    expires_at: data.expires_in ? Date.now() + Number(data.expires_in) * 1000 : 0
+    expires_at: data.expires_in ? Date.now() + Number(data.expires_in) * 1000 : 0,
+    renewal_failed: false
   };
   await saveSecret(connector.id, next);
   return next;
@@ -228,13 +236,10 @@ async function authorize(connector, url, headers) {
     return true;
   }
   if (secret.expires_at && secret.expires_at - EXPIRY_MARGIN_MS < Date.now()) {
-    if (!secret.refresh_token || !connector.auth.token_url) {
+    if (!(await renewCredential(connector.id))) {
       return false;
     }
-    secret = await refreshToken(connector, secret);
-    if (!secret) {
-      return false;
-    }
+    secret = await readSecret(connector.id);
   }
   headers.Authorization = DEFAULT_BEARER_PREFIX + secret.access_token;
   return true;
@@ -284,6 +289,131 @@ export async function connectorFetch(id, method, path, query, body) {
   return { ok: response.ok, status: response.status, data };
 }
 
+function authorizeParams(auth, clientId, state, responseType) {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri(),
+    response_type: responseType,
+    scope: (auth.scopes || []).join(" "),
+    state
+  });
+  for (const [key, value] of Object.entries(auth.extra_params || {})) {
+    params.set(key, String(value));
+  }
+  return params;
+}
+
+function authorizeUrl(auth, params) {
+  return auth.authorize_url + (auth.authorize_url.includes("?") ? "&" : "?") + params.toString();
+}
+
+function waitForFrame(frame, state) {
+  return new Promise((resolve) => {
+    const finish = (value) => {
+      clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      frame.remove();
+      resolve(value);
+    };
+    const onMessage = (event) => {
+      if (event.origin !== location.origin || !event.data || event.data.type !== OAUTH_MESSAGE_TYPE) {
+        return;
+      }
+      const params = event.data.params || {};
+      if (params.state === state) {
+        finish(params);
+      }
+    };
+    const timer = setTimeout(() => finish({ error: "timeout" }), SILENT_TIMEOUT_MS);
+    window.addEventListener("message", onMessage);
+  });
+}
+
+async function silentImplicit(connector, secret) {
+  const clientId = secret.client_id || connector.auth.client_id;
+  if (!clientId) {
+    return null;
+  }
+  const state = randomString(STATE_BYTES);
+  const params = authorizeParams(connector.auth, clientId, state, "token");
+  params.set("prompt", "none");
+  if (secret.login_hint) {
+    params.set("login_hint", secret.login_hint);
+  }
+  document.getElementById(SILENT_FRAME_ID)?.remove();
+  const frame = document.createElement("iframe");
+  frame.id = SILENT_FRAME_ID;
+  frame.hidden = true;
+  frame.setAttribute("aria-hidden", "true");
+  const result = waitForFrame(frame, state);
+  frame.src = authorizeUrl(connector.auth, params);
+  document.body.append(frame);
+  const response = await result;
+  if (response.error || !response.access_token) {
+    return null;
+  }
+  const next = {
+    ...secret,
+    access_token: response.access_token,
+    expires_at: response.expires_in ? Date.now() + Number(response.expires_in) * 1000 : 0,
+    renewal_failed: false
+  };
+  await saveSecret(connector.id, next);
+  return next;
+}
+
+const renewals = new Map();
+
+async function renewNow(id) {
+  const connector = await getConnector(id);
+  if (!connector || connector.auth.type !== "oauth2") {
+    return false;
+  }
+  const secret = await readSecret(id);
+  if (!secret || !secret.access_token) {
+    return false;
+  }
+  let next = null;
+  try {
+    if (secret.refresh_token && connector.auth.token_url) {
+      next = await refreshToken(connector, secret);
+    } else if (connector.auth.renewal === "silent" && connector.auth.flow === "implicit") {
+      next = await silentImplicit(connector, secret);
+    }
+  } catch {
+    next = null;
+  }
+  if (!next) {
+    await saveSecret(id, { ...secret, renewal_failed: true });
+    return false;
+  }
+  return true;
+}
+
+export function renewCredential(id) {
+  if (!renewals.has(id)) {
+    renewals.set(id, renewNow(id).finally(() => renewals.delete(id)));
+  }
+  return renewals.get(id);
+}
+
+export async function credentialsDue(aheadMs) {
+  const due = [];
+  for (const connector of await listConnectors()) {
+    if (connector.auth.type !== "oauth2" || connector.auth.renewal === "none") {
+      continue;
+    }
+    const secret = await readSecret(connector.id);
+    if (!secret || !secret.access_token || secret.renewal_failed || !secret.expires_at) {
+      continue;
+    }
+    if (secret.expires_at - aheadMs <= Date.now()) {
+      due.push(connector.id);
+    }
+  }
+  return due;
+}
+
 function waitForOAuth(popup, state) {
   return new Promise((resolve, reject) => {
     const finish = (callback, value) => {
@@ -327,13 +457,7 @@ export async function startOAuth(id, clientId) {
   }
   const auth = connector.auth;
   const state = randomString(STATE_BYTES);
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri(),
-    response_type: auth.flow === "implicit" ? "token" : "code",
-    scope: (auth.scopes || []).join(" "),
-    state
-  });
+  const params = authorizeParams(auth, clientId, state, auth.flow === "implicit" ? "token" : "code");
   let verifier = "";
   if (auth.flow !== "implicit") {
     verifier = randomString(VERIFIER_BYTES);
@@ -341,10 +465,7 @@ export async function startOAuth(id, clientId) {
     params.set("code_challenge", base64Url(digest));
     params.set("code_challenge_method", "S256");
   }
-  for (const [key, value] of Object.entries(auth.extra_params || {})) {
-    params.set(key, String(value));
-  }
-  const popup = window.open(auth.authorize_url + (auth.authorize_url.includes("?") ? "&" : "?") + params.toString(), "eco-oauth", POPUP_FEATURES);
+  const popup = window.open(authorizeUrl(auth, params), "eco-oauth", POPUP_FEATURES);
   if (!popup) {
     return false;
   }
@@ -379,7 +500,8 @@ export async function startOAuth(id, clientId) {
     access_token: token.access_token,
     refresh_token: token.refresh_token || "",
     expires_at: token.expires_in ? Date.now() + Number(token.expires_in) * 1000 : 0,
-    client_id: clientId
+    client_id: clientId,
+    renewal_failed: false
   });
   await store(CONNECTORS_STORE, { ...connector, auth: { ...auth, client_id: clientId } });
   return true;
@@ -394,6 +516,7 @@ export async function publicConnectors() {
       name: connector.name,
       base_url: connector.base_url,
       auth_type: connector.auth.type,
+      renewal: connector.auth.renewal || "none",
       status: await connectorStatus(connector.id),
       operations: connector.operations
     });

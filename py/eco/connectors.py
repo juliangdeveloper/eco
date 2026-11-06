@@ -27,6 +27,7 @@ DEFINITION_SCHEMA = {
                 "scopes": {"type": "array", "items": {"type": "string"}},
                 "flow": {"type": "string", "enum": ["pkce", "implicit"], "description": "Para Google usa implicit."},
                 "extra_params": {"type": "object"},
+                "renewal": {"type": "string", "enum": ["refresh_token", "silent", "none"], "description": "Cómo renovar el acceso sin molestar: refresh_token si el proveedor entrega uno (flow pkce), silent para renovación silenciosa con prompt=none (Google, flow implicit), none si no se puede."},
             },
             "required": ["type"],
         },

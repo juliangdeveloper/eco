@@ -3,6 +3,7 @@ import { connectorStatus, redirectUri, saveManualCredential, startOAuth, STATUS 
 const ERROR_TEXT = "No se pudo conectar. Inténtalo de nuevo.";
 const CONNECTED_TEXT = "Conectado";
 const SKIPPED_TEXT = "Sin conectar";
+const EXPIRED_TEXT = "Tu acceso expiró y no se pudo renovar solo. Inicia sesión para seguir.";
 const GOOGLE_HOST = "accounts.google.com";
 const COPY_DONE_MS = 1500;
 const GUIDE_TITLE = "¿Cómo obtengo un Client ID?";
@@ -89,14 +90,14 @@ function scrollChat(chat) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-export function showCredentialCard(connector) {
+export function showCredentialCard(connector, options = {}) {
   const chat = document.getElementById("chat");
   document.getElementById("empty")?.remove();
   const card = create("div", "", "credentialCard");
   card.dataset.connector = connector.id;
   const form = document.createElement("form");
   const title = create("strong", "Iniciar sesión en " + connector.name);
-  const note = create("small", "Tus datos se guardan cifrados en este navegador.");
+  const note = create("small", options.expired ? EXPIRED_TEXT : "Tus datos se guardan cifrados en este navegador.");
   const error = create("p", "", "credentialError");
   error.hidden = true;
   const inputs = [];

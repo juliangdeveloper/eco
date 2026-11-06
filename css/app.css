@@ -793,3 +793,9 @@ dialog small {
   padding: 0 10px;
   font-size: 13px;
 }
+
+#confirmArgs {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+}
