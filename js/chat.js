@@ -8,6 +8,21 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     byId("send").disabled = value || !getPyodide();
     byId("prompt").disabled = value;
     byId("prompt").placeholder = value ? "Pensando…" : "Escribe un mensaje";
+    byId("thinkingBubble")?.remove();
+    if (value) {
+      const bubble = document.createElement("div");
+      bubble.id = "thinkingBubble";
+      bubble.className = "message assistant thinkingBubble";
+      bubble.setAttribute("role", "status");
+      bubble.setAttribute("aria-label", "Pensando");
+      const dots = document.createElement("span");
+      dots.className = "thinking";
+      dots.append(document.createElement("span"), document.createElement("span"), document.createElement("span"));
+      bubble.append(dots);
+      const chat = byId("chat");
+      chat.append(bubble);
+      chat.scrollTop = chat.scrollHeight;
+    }
   }
 
   async function send(text) {

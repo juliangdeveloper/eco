@@ -801,6 +801,22 @@ dialog small {
 }
 
 .oauthGuide a {
-  color: var(--accent);
+  color: var(--blue);
   text-decoration: underline;
+}
+
+.thinkingBubble {
+  color: var(--text-muted);
+  padding: 14px 16px;
+}
+
+#chat > .thinkingBubble {
+  order: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking span {
+    animation: none;
+    opacity: 0.6;
+  }
 }

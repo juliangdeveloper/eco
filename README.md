@@ -12,7 +12,7 @@ Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de 
 
 ## Conectores
 
-- Se crean con la herramienta `create_connector`: URL base, tipo de acceso y operaciones HTTP. Crear un conector y toda operación de escritura piden tu aprobación.
+- Se crean con la herramienta `create_connector`: URL base, tipo de acceso y operaciones HTTP. Eco crea el conector y te muestra directamente la tarjeta para iniciar sesión; solo las operaciones de escritura piden tu aprobación.
 - Acceso: token, clave de API (cabecera o query), usuario y contraseña, u OAuth 2 (código con PKCE o token implícito) con tu propio Client ID.
 - Las credenciales se cifran con AES-GCM usando una clave no exportable guardada en IndexedDB y solo se descifran al hacer la petición. El modelo nunca las ve: solo sabe si el conector está conectado.
 - En **Ajustes › Conectores** puedes conectar, quitar el acceso o eliminar cada conector.

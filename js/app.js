@@ -20,35 +20,6 @@ const CONFIRM_LABELS = {
   skill_manage: (args) => (args.action === "delete" ? "Borrar" : args.action === "edit" ? "Editar" : "Crear") + " habilidad " + args.name
 };
 
-const AUTH_LABELS = {
-  none: "Sin inicio de sesión",
-  bearer: "Token",
-  api_key: "Clave de API",
-  basic: "Usuario y contraseña",
-  oauth2: "Inicio de sesión con la cuenta del servicio"
-};
-
-const RENEWAL_LABELS = {
-  refresh_token: "Renovación: automática, sin pedirte nada.",
-  silent: "Renovación: automática mientras Eco esté abierto, sin pedirte nada. Si el servicio no lo permite, te pedirá iniciar sesión de nuevo.",
-  none: "Renovación: tendrás que iniciar sesión cuando expire."
-};
-
-const CONFIRM_DETAILS = {
-  create_connector: (args) => {
-    const definition = args.definition || {};
-    const operations = (definition.operations || []).map((operation) => {
-      const write = operation.write === true || String(operation.method || "").toUpperCase() !== "GET";
-      return "• " + operation.name + " · " + (write ? "escritura, pedirá aprobación" : "lectura");
-    });
-    const lines = ["Acceso: " + (AUTH_LABELS[definition.auth?.type] || "")];
-    if (definition.auth?.type === "oauth2") {
-      lines.push(RENEWAL_LABELS[definition.auth.renewal] || RENEWAL_LABELS[definition.auth.flow === "implicit" ? "silent" : "refresh_token"]);
-    }
-    return [...lines, "Operaciones:", ...operations].join("\n");
-  }
-};
-
 let pyodide;
 let session = newSessionData();
 let agentPanel;
@@ -106,7 +77,7 @@ function bindConfirm() {
   return (name, raw) => new Promise((done) => {
     const args = parseArgs(raw);
     byId("confirmText").textContent = CONFIRM_LABELS[name]?.(args) || name;
-    byId("confirmArgs").textContent = CONFIRM_DETAILS[name]?.(args) || pretty(args);
+    byId("confirmArgs").textContent = pretty(args);
     resolve = done;
     dialog.showModal();
   });
