@@ -22,6 +22,8 @@ DEFINITION_SCHEMA = {
         "id": {"type": "string", "description": "Identificador corto en minúsculas, números y guiones."},
         "name": {"type": "string"},
         "base_url": {"type": "string", "description": "URL https base de la API."},
+        "mcp_url": {"type": "string", "description": "URL https del servidor MCP remoto oficial. Si la usas, no hacen falta base_url ni operations: las herramientas se cargan del servidor."},
+        "headers": {"type": "object", "description": "Solo para MCP: cabeceras X-MCP-* del servidor, por ejemplo para elegir conjuntos de herramientas."},
         "auth": {
             "type": "object",
             "properties": {
@@ -55,7 +57,7 @@ DEFINITION_SCHEMA = {
             },
         },
     },
-    "required": ["id", "name", "base_url", "auth", "operations"],
+    "required": ["id", "name", "auth"],
 }
 
 
@@ -81,6 +83,10 @@ GOOGLE_API_SUFFIX = ".googleapis.com"
 GOOGLE_SCOPE_PREFIX = "https://www.googleapis.com/auth/"
 DEFINITION_KEYS = ("definition", "connector", "config")
 MAX_ID_LENGTH = 40
+MCP_HEADER_PREFIX = "x-mcp-"
+MCP_SEPARATOR = "__"
+TOOL_NAME_LIMIT = 64
+MAX_MCP_TOOLS = 60
 RETRY_HINT = " Corrige la definición y vuelve a llamar a create_connector."
 
 
@@ -204,10 +210,31 @@ def normalize_operation(name, raw, base_path):
     return operation
 
 
+def normalize_mcp(definition):
+    url = str(definition.get("mcp_url") or definition.get("base_url") or definition.get("url") or "").strip()
+    if not url.startswith("https://"):
+        return None, "mcp_url debe ser la URL https del servidor MCP." + RETRY_HINT
+    name = str(definition.get("name") or "").strip()
+    identifier = slug(definition.get("id") or name or urlparse(url).hostname.split(".")[0])
+    auth = definition.get("auth")
+    kind = compact(auth.get("type") if isinstance(auth, dict) else auth)
+    headers = definition.get("headers") if isinstance(definition.get("headers"), dict) else {}
+    return {
+        "id": identifier,
+        "name": name or identifier,
+        "kind": "mcp",
+        "base_url": url,
+        "auth": {"type": "none" if kind in ("none", "noauth", "public") else "bearer"},
+        "headers": {str(key): str(value) for key, value in headers.items() if str(key).lower().startswith(MCP_HEADER_PREFIX)},
+    }, None
+
+
 def normalize_definition(raw):
     definition = unwrap(raw)
     if not definition:
         return None, "La definición debe ser un objeto JSON." + RETRY_HINT
+    if definition.get("mcp_url") or compact(definition.get("kind")) == "mcp":
+        return normalize_mcp(definition)
     base_url = as_https(definition.get("base_url") or definition.get("baseUrl") or definition.get("url") or definition.get("api_url"))
     if not urlparse(base_url).hostname:
         return None, "Falta base_url, la URL https de la API." + RETRY_HINT
@@ -242,7 +269,7 @@ async def create_connector(args):
     if error:
         return {"ok": False, "error": error}
     host = urlparse(definition["base_url"]).hostname
-    existing = [item for item in await connectors() if urlparse(item.get("base_url", "")).hostname == host]
+    existing = [item for item in await connectors() if urlparse(item.get("base_url", "")).hostname == host and item.get("kind") == definition.get("kind")]
     if existing and not any(item["id"] == definition["id"] for item in existing):
         definition["id"] = existing[0]["id"]
     try:
@@ -254,8 +281,68 @@ async def create_connector(args):
     return result
 
 
+def public_view(connector):
+    item = {key: value for key, value in connector.items() if key != "tools"}
+    if connector.get("kind") == "mcp":
+        item["tools"] = [tool_name(connector["id"], tool["name"]) for tool in connector.get("tools", [])][:MAX_MCP_TOOLS]
+    return item
+
+
 async def list_connectors(args):
-    return {"connectors": await connectors()}
+    return {"connectors": [public_view(item) for item in await connectors()]}
+
+
+async def probe_mcp(args):
+    headers = args.get("headers") if isinstance(args.get("headers"), dict) else {}
+    return json.loads(await ecoBridge.probeMcp(str(args.get("url", "")), json.dumps(headers)))
+
+
+def tool_name(connector_id, name):
+    text = re.sub(r"[^a-zA-Z0-9_-]", "_", connector_id.replace("-", "_") + MCP_SEPARATOR + name)
+    return text[:TOOL_NAME_LIMIT]
+
+
+def clean_schema(value):
+    if not isinstance(value, dict) or value.get("type") != "object":
+        return {"type": "object", "properties": {}}
+    result = dict(value)
+    result.pop("$schema", None)
+    if not isinstance(result.get("properties"), dict):
+        result["properties"] = {}
+    return result
+
+
+def mcp_handler(connector, tool):
+    async def handler(args):
+        if not tool.get("readOnly"):
+            summary = {"connector": connector.get("name", connector["id"]), "tool": tool["name"], "params": args}
+            approved = await ecoBridge.confirm(tool["name"], json.dumps(summary, ensure_ascii=False))
+            if not approved:
+                return {"error": "Acción cancelada"}
+        result = json.loads(await ecoBridge.mcpCall(connector["id"], tool["name"], json.dumps(args, ensure_ascii=False)))
+        if result.get("error") == NOT_CONNECTED:
+            reason = result.get("reason", "")
+            await ecoBridge.requestSignIn(connector["id"])
+            return {"error": SIGN_IN_REQUESTED, "reason": reason, "detail": AUTH_REASONS.get(reason, "")}
+        return result
+    return handler
+
+
+async def register_mcp(registry):
+    for name in [key for key, item in registry.items.items() if item.get("mcp")]:
+        registry.items.pop(name)
+    count = 0
+    for connector in await connectors():
+        if connector.get("kind") != "mcp" or connector.get("status") != "conectado":
+            continue
+        ordered = sorted(connector.get("tools", []), key=lambda tool: not tool.get("readOnly"))
+        for tool in ordered:
+            if count >= MAX_MCP_TOOLS:
+                return
+            definition = {"description": str(tool.get("description") or tool["name"]), "parameters": clean_schema(tool.get("inputSchema"))}
+            registry.add(tool_name(connector["id"], tool["name"]), definition, mcp_handler(connector, tool))
+            registry.items[tool_name(connector["id"], tool["name"])]["mcp"] = True
+            count += 1
 
 
 async def request_sign_in(args):
@@ -331,6 +418,15 @@ def register(registry):
             ["definition"],
         ),
         create_connector,
+    )
+    registry.add(
+        "probe_mcp",
+        schema(
+            "Comprueba si una URL https es un servidor MCP remoto que responde desde el navegador y si pide token. Úsala antes de crear un conector MCP.",
+            {"url": {"type": "string"}, "headers": {"type": "object", "description": "Cabeceras X-MCP-* opcionales."}},
+            ["url"],
+        ),
+        probe_mcp,
     )
     registry.add("list_connectors", schema("Lista los conectores, sus operaciones y si están conectados.", {}), list_connectors)
     registry.add(

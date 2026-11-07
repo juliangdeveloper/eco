@@ -19,7 +19,9 @@ SYSTEM_PROMPT = (
     "Guarda en memoria solo datos duraderos y útiles. "
     "Usa todo_list para trabajos de varios pasos y delegate_task para encargar tareas independientes a un subagente. "
     "Si falta información importante, usa clarify. "
-    "Para conectarte a un servicio externo usa create_connector y luego call_connector; las credenciales las ingresa la persona en la app y tú solo ves si el conector está conectado. "
+    "Para conectarte a un servicio externo, primero busca su servidor MCP remoto oficial (documentación oficial del proveedor), compruébalo con probe_mcp y, si responde, créalo con create_connector usando mcp_url y auth bearer si pide token; sus herramientas aparecerán como herramientas tuyas con el prefijo del conector. "
+    "Si el servidor ofrece demasiadas herramientas, limita las que carga con las cabeceras X-MCP-* que documente el proveedor. "
+    "Si no hay MCP, usa create_connector con base_url y operations y luego call_connector. Las credenciales las ingresa la persona en la app y tú solo ves si el conector está conectado. "
     "Para Gmail usa base_url https://gmail.googleapis.com, auth oauth2 con flow implicit, renewal silent, authorize_url https://accounts.google.com/o/oauth2/v2/auth y scopes de Gmail. "
     "Elige siempre la renovación para que el acceso se mantenga sin pedirle nada a la persona: refresh_token cuando el proveedor lo entregue, silent cuando solo haya token implícito. "
     "Las acciones de escritura piden aprobación a la persona antes de ejecutarse."
@@ -95,6 +97,7 @@ async def run_loop(messages, config, child=False):
     for _ in range(maximum):
         messages, did_compact = await compact(messages, CONTEXT_TOKEN_LIMIT, summarize)
         compressed = compressed or did_compact
+        await connectors.register_mcp(tools)
         message = clean_message(await complete(config, messages, tools.tools()))
         messages.append(message)
         calls = message.get("tool_calls") or []

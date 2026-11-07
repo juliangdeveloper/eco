@@ -29,6 +29,9 @@ const AUTH_REJECTED = "rejected_by_api";
 const RENEWAL_MODES = ["refresh_token", "silent", "none"];
 const SILENT_TIMEOUT_MS = 20000;
 const SILENT_FRAME_ID = "ecoSilentAuth";
+const MCP_KIND = "mcp";
+const MCP_AUTH_TYPES = ["none", "bearer"];
+const MCP_HEADER_PATTERN = /^X-MCP-[A-Za-z0-9-]+$/i;
 
 export const STATUS = Object.freeze({ CONNECTED: "conectado", DISCONNECTED: "sin conectar", EXPIRED: "expirado" });
 
@@ -75,6 +78,9 @@ export function validateConnector(definition) {
       return { ok: false, error: "auth.renewal inválido" };
     }
   }
+  if (definition.kind === MCP_KIND) {
+    return MCP_AUTH_TYPES.includes(auth.type) ? { ok: true } : { ok: false, error: "auth.type de MCP debe ser none o bearer" };
+  }
   const operations = definition.operations;
   if (!Array.isArray(operations) || !operations.length || operations.length > MAX_OPERATIONS) {
     return { ok: false, error: "operations inválidas" };
@@ -99,6 +105,25 @@ export function normalizeConnector(definition) {
     auth.flow = auth.flow || "pkce";
     auth.scopes = Array.isArray(auth.scopes) ? auth.scopes.map(String) : [];
     auth.renewal = RENEWAL_MODES.includes(auth.renewal) ? auth.renewal : auth.flow === "implicit" ? "silent" : "refresh_token";
+  }
+  if (definition.kind === MCP_KIND) {
+    const headers = {};
+    for (const [key, value] of Object.entries(definition.headers || {})) {
+      if (MCP_HEADER_PATTERN.test(key)) {
+        headers[key] = String(value);
+      }
+    }
+    return {
+      id: definition.id,
+      name: String(definition.name).trim(),
+      kind: MCP_KIND,
+      base_url: String(definition.base_url),
+      auth,
+      headers,
+      tools: Array.isArray(definition.tools) ? definition.tools : [],
+      verified: definition.verified === true,
+      createdAt: definition.createdAt || Date.now()
+    };
   }
   return {
     id: definition.id,
@@ -140,6 +165,9 @@ export async function deleteConnector(id) {
 export async function connectorStatus(id) {
   const connector = await getConnector(id);
   if (!connector) {
+    return STATUS.DISCONNECTED;
+  }
+  if (connector.kind === MCP_KIND && !connector.verified) {
     return STATUS.DISCONNECTED;
   }
   if (connector.auth.type === "none") {
@@ -289,6 +317,10 @@ async function authorize(connector, url, headers) {
   }
   headers.Authorization = DEFAULT_BEARER_PREFIX + secret.access_token;
   return AUTH_OK;
+}
+
+export function authorizeHeaders(connector, headers) {
+  return authorize(connector, new URL(connector.base_url), headers);
 }
 
 function apiMessage(data) {
@@ -572,7 +604,9 @@ export async function publicConnectors() {
       auth_type: connector.auth.type,
       renewal: connector.auth.renewal || "none",
       status: await connectorStatus(connector.id),
-      operations: connector.operations
+      ...(connector.kind === MCP_KIND
+        ? { kind: MCP_KIND, tools: (connector.tools || []).map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema, readOnly: tool.readOnly })) }
+        : { operations: connector.operations })
     });
   }
   return result;

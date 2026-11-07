@@ -3,6 +3,10 @@ import { all, remove, setting, store } from "./storage.js";
 import { connectorFetch, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
 import { searchSessions } from "./sessions.js";
+import { callMcpTool, probeMcp, verifyMcp } from "./mcp.js";
+
+const MCP_KIND = "mcp";
+const PROBE_ID = "probe";
 
 let toolListener = () => {};
 let stateApi = null;
@@ -47,7 +51,17 @@ async function createConnectorSafely(raw) {
   }
   const connector = await saveConnector({ ...normalized, auth, createdAt: previous?.createdAt });
   stateApi?.refreshConnectors();
-  const status = connector.auth.type === "none" ? "conectado" : await showCredentialCard(connector);
+  let status;
+  if (connector.kind === MCP_KIND && connector.auth.type === "none") {
+    const check = await verifyMcp(connector.id);
+    status = check.ok ? "conectado" : "sin conectar";
+    if (!check.ok) {
+      stateApi?.refreshConnectors();
+      return JSON.stringify({ ok: false, id: connector.id, status, error: check.error || "No se pudieron leer las herramientas" });
+    }
+  } else {
+    status = connector.auth.type === "none" ? "conectado" : await showCredentialCard(connector);
+  }
   stateApi?.refreshConnectors();
   return JSON.stringify({ ok: true, id: connector.id, status });
 }
@@ -103,6 +117,34 @@ window.ecoBridge = {
   },
   async connectorFetch(id, method, path, queryJson, bodyJson) {
     const result = await connectorFetch(String(id), String(method), String(path), parsed(queryJson) || {}, parsed(bodyJson));
+    return JSON.stringify(result);
+  },
+  async probeMcp(url, headersJson) {
+    let headers = {};
+    try {
+      headers = Object.fromEntries(Object.entries(parsed(headersJson) || {}).filter(([key]) => /^X-MCP-/i.test(key)));
+    } catch {
+      headers = {};
+    }
+    try {
+      const target = new URL(String(url));
+      if (target.protocol !== "https:") {
+        return JSON.stringify({ ok: false, error: "La URL debe ser https" });
+      }
+      return JSON.stringify(await probeMcp({ id: PROBE_ID, base_url: target.href, auth: { type: "none" }, headers }));
+    } catch {
+      return JSON.stringify({ ok: false, error: "URL inválida" });
+    }
+  },
+  async mcpCall(id, name, argsJson) {
+    let args = {};
+    try {
+      args = parsed(argsJson) || {};
+    } catch {
+      args = {};
+    }
+    const result = await callMcpTool(String(id), String(name), args);
+    stateApi?.refreshConnectors();
     return JSON.stringify(result);
   },
   async skills() {

@@ -1,7 +1,11 @@
 import { connectorStatus, redirectUri, saveManualCredential, startOAuth, STATUS } from "./connectors.js";
+import { verifyMcp } from "./mcp.js";
+import { deleteSecret } from "./vault.js";
 
 const ERROR_TEXT = "No se pudo conectar. Inténtalo de nuevo.";
 const CONNECTED_TEXT = "Conectado";
+const REJECTED_TEXT = "El servicio rechazó el token. Revisa que sea válido y tenga permisos.";
+const MCP_KIND = "mcp";
 const SKIPPED_TEXT = "Sin conectar";
 const EXPIRED_TEXT = "Tu acceso expiró y no se pudo renovar solo. Inicia sesión para seguir.";
 const GOOGLE_HOST = "accounts.google.com";
@@ -183,10 +187,19 @@ export function showCredentialCard(connector, options = {}) {
       error.hidden = true;
       const values = Object.fromEntries(inputs.map((input) => [input.name, input.value.trim()]));
       let ok = false;
+      let rejected = false;
       try {
         ok = type === "oauth2"
           ? await startOAuth(connector.id, values.client_id || connector.auth.client_id)
           : await saveManualCredential(connector.id, values);
+        if (ok && connector.kind === MCP_KIND) {
+          const check = await verifyMcp(connector.id);
+          if (!check.ok) {
+            await deleteSecret(connector.id);
+            ok = false;
+            rejected = Boolean(check.auth_required);
+          }
+        }
       } catch {
         ok = false;
       }
@@ -195,7 +208,7 @@ export function showCredentialCard(connector, options = {}) {
         done(CONNECTED_TEXT, await connectorStatus(connector.id));
         return;
       }
-      error.textContent = ERROR_TEXT;
+      error.textContent = rejected ? REJECTED_TEXT : ERROR_TEXT;
       error.hidden = false;
     };
   });

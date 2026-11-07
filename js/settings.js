@@ -65,7 +65,8 @@ export async function renderConnectors() {
     const name = document.createElement("strong");
     name.textContent = connector.name;
     const detail = document.createElement("small");
-    detail.textContent = status.charAt(0).toUpperCase() + status.slice(1) + " · " + new URL(connector.base_url).host;
+    const toolCount = connector.kind === "mcp" && status === "conectado" ? " · " + (connector.tools || []).length + " herramientas" : "";
+    detail.textContent = status.charAt(0).toUpperCase() + status.slice(1) + toolCount + " · " + new URL(connector.base_url).host;
     info.append(name, detail);
     const actions = document.createElement("div");
     actions.className = "connectorActions";
