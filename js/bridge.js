@@ -1,3 +1,4 @@
+import { timedFetch } from "./network.js";
 import { passiveMemory, memoryCall, configureMemory } from "./passive-skills.js";
 import { abortJob, jobRecords, jobSignal, jobSnapshot, jobUpdate, resumeJob } from "./subagents.js";
 import { DEFAULT_MODEL } from "./config.js";
@@ -78,6 +79,10 @@ window.ecoBridge = {
   async abortJob(id) { abortJob(id); return true; },
   async resumeJob(id) { resumeJob(id); return true; },
   jobUpdate,
+  async turnUpdate(raw, sessionId) {
+    await stateApi?.turnUpdate(sessionId, parsed(raw));
+    return true;
+  },
   async jobRecords(sessionId) {
     return JSON.stringify(await jobRecords(sessionId));
   },
@@ -115,7 +120,7 @@ window.ecoBridge = {
       delete options.body;
     }
     options.signal = jobSignal(jobId);
-    return window.fetch(url, options);
+    return timedFetch(url, options);
   },
   async config() {
     return JSON.stringify({

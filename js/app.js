@@ -1,3 +1,4 @@
+import { checkpointSession, flushSessions, recoverSessions, saveSession } from "./session-store.js";
 import { createAgentPanel } from "./agentPanel.js";
 import { setBridgeState, setToolListener } from "./bridge.js";
 import { APP_ID, APP_VERSION, STATS } from "./config.js";
@@ -5,14 +6,14 @@ import { createChat } from "./chat.js";
 import { metaDeclararProyecto, metaUpdate } from "./meta.js";
 import { loadAgent } from "./pyodide.js";
 import { startRenewal } from "./renewal.js";
-import { startRoutines } from "./routines.js";
+import { startRoutines, tick } from "./routines.js";
 import { listConnectors, connectorStatus, STATUS } from "./connectors.js";
-import { showCredentialCard } from "./credentials.js";
+import { renderReconnectNotice } from "./credentials.js";
 import { setupSubagents, renderSubagents } from "./subagents.js";
 import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
-import { all, json, store } from "./storage.js";
-import { autoExpand, byId, pretty, renderEmpty, updateToolCard } from "./ui.js";
+import { all, flushWrites, json } from "./storage.js";
+import { autoExpand, bindReplyGestures, byId, pretty, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "Nueva conversación";
 const LOAD_ERROR = "No se pudo preparar el agente. Recarga la página.";
@@ -24,7 +25,7 @@ const CONFIRM_LABELS = {
 
 let pyodide;
 let session = newSessionData();
-const knownSessions = new Map([[session.id, session]]);
+const knownSessions = new Map();
 let agentPanel;
 let chat;
 let stats = json("stats") || { mensajes_enviados: 0, herramientas_usadas: 0 };
@@ -40,6 +41,7 @@ function currentSession() {
 function replaceSession(value) {
   session = knownSessions.get(value.id) || { ...newSessionData(), ...value };
   knownSessions.set(session.id, session);
+  json("lastSession", session.id);
 }
 
 async function resolveSession(id) {
@@ -61,7 +63,7 @@ async function persist(value = session) {
   if (value.title === DEFAULT_TITLE) {
     value.title = value.messages.find((item) => item.role === "user")?.content.slice(0, 48) || DEFAULT_TITLE;
   }
-  await store("sessions", value);
+  await saveSession(value);
 }
 
 function parseArgs(raw) {
@@ -174,23 +176,9 @@ function bindCloseButtons() {
   });
 }
 
-const promptedExpired = new Set();
-
-async function promptExpired() {
-  for (const connector of await listConnectors()) {
-    if (promptedExpired.has(connector.id)) {
-      continue;
-    }
-    if ((await connectorStatus(connector.id)) === STATUS.EXPIRED) {
-      promptedExpired.add(connector.id);
-      showCredentialCard(connector, { expired: true }).then((status) => {
-        if (status === STATUS.CONNECTED) {
-          promptedExpired.delete(connector.id);
-        }
-        renderConnectors();
-      });
-    }
-  }
+async function refreshCredentials() {
+  try { await Promise.all([renderConnectors(), renderReconnectNotice()]); }
+  catch { byId("reconnectNotice").hidden = false; byId("reconnectText").textContent = "No se pudo leer el acceso guardado. Puedes seguir usando Eco."; }
 }
 
 function bindComposer() {
@@ -201,8 +189,8 @@ function bindComposer() {
     const text = prompt.value;
     prompt.value = "";
     autoExpand(prompt);
-    chat.send(text);
-    promptExpired();
+    chat.send(text).catch(() => { byId("prompt").value = text; });
+    refreshCredentials();
   };
 }
 
@@ -220,20 +208,27 @@ async function main() {
     incrementMessages: () => { stats.mensajes_enviados += 1; },
     persist,
     setSession: replaceSession,
+    resolveSession,
     statsSave
   });
   chat.setSending(true);
+  const restored = await recoverSessions();
+  for (const saved of restored) knownSessions.set(saved.id, saved);
+  const last = restored.find((row) => row.id === json("lastSession")) || [...restored].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  replaceSession(last || session);
   agentPanel = createAgentPanel({ getTodos: () => chat.currentTodos() });
   createSessions({
     loadSession: chat.loadSession,
     newSession: () => {
       chat.loadSession(newSessionData());
+      persist().catch(() => {});
     }
   });
   setBridgeState({
     refreshAgent: () => agentPanel.render(),
     refreshConnectors: () => renderConnectors(),
     sessionId: () => currentSession().id,
+    turnUpdate: (sessionId, value) => chat.updateTurn(sessionId, value),
     async setTodos(todos, sessionId, jobId) {
       const owner = await resolveSession(sessionId);
       const target = jobId ? owner.subagents?.find((job) => job.id === jobId) : owner;
@@ -261,22 +256,42 @@ async function main() {
     }
   });
   bindComposer();
-  startRenewal(() => renderConnectors());
+  bindReplyGestures((id) => chat.replyTo(id).catch(() => {}));
+  window.addEventListener("eco-credentials-changed", () => { refreshCredentials(); tick().catch(() => {}); chat.drain(); });
+  window.addEventListener("eco-reconnect-finished", () => { renderConnectors().catch(() => {}); });
+  window.addEventListener("eco-storage-error", () => {
+    byId("reconnectNotice").hidden = false;
+    byId("reconnectText").textContent = "El almacenamiento está lleno. No cierres Eco hasta guardar tus mensajes.";
+  });
+  const flush = () => {
+    currentSession().draft = byId("prompt").value;
+    for (const value of knownSessions.values()) checkpointSession(value);
+    flushSessions(knownSessions.values());
+    flushWrites();
+  };
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flush(); });
+  window.addEventListener("pagehide", flush);
+  startRenewal(refreshCredentials);
+  refreshCredentials();
   try {
     pyodide = await loadAgent();
   } catch (error) {
-    byId("empty").textContent = LOAD_ERROR;
+    if (byId("empty")) byId("empty").textContent = LOAD_ERROR;
     throw error;
   }
   chat.setSending(false);
-  renderEmpty(chat.send);
+  chat.loadSession(currentSession());
   renderSubagents();
   startRoutines(chat.trigger);
 }
 
 window.ecoApp = {
-  ready: main(),
-  send: (text) => window.ecoApp.ready.then(() => chat.send(text))
+  ready: main().catch(() => {
+    byId("chat").textContent = "No se pudo abrir el almacenamiento o preparar Eco. Cierra otras pestañas y vuelve a cargar.";
+    byId("send").disabled = true;
+    return false;
+  }),
+  send: (text) => window.ecoApp.ready.then(() => chat?.send(text))
 };
 
 document.getElementById("reloadButton").onclick = async () => {

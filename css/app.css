@@ -918,3 +918,59 @@ dialog small {
   z-index: 20;
   max-height: calc(100dvh - 180px);
 }
+
+.reconnectNotice {
+  flex: 0 0 auto;
+}
+
+.reconnectNotice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.replyPreview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--blue);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+
+#replyPreviewText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#cancelReply {
+  min-width: 32px;
+  flex: 0 0 auto;
+}
+
+.message[data-message-id] {
+  touch-action: pan-y;
+}
+
+.message.replyDragging {
+  user-select: none;
+}
+
+.messageQuote {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0 0 7px;
+  padding: 3px 7px;
+  border-left: 2px solid currentColor;
+  opacity: 0.8;
+  font-size: 12px;
+}

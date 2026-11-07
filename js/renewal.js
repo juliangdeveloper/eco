@@ -16,7 +16,7 @@ async function renewDue(onChange) {
       await renewCredential(id);
     }
     if (due.length) {
-      onChange();
+      await onChange();
     }
   } catch {
     return;

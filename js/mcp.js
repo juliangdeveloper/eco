@@ -1,3 +1,4 @@
+import { timedFetch } from "./network.js";
 import { APP_VERSION } from "./config.js";
 import { store } from "./storage.js";
 import { authorizeHeaders, getConnector } from "./connectors.js";
@@ -10,7 +11,6 @@ const ACCEPT = "application/json, text/event-stream";
 const SSE_TYPE = "text/event-stream";
 const CLIENT_INFO = { name: "eco", version: APP_VERSION };
 const MAX_TOOL_PAGES = 5;
-const MAX_RESULT_CHARS = 20000;
 const MAX_ERROR_CHARS = 300;
 const NOT_CONNECTED = "not_connected";
 const AUTH_OK = "ok";
@@ -65,7 +65,7 @@ async function post(connector, session, body, auth, signal) {
   }
   let response;
   try {
-    response = await window.fetch(connector.base_url, { method: "POST", headers, body: JSON.stringify(body), signal });
+    response = await timedFetch(connector.base_url, { method: "POST", headers, body: JSON.stringify(body), signal });
   } catch {
     return { ok: false, error: "No se pudo conectar con el servidor MCP" };
   }
@@ -200,8 +200,7 @@ export async function callMcpTool(id, name, args, signal) {
   }
   const content = (result.result?.content || []).map((item) => (item.type === "text" ? item.text : JSON.stringify(item))).join("\n");
   const data = result.result?.structuredContent ?? content;
-  const text = typeof data === "string" ? data : JSON.stringify(data);
-  return { ok: !result.result?.isError, data: text.slice(0, MAX_RESULT_CHARS) };
+  return { ok: !result.result?.isError, data };
 }
 
 export function forgetMcpSession(id) {

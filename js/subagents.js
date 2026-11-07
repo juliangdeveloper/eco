@@ -43,7 +43,7 @@ export async function jobUpdate(raw, finished) {
   if (value.status !== ACTIVE) controllers.delete(value.id);
   await api.persist(session);
   renderSubagents();
-  if (finished) api.receiveJob(session, structuredClone(previous || next));
+  if (finished) api.receiveJob(session, structuredClone(previous || next)).catch(() => { window.dispatchEvent(new Event("eco-storage-error")); });
   return true;
 }
 

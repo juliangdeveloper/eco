@@ -1,5 +1,5 @@
 export const APP_ID = "eco";
-export const APP_VERSION = "0.6.0";
+export const APP_VERSION = "0.6.1";
 export const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js";
 export const DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017";
 export const STORAGE_PREFIX = "eco.";

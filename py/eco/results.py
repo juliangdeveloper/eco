@@ -2,11 +2,11 @@ import json
 from contextvars import ContextVar
 from .registry import schema
 
-COMPACT_CHAR_LIMIT = 6000
+COMPACT_BYTE_LIMIT = 128 * 1024
 MAX_LIST_ITEMS = 20
 MAX_STRING_CHARS = 600
-READ_DEFAULT_LIMIT = 6000
-READ_MAX_LIMIT = 20000
+READ_DEFAULT_LIMIT = COMPACT_BYTE_LIMIT
+READ_MAX_LIMIT = COMPACT_BYTE_LIMIT
 SEARCH_CONTEXT_CHARS = 300
 MAX_SEARCH_MATCHES = 20
 NOISE_KEYS = {"node_id", "avatar_url", "gravatar_id", "_links", "etag", "url", "events_url", "received_events_url", "followers_url", "following_url", "gists_url", "starred_url", "subscriptions_url", "organizations_url", "repos_url", "labels_url", "comments_url", "timeline_url", "performed_via_github_app", "reactions", "permissions", "sha_url", "git_url", "ssh_url", "svn_url", "clone_url", "mirror_url", "keys_url", "collaborators_url", "teams_url", "hooks_url", "issue_events_url", "assignees_url", "branches_url", "tags_url", "blobs_url", "git_tags_url", "git_refs_url", "trees_url", "statuses_url", "languages_url", "stargazers_url", "contributors_url", "subscribers_url", "subscription_url", "commits_url", "git_commits_url", "merges_url", "archive_url", "downloads_url", "issues_url", "pulls_url", "milestones_url", "notifications_url", "releases_url", "deployments_url", "compare_url", "contents_url", "review_comments_url", "review_comment_url", "statuses_url", "diff_url", "patch_url", "issue_url", "commit_url", "repository_url", "user_view_type", "site_admin", "type_url"}
@@ -91,21 +91,21 @@ def compact(name, result, args=None):
     full = dumps(result)
     reading = name == "leer_resultado"
     key = result.get("id", "") if reading else save(name, full)
-    if reading and "limit" in (args or {}):
+    if reading:
         return full, key
-    if len(full) <= COMPACT_CHAR_LIMIT:
+    if len(full.encode("utf-8")) <= COMPACT_BYTE_LIMIT:
         return full, key
     value, _ = unwrap(result)
     small = dumps(clean(value))
     items, chars = MAX_LIST_ITEMS, MAX_STRING_CHARS
     shown = clean(value)
-    while len(small) > COMPACT_CHAR_LIMIT and items > 1:
+    while len(small.encode("utf-8")) > COMPACT_BYTE_LIMIT and items > 1:
         shown = cap(clean(value), items, chars)
         small = dumps(shown)
         items, chars = items // 2, max(chars // 2, 80)
-    if len(small) > COMPACT_CHAR_LIMIT:
-        shown = small[:COMPACT_CHAR_LIMIT]
-    note = "[resultado resumido; completo en historial id=" + key + ", " + str(len(full)) + " caracteres; usa leer_resultado para ver más]"
+    if len(small.encode("utf-8")) > COMPACT_BYTE_LIMIT:
+        shown = small.encode("utf-8")[:COMPACT_BYTE_LIMIT].decode("utf-8", errors="ignore")
+    note = "[resultado resumido; completo en historial id=" + key + ", " + str(len(full.encode("utf-8"))) + " bytes UTF-8; usa leer_resultado para ver más]"
     return dumps({"resumen": shown, "nota": note}), key
 
 
@@ -143,13 +143,19 @@ async def leer_resultado(args):
             index = lower.find(needle, start)
             if index < 0:
                 break
-            matches.append({"offset": index, "texto": text[max(0, index - SEARCH_CONTEXT_CHARS):index + len(needle) + SEARCH_CONTEXT_CHARS]})
+            matches.append({"offset": len(text[:index].encode("utf-8")), "texto": text[max(0, index - SEARCH_CONTEXT_CHARS):index + len(needle) + SEARCH_CONTEXT_CHARS]})
             start = index + len(needle)
-        return {"id": key, "total": len(text), "coincidencias": matches}
-    offset = max(0, int(args.get("offset") or 0))
+        return {"id": key, "total": len(text.encode("utf-8")), "unidad": "bytes UTF-8", "coincidencias": matches}
+    data = text.encode("utf-8")
+    offset = min(len(data), max(0, int(args.get("offset") or 0)))
+    while offset < len(data) and data[offset] & 0xC0 == 0x80:
+        offset += 1
     limit = min(READ_MAX_LIMIT, max(1, int(args.get("limit") or READ_DEFAULT_LIMIT)))
-    end = offset + limit
-    return {"id": key, "herramienta": item["tool"], "total": len(text), "offset": offset, "texto": text[offset:end], "siguiente_offset": end if end < len(text) else None}
+    shown = data[offset:offset + limit].decode("utf-8", errors="ignore")
+    if not shown and offset < len(data):
+        return {"error": "limit es insuficiente para un carácter UTF-8; usa al menos 4 bytes", "id": key, "offset": offset}
+    end = offset + len(shown.encode("utf-8"))
+    return {"id": key, "herramienta": item["tool"], "total": len(data), "unidad": "bytes UTF-8", "offset": offset, "texto": shown, "siguiente_offset": end if end < len(data) else None}
 
 
 def register(registry):
@@ -157,7 +163,7 @@ def register(registry):
         "id": {"type": "string", "description": "Id del historial, por ejemplo r3"},
         "path": {"type": "string", "description": "Ruta JSON opcional, por ejemplo items.0.title"},
         "buscar": {"type": "string", "description": "Texto a buscar dentro del resultado"},
-        "offset": {"type": "integer"},
-        "limit": {"type": "integer", "minimum": 1, "maximum": READ_MAX_LIMIT, "description": "Caracteres por página; si se indica, devuelve el fragmento sin resumir"},
+        "offset": {"type": "integer", "minimum": 0, "description": "Desplazamiento en bytes UTF-8; usa siguiente_offset para continuar"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": READ_MAX_LIMIT, "description": "Bytes UTF-8 por página, hasta 131072; devuelve el fragmento literal sin resumir"},
     }
     registry.add("leer_resultado", schema("Lee el resultado completo de una herramienta guardado en el historial: por partes con offset y limit, una ruta JSON o buscando texto.", properties, ["id"]), leer_resultado)

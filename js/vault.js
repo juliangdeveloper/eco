@@ -1,4 +1,4 @@
-import { all, remove, store } from "./storage.js";
+import { all, insertIfMissing, remove, store } from "./storage.js";
 
 const KEYS_STORE = "keys";
 const SECRETS_STORE = "secrets";
@@ -20,8 +20,7 @@ async function createKey() {
     return existing.key;
   }
   const key = await crypto.subtle.generateKey({ name: CIPHER, length: KEY_LENGTH }, false, ["encrypt", "decrypt"]);
-  await store(KEYS_STORE, { id: VAULT_KEY_ID, key });
-  return key;
+  return (await insertIfMissing(KEYS_STORE, { id: VAULT_KEY_ID, key })).key;
 }
 
 export function getKey() {

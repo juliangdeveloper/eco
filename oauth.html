@@ -26,6 +26,12 @@
         params[key] = value;
       }
     }
+    history.replaceState(null, "", location.pathname);
+    if (params.state && typeof BroadcastChannel === "function") {
+      const channel = new BroadcastChannel("eco-oauth-" + params.state);
+      channel.postMessage({ type: MESSAGE_TYPE, params });
+      channel.close();
+    }
     const target = window.opener || (window.parent !== window ? window.parent : null);
     if (target) {
       target.postMessage({ type: MESSAGE_TYPE, params }, location.origin);

@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.6.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.6.1
 
-<img src="assets/screenshot.png?v=0.6.0" alt="Eco en pantalla móvil con memoria local" width="320">
+<img src="assets/screenshot.png?v=0.6.1" alt="Eco en pantalla móvil con subagentes y respuesta citada" width="320">
 
 ## Uso
 
@@ -15,7 +15,9 @@
 - Las credenciales se introducen en una tarjeta, cifradas con AES-GCM en IndexedDB; el modelo no las recibe. Las escrituras en conectores requieren aprobación; la memoria conectada guarda sin pedirla.
 - Conversaciones, tareas, habilidades y memoria local permanecen en el navegador. Hay búsqueda, subagentes, compresión a 128.000 tokens e historial de resultados completos con `leer_resultado`.
 - La memoria local admite 6.000 caracteres (perfil: 3.000). `memory` reemplaza o elimina por fragmento único o `index` desde 0, muestra candidatos si hay ambigüedad y devuelve espacio usado y libre; al exceder el límite, indica el exceso y las entradas actuales con índice y tamaño.
-- `leer_resultado` no añade lecturas al historial. Con `limit` explícito devuelve el fragmento sin resumir, hasta 20.000 caracteres, con `siguiente_offset` para continuar.
+- `leer_resultado` no añade lecturas al historial. Devuelve fragmentos literales de hasta 128 KiB (131.072 bytes UTF-8), también por defecto; `offset`, `limit`, `total` y `siguiente_offset` se miden en bytes. No corta caracteres multibyte. HTTP y MCP conservan la respuesta completa en el historial; la vista del modelo se resume por encima de 128 KiB.
+- Eco abre la última conversación activa. Cada mensaje y turno pendiente se guarda al añadirlo, con recuperación tras una recarga y copia de seguridad local al ocultar o cerrar la página. Los turnos interrumpidos no se repiten solos.
+- Desliza cualquier mensaje hacia la derecha (o arrástralo con el ratón) para responder citándolo. La cita aparece encima del campo, puede cancelarse y se conserva con el mensaje. Si citas un resultado de subagente, el orquestador puede continuar ese mismo trabajo.
 - El botón de actualizar recarga Eco con la última versión, útil cuando se abre dentro de otra página sin controles del navegador. El inicio de sesión OAuth también funciona en ese caso.
 - El orquestador dispone de 2 pasos por turno; cada subagente, de 20. Al alcanzar el límite resume lo logrado y puedes indicarle que continúe.
 
@@ -56,7 +58,7 @@ En Google Cloud habilita **Google Sheets API** y **Google Drive API**. Configura
 - Origen JavaScript autorizado: `https://<usuario>.github.io`
 - URI de redirección: `https://<usuario>.github.io/eco/oauth.html`
 
-La tarjeta incluye enlaces en pestaña nueva y botones para copiar los valores exactos. Google usa token implícito con renovación silenciosa; si el navegador la bloquea o expira el acceso, vuelve a iniciar sesión desde **Ajustes › Conectores**. Para Gmail habilita su API y los permisos correspondientes.
+La tarjeta incluye enlaces en pestaña nueva y botones para copiar los valores exactos. Google usa token implícito sin servidor ni secreto de cliente. Un fallo de renovación silenciosa no invalida un token que aún sirve. Al expirar, Eco sigue en modo local y muestra un único aviso **Reconectar**: el toque abre la ventana de acceso directamente y reutiliza la cuenta conocida sin forzar consentimiento. Safari puede impedir la renovación oculta o pedir iniciar sesión de nuevo; Eco no puede alargar el permiso que concede Google. El acceso renovado reactiva la memoria sin recargar ni duplicar rutinas. Para Gmail habilita su API y los permisos correspondientes.
 
 ## Stack y ejecución local
 

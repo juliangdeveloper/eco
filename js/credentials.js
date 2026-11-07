@@ -1,4 +1,4 @@
-import { connectorStatus, openOAuthWindow, redirectUri, saveManualCredential, startOAuth, STATUS } from "./connectors.js";
+import { connectorStatus, getConnector, listConnectors, openOAuthWindow, redirectUri, saveManualCredential, startOAuth, STATUS } from "./connectors.js";
 import { verifyMcp } from "./mcp.js";
 import { deleteSecret } from "./vault.js";
 
@@ -137,7 +137,7 @@ function scrollChat(chat) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-export function showCredentialCard(connector, options = {}) {
+function renderCredentialCard(connector, options = {}) {
   const chat = document.getElementById("chat");
   document.getElementById("empty")?.remove();
   const card = create("div", "", "credentialCard");
@@ -177,7 +177,12 @@ export function showCredentialCard(connector, options = {}) {
   inputs[0]?.focus();
 
   return new Promise((resolve) => {
+    let finished = false;
+    let activePopup = null;
     const done = (text, status) => {
+      if (finished) return;
+      finished = true;
+      activePopup?.close();
       for (const input of inputs) {
         input.value = "";
       }
@@ -189,6 +194,7 @@ export function showCredentialCard(connector, options = {}) {
     form.onsubmit = async (event) => {
       event.preventDefault();
       const popup = type === "oauth2" ? openOAuthWindow() : null;
+      activePopup = popup;
       submit.disabled = true;
       error.hidden = true;
       const values = Object.fromEntries(inputs.map((input) => [input.name, input.value.trim()]));
@@ -209,13 +215,58 @@ export function showCredentialCard(connector, options = {}) {
       } catch {
         ok = false;
       }
+      if (finished) return;
       submit.disabled = false;
       if (ok) {
-        done(CONNECTED_TEXT, await connectorStatus(connector.id));
+        done(CONNECTED_TEXT, STATUS.CONNECTED);
         return;
       }
       error.textContent = rejected ? REJECTED_TEXT : ERROR_TEXT;
       error.hidden = false;
     };
   });
+}
+
+const credentialCards = new Map();
+let reconnecting = false;
+
+export async function showCredentialCard(connector, options = {}) {
+  if (connector.auth.secret_of) connector = await getConnector(connector.auth.secret_of) || connector;
+  if (credentialCards.has(connector.id)) return credentialCards.get(connector.id);
+  const pending = renderCredentialCard(connector, options).finally(() => credentialCards.delete(connector.id));
+  credentialCards.set(connector.id, pending);
+  return pending;
+}
+
+export async function renderReconnectNotice() {
+  if (reconnecting) return;
+  const notice = document.getElementById("reconnectNotice");
+  const text = document.getElementById("reconnectText");
+  const button = document.getElementById("reconnectButton");
+  let expired = null;
+  for (const connector of await listConnectors()) {
+    if (connector.auth.type !== "oauth2" || connector.auth.secret_of || !connector.auth.client_id) continue;
+    if (await connectorStatus(connector.id) !== STATUS.CONNECTED) { expired = connector; break; }
+  }
+  notice.hidden = !expired;
+  if (!expired) return;
+  text.textContent = expired.id === "eco-memory-drive" ? "Drive sin conexión · memoria local" : expired.name + " sin conexión";
+  button.disabled = false;
+  button.textContent = "Reconectar";
+  button.onclick = async () => {
+    const popup = openOAuthWindow();
+    reconnecting = true;
+    button.disabled = true;
+    try {
+      const ok = await startOAuth(expired.id, expired.auth.client_id, popup);
+      if (ok) notice.hidden = true;
+      else text.textContent = "No se pudo reconectar. Puedes seguir usando Eco y volver a intentar.";
+    } catch {
+      text.textContent = "No se pudo guardar el acceso. Cierra otras pestañas de Eco y vuelve a intentar.";
+    } finally {
+      reconnecting = false;
+      button.disabled = false;
+      window.dispatchEvent(new Event("eco-reconnect-finished"));
+    }
+  };
 }

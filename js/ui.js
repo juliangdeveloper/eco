@@ -55,7 +55,7 @@ export function preview(value) {
   return text.length > MAX_TOOL_PREVIEW ? text.slice(0, MAX_TOOL_PREVIEW) + "…" : text;
 }
 
-export function appendMessage(role, content, label = "") {
+export function appendMessage(role, content, label = "", metadata = {}) {
   byId("empty")?.remove();
   const message = element("div", "", "message " + role);
   if (role === "assistant") {
@@ -67,6 +67,13 @@ export function appendMessage(role, content, label = "") {
   } else {
     appendTextWithLinks(message, content || "");
   }
+  if (metadata.replyTo) {
+    const quote = element("blockquote", metadata.replyTo.text, "messageQuote");
+    quote.dataset.replyId = metadata.replyTo.id;
+    message.prepend(quote);
+  }
+  if (metadata.id) message.dataset.messageId = metadata.id;
+  if (metadata.subagentId) message.dataset.subagentId = metadata.subagentId;
   if (label) message.prepend(element("strong", label, "subagentLabel"));
   byId("chat").append(message);
   scrollChat();
@@ -93,7 +100,7 @@ export function renderMessages(messages) {
   chat.replaceChildren();
   for (const item of messages) {
     if (!item.event && item.content && (item.role === "user" || item.role === "assistant")) {
-      appendMessage(item.role, item.content, item.uiLabel || "");
+      appendMessage(item.role, item.content, item.uiLabel || "", item);
     }
   }
 }
@@ -151,4 +158,55 @@ export function scrollChat() {
 export function autoExpand(textarea) {
   textarea.style.height = "auto";
   textarea.style.height = Math.min(textarea.scrollHeight, 116) + "px";
+}
+
+const REPLY_THRESHOLD = 52;
+const REPLY_MAX_DRAG = 92;
+const DIRECTION_THRESHOLD = 10;
+
+export function renderReply(reply) {
+  byId("replyPreview").hidden = !reply;
+  const label = reply?.label?.startsWith("Subagente") ? "Subagente" : reply?.label;
+  byId("replyPreviewText").textContent = reply ? (label ? label + ": " : "") + reply.text : "";
+}
+
+export function bindReplyGestures(reply) {
+  const chat = byId("chat");
+  let drag = null;
+  const reset = () => {
+    if (!drag) return;
+    drag.bubble.style.transition = "transform 180ms ease-out";
+    drag.bubble.style.transform = "";
+    drag.bubble.classList.remove("replyDragging");
+    drag = null;
+  };
+  chat.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("a,button,input,textarea,pre")) return;
+    const bubble = event.target.closest(".message[data-message-id]");
+    if (!bubble) return;
+    drag = { bubble, id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, active: false };
+  });
+  chat.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.active && Math.abs(dy) > DIRECTION_THRESHOLD && Math.abs(dy) >= Math.abs(dx)) { reset(); return; }
+    if (!drag.active && dx > DIRECTION_THRESHOLD && dx > Math.abs(dy)) {
+      drag.active = true;
+      drag.bubble.setPointerCapture(event.pointerId);
+      drag.bubble.style.transition = "none";
+      drag.bubble.classList.add("replyDragging");
+    }
+    if (!drag.active) return;
+    drag.dx = Math.max(0, Math.min(REPLY_MAX_DRAG, dx));
+    drag.bubble.style.transform = "translateX(" + drag.dx + "px)";
+  });
+  chat.addEventListener("pointerup", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const id = drag.dx >= REPLY_THRESHOLD ? drag.bubble.dataset.messageId : "";
+    reset();
+    if (id) reply(id);
+  });
+  chat.addEventListener("pointercancel", reset);
+  byId("cancelReply").onclick = () => reply("");
 }

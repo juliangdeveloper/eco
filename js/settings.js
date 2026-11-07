@@ -1,7 +1,7 @@
 import { DEFAULT_MODEL } from "./config.js";
-import { setting } from "./storage.js";
+import { closeDatabase, setting } from "./storage.js";
 import { byId } from "./ui.js";
-import { connectorStatus, deleteConnector, getConnector, listConnectors } from "./connectors.js";
+import { connectorStatus, deleteConnector, getConnector, listConnectors, openOAuthWindow, startOAuth } from "./connectors.js";
 import { deleteSecret } from "./vault.js";
 import { showCredentialCard } from "./credentials.js";
 import { listRoutines, manageRoutine, onRoutinesChange } from "./routines.js";
@@ -33,6 +33,7 @@ export function bindSettings() {
       Object.keys(localStorage)
         .filter((key) => key.startsWith("eco."))
         .forEach((key) => localStorage.removeItem(key));
+      closeDatabase();
       indexedDB.deleteDatabase("eco");
       location.reload();
     }
@@ -85,8 +86,16 @@ export async function renderConnectors() {
       } else {
         actions.append(button("Conectar", "", async () => {
           byId("settings").close();
-          const fresh = await getConnector(connector.id);
-          await showCredentialCard(fresh);
+          const owner = rows.find((item) => item.id === connector.auth.secret_of) || connector;
+          if (owner.auth.type === "oauth2" && owner.auth.client_id) {
+            const popup = openOAuthWindow();
+            try {
+              if (!await startOAuth(owner.id, owner.auth.client_id, popup)) await showCredentialCard(owner, { expired: true });
+            } catch { await showCredentialCard(owner, { expired: true }); }
+          } else {
+            const fresh = await getConnector(owner.id);
+            await showCredentialCard(fresh);
+          }
         }));
       }
     }
