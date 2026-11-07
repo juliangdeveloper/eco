@@ -8,6 +8,7 @@ const FILES = [
   "tools_extra.py",
   "compression.py",
   "connectors.py",
+  "results.py",
   "agent.py"
 ];
 

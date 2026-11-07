@@ -41,10 +41,13 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     statsSave();
     setSending(true);
     try {
-      const raw = await getPyodide().globals.get("run_turn")(JSON.stringify({ messages: session.messages }));
+      const raw = await getPyodide().globals.get("run_turn")(JSON.stringify({ messages: session.messages, results: session.results || {} }));
       const result = JSON.parse(raw);
       if (Array.isArray(result.messages)) {
         session.messages = result.messages.filter((item, index) => !(index === 0 && item.role === "system"));
+      }
+      if (result.results && typeof result.results === "object") {
+        session.results = result.results;
       }
       setSession(session);
       await persist();

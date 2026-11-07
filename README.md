@@ -43,9 +43,13 @@ Al crear un conector OAuth, Eco elige cómo renovar el acceso: con refresh token
 
 ## Herramientas
 
-`create_connector`, `probe_mcp`, `list_connectors`, `call_connector`, `request_sign_in`, las herramientas de cada MCP conectado, `memory`, `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `session_search`, `clarify` y `delegate_task` (encarga una tarea a un subagente con contexto limpio).
+`create_connector`, `probe_mcp`, `list_connectors`, `call_connector`, `request_sign_in`, las herramientas de cada MCP conectado, `memory`, `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `session_search`, `clarify`, `delegate_task` (encarga una tarea a un subagente con contexto limpio) y `leer_resultado`.
 
-El historial largo se resume automáticamente. Las respuestas se muestran con formato Markdown seguro, incluidas tablas que se desplazan dentro de su propio recuadro en pantallas pequeñas.
+Cada resultado de herramienta se guarda completo en un historial de la conversación con un id (`r1`, `r2`…). Al modelo le llega una versión compacta: sin URLs de API, ids internos, avatares ni campos vacíos y, si sigue siendo largo, con listas y textos recortados y una nota con el id. Con `leer_resultado` el modelo lee el resultado completo por partes, por ruta JSON o buscando texto.
+
+Cada turno tiene hasta 35 pasos (20 en subagentes). Si se alcanza el límite, Eco responde con lo que ya tiene, dice qué falta y puedes pedirle que siga.
+
+La conversación se resume automáticamente cuando supera unos 128.000 tokens. Las respuestas se muestran con formato Markdown seguro, incluidas tablas que se desplazan dentro de su propio recuadro en pantallas pequeñas.
 
 ## Privacidad
 

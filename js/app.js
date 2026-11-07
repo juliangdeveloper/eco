@@ -27,7 +27,7 @@ let chat;
 let stats = json("stats") || { mensajes_enviados: 0, herramientas_usadas: 0 };
 
 function newSessionData() {
-  return { id: crypto.randomUUID(), title: DEFAULT_TITLE, messages: [], todos: [], updatedAt: Date.now() };
+  return { id: crypto.randomUUID(), title: DEFAULT_TITLE, messages: [], todos: [], results: {}, updatedAt: Date.now() };
 }
 
 function currentSession() {
@@ -38,7 +38,7 @@ function replaceSession(value) {
   if (value === session) {
     return;
   }
-  session = { ...newSessionData(), ...value, messages: value.messages || [], todos: value.todos || [] };
+  session = { ...newSessionData(), ...value, messages: value.messages || [], todos: value.todos || [], results: value.results || {} };
 }
 
 function statsSave() {

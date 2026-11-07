@@ -2,16 +2,20 @@ import json
 from datetime import date
 from js import ecoBridge
 from .registry import Registry, js_value
-from . import tools_memory, tools_todo, tools_extra, connectors
+from . import tools_memory, tools_todo, tools_extra, connectors, results
 from .compression import compact
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 APP_TITLE = "Eco"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
-MAX_ITERACIONES = 20
-MAX_ITERACIONES_SUBAGENTE = 10
-CONTEXT_TOKEN_LIMIT = 24000
-LIMIT_MESSAGE = "Se alcanzó el límite de pasos sin una respuesta final."
+MAX_ITERACIONES = 35
+MAX_ITERACIONES_SUBAGENTE = 20
+CONTEXT_TOKEN_LIMIT = 128000
+LIMIT_PROMPT = (
+    "Llegaste al límite de pasos de este turno y ya no puedes usar herramientas. "
+    "Responde ahora con lo que lograste y los datos que ya tienes, di qué falta por hacer "
+    "y ofrece continuar si la persona responde «sigue»."
+)
 SYSTEM_PROMPT = (
     "Eres Eco, un asistente que trabaja en el navegador de la persona usuaria. "
     "Responde en el idioma de la persona, con claridad y sin rodeos. "
@@ -25,7 +29,8 @@ SYSTEM_PROMPT = (
     "Solo si el servicio no tiene MCP remoto, usa create_connector con base_url, operations y sin_mcp true, y luego call_connector. Las credenciales las ingresa la persona en la app y tú solo ves si el conector está conectado. "
     "Para Gmail usa base_url https://gmail.googleapis.com, auth oauth2 con flow implicit, renewal silent, authorize_url https://accounts.google.com/o/oauth2/v2/auth y scopes de Gmail. "
     "Elige siempre la renovación para que el acceso se mantenga sin pedirle nada a la persona: refresh_token cuando el proveedor lo entregue, silent cuando solo haya token implícito. "
-    "Las acciones de escritura piden aprobación a la persona antes de ejecutarse."
+    "Las acciones de escritura piden aprobación a la persona antes de ejecutarse. "
+    "Los resultados largos de herramientas llegan resumidos y se guardan completos en un historial con un id (r1, r2…); usa leer_resultado con ese id cuando necesites el detalle."
 )
 SUBAGENT_PROMPT = (
     "Eres un subagente de Eco. Resuelve solo la tarea indicada con las herramientas disponibles "
@@ -39,6 +44,7 @@ def registry(config, child=False):
     tools_todo.register(result)
     tools_extra.register(result, child)
     connectors.register(result)
+    results.register(result)
     return result
 
 
@@ -112,10 +118,15 @@ async def run_loop(messages, config, child=False):
                 result = await tools.call(name, args)
             except Exception as error:
                 result = {"error": str(error)}
-            content = json.dumps(result, ensure_ascii=False)
-            await ecoBridge.onToolEnd(name, content)
+            await ecoBridge.onToolEnd(name, json.dumps(result, ensure_ascii=False))
+            content, _ = results.compact(name, result)
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": content})
-    return {"error": LIMIT_MESSAGE, "messages": messages, "compressed": compressed}
+    messages, did_compact = await compact(messages, CONTEXT_TOKEN_LIMIT, summarize)
+    compressed = compressed or did_compact
+    final = clean_message(await complete(config, messages + [{"role": "system", "content": LIMIT_PROMPT}], []))
+    final.pop("tool_calls", None)
+    messages.append(final)
+    return {"message": final["content"], "messages": messages, "compressed": compressed, "limit": True}
 
 
 def system_prompt(state, skills):
@@ -136,10 +147,12 @@ async def run_turn(raw):
     state = json.loads(await ecoBridge.state())
     skills = json.loads(await ecoBridge.skills())
     messages = [{"role": "system", "content": system_prompt(state, skills)}] + list(data.get("messages", []))
+    results.load(data.get("results"))
     try:
         result = await run_loop(messages, config)
     except Exception as error:
         result = {"error": str(error), "messages": messages}
+    result["results"] = results.dump()
     return json.dumps(result, ensure_ascii=False)
 
 

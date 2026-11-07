@@ -1,5 +1,5 @@
-const CACHE_NAME = "eco-v0.3.1";
-const VERSION_QUERY = "?v=0.3.1";
+const CACHE_NAME = "eco-v0.3.2";
+const VERSION_QUERY = "?v=0.3.2";
 const SHELL_FILES = [
   "./",
   "index.html",
