@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.4.2
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.4.3
 
-<img src="assets/screenshot.png" alt="Eco en pantalla móvil con memoria local" width="320">
+<img src="assets/screenshot.png?v=0.4.3" alt="Eco en pantalla móvil con memoria local" width="320">
 
 ## Uso
 
@@ -14,6 +14,7 @@
 - Pide «Conéctate a GitHub» u otro servicio: Eco busca su MCP remoto oficial; usa API HTTP si no existe MCP compatible. El servicio debe permitir CORS.
 - Las credenciales se introducen en una tarjeta, cifradas con AES-GCM en IndexedDB; el modelo no las recibe. Las escrituras en conectores requieren aprobación; la memoria conectada guarda sin pedirla.
 - Conversaciones, tareas, habilidades y memoria local permanecen en el navegador. Hay búsqueda, subagentes, compresión a 128.000 tokens e historial de resultados completos con `leer_resultado`.
+- El botón de actualizar recarga Eco con la última versión, útil cuando se abre dentro de otra página sin controles del navegador.
 - Cada turno permite 35 pasos (20 en subagentes); al alcanzar el límite, Eco resume y puedes pedir que siga.
 
 ## Memoria compartida en Google Drive
@@ -29,7 +30,7 @@ La lectura es incremental por hoja y Eco; no recibe avisos en tiempo real. Cada 
 
 ## OAuth
 
-En Google Cloud habilita **Google Sheets API** y **Google Drive API**. Configura el consentimiento externo, añade tu cuenta como usuario de prueba y los permisos `https://www.googleapis.com/auth/spreadsheets` y `https://www.googleapis.com/auth/drive.file`. Crea un Client ID tipo **Aplicación web** con:
+En Google Cloud habilita **Google Sheets API** y **Google Drive API**. Configura el consentimiento externo, añade tu cuenta como usuario de prueba y los permisos `https://www.googleapis.com/auth/spreadsheets` y `https://www.googleapis.com/auth/drive`. Crea un Client ID tipo **Aplicación web** con:
 
 - Origen JavaScript autorizado: `https://<usuario>.github.io`
 - URI de redirección: `https://<usuario>.github.io/eco/oauth.html`

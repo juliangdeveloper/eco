@@ -222,6 +222,12 @@ window.ecoApp = {
   send: (text) => window.ecoApp.ready.then(() => chat.send(text))
 };
 
+document.getElementById("reloadButton").onclick = async () => {
+  const registration = await navigator.serviceWorker?.getRegistration();
+  await registration?.update().catch(() => {});
+  location.reload();
+};
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js?v=" + APP_VERSION);
 }

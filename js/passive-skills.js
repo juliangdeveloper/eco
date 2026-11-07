@@ -16,7 +16,7 @@ const ADAPTERS = Object.freeze({
       id: CONNECTOR_ID,
       name: "Memoria persistente Google Drive",
       base_url: "https://sheets.googleapis.com",
-      auth: { type: "oauth2", flow: "implicit", renewal: "silent", authorize_url: "https://accounts.google.com/o/oauth2/v2/auth", scopes: ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"] },
+      auth: { type: "oauth2", flow: "implicit", renewal: "silent", authorize_url: "https://accounts.google.com/o/oauth2/v2/auth", scopes: ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"] },
       operations: [{ name: "leer", method: "GET", path: "/v4/spreadsheets/{id}", write: false }]
     }
   }
