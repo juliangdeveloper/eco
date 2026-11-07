@@ -4,6 +4,8 @@ import { sandboxDocument } from "./device-sandbox.js";
 
 const MAX_BYTES = 131072;
 const executions = new Set();
+const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
+const CALL_SIGNATURE = "Usa device.call(ruta, [args])";
 
 export function stopDeviceTools() {
   for (const stop of executions) { try { stop(); } catch {} }
@@ -112,7 +114,7 @@ export function executeDeviceTool(tool, params, signal) {
     }
 
     function locate(path) {
-      if (typeof path !== "string" || path.length > 200) throw new Error("Ruta inválida");
+      if (typeof path !== "string" || path.length > 200) throw new Error("ruta debe ser texto de hasta 200 caracteres. " + CALL_SIGNATURE);
       const parts = path.split(".");
       let feature, value, remaining;
       if (parts[0] === "handles") {
@@ -217,8 +219,10 @@ export function executeDeviceTool(tool, params, signal) {
         if (bytes(data) > MAX_BYTES) throw new Error("Mensaje demasiado grande");
         if (data.kind === "ready") { if (started) throw new Error("Inicio duplicado"); started = true; channel.port1.postMessage({ kind: "run", code: tool.code, params }); return; }
         if (data.kind === "done") { finish(data.error ? { ok: false, error: data.error } : { ok: true, data: data.result }); return; }
-        if (!["call", "get", "construct", "listen"].includes(data.kind) || !Number.isInteger(data.id) || !Array.isArray(data.args)) throw new Error("Solicitud inválida");
-        if (data.id < 1 || requestIds.has(data.id)) throw new Error("Solicitud repetida");
+        if (!["call", "get", "construct", "listen"].includes(data.kind)) throw new Error("kind debe ser call, get, construct o listen. " + CALL_SIGNATURE);
+        if (!Number.isInteger(data.id) || data.id < 1) throw new Error("id debe ser un entero positivo. " + CALL_SIGNATURE);
+        data.args = normalizeArgs(data.args);
+        if (requestIds.has(data.id)) throw new Error("id repetido: cada solicitud necesita un id único");
         requestIds.add(data.id);
         if (++operations > 40 || cards.size >= 8) throw new Error("Demasiadas solicitudes del dispositivo");
         locate(data.path);

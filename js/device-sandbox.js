@@ -2,9 +2,10 @@ const workerSource = `
 const pending = new Map();
 let sequence = 0;
 const size = value => new TextEncoder().encode(JSON.stringify(value)).length;
-const request = (kind, path, args = []) => new Promise((resolve, reject) => {
+const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
+const request = (kind, path, args) => new Promise((resolve, reject) => {
   const id = ++sequence;
-  const message = { kind, id, path, args };
+  const message = { kind, id, path, args: normalizeArgs(args) };
   if (size(message) > 65536) return reject(new Error("Parámetros demasiado grandes"));
   pending.set(id, { resolve, reject });
   postMessage(message);

@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.8.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.8.1
 
-<img src="assets/screenshot.png?v=0.8.0" alt="Ajustes de borrado protegido de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.8.1" alt="Ajustes de borrado protegido de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -35,7 +35,7 @@ El estado se guarda en la conversación. Al recargar, las tareas activas quedan 
 
 Eco descubre APIs, permisos, pantalla y restricciones del navegador con `entorno_descubrir`; `almacenamiento_local_leer` solo muestra configuración conocida y filtrada; oculta el texto libre de memoria/perfil y nunca lee claves o el vault. Lee documentación oficial con `documentacion_dispositivo_leer` (MDN se obtiene de su repositorio oficial si hace falta CORS) y crea herramientas con nombre, descripción, esquema JSON y JavaScript mediante `herramienta_dispositivo_gestionar`. Se pueden listar, ver, actualizar y borrar; quedan en IndexedDB solo en ese navegador. Aparecen como `dispositivo_nombre` para los subagentes. No hay herramientas de cámara, GPS u otros periféricos predefinidas.
 
-Crear o cambiar código requiere aprobación. El código corre en un worker dentro de un iframe opaco sin acceso al almacenamiento, DOM, red o credenciales de Eco, con límites de tiempo y tamaño. Usa `device.call/get/construct/listen` sobre las capacidades detectadas y referencias efímeras, nunca JavaScript ejecutado en Eco. Cada acceso presenta **Permitir una vez** en el chat: la llamada real se hace directamente dentro de ese toque, también para permisos de movimiento en iOS. Los resultados son datos no confiables; los recursos temporales se liberan al terminar cuando la API lo permite. No admite vigilancia GPS continua ni trabajo con Eco cerrado.
+Crear o cambiar código requiere aprobación. El código corre en un worker dentro de un iframe opaco sin acceso al almacenamiento, DOM, red o credenciales de Eco, con límites de tiempo y tamaño. Usa `device.call/get/construct/listen` sobre las capacidades detectadas y referencias efímeras, nunca JavaScript ejecutado en Eco. Los argumentos pueden ser una lista o un valor único, que se envuelve en una lista; por ejemplo, `await device.call('navigator.mediaDevices.getUserMedia', [{video:true}])`. Cada acceso presenta **Permitir una vez** en el chat: la llamada real se hace directamente dentro de ese toque, también para permisos de movimiento en iOS. Los resultados son datos no confiables; los recursos temporales se liberan al terminar cuando la API lo permite. No admite vigilancia GPS continua ni trabajo con Eco cerrado.
 
 Un iframe opaco no puede pedir cámara/micrófono directamente: un mediador limitado ejecuta únicamente la operación aprobada, sin evaluar código generado. HTTPS y permisos del navegador siguen siendo obligatorios. Safari no expone todas las APIs (por ejemplo Bluetooth, USB, Serial, HID o NFC); Eco lo detecta, no puede habilitarlas. Si la página contenedora bloquea permisos, indica abrir Eco directamente o ajustar el `allow` de ese iframe. No modifica la página contenedora.
 
