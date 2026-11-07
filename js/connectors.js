@@ -19,6 +19,13 @@ const EXPIRY_MARGIN_MS = 60000;
 const DEFAULT_API_KEY_HEADER = "X-API-Key";
 const DEFAULT_BEARER_PREFIX = "Bearer ";
 const NOT_CONNECTED = "not_connected";
+const AUTHORIZATION_HEADER = "Authorization";
+const MAX_ERROR_CHARS = 300;
+const AUTH_OK = "ok";
+const AUTH_MISSING = "missing_credential";
+const AUTH_UNREADABLE = "credential_unreadable";
+const AUTH_EXPIRED = "expired";
+const AUTH_REJECTED = "rejected_by_api";
 const RENEWAL_MODES = ["refresh_token", "silent", "none"];
 const SILENT_TIMEOUT_MS = 20000;
 const SILENT_FRAME_ID = "ecoSilentAuth";
@@ -141,11 +148,11 @@ export async function connectorStatus(id) {
   if (!(await hasSecret(id))) {
     return STATUS.DISCONNECTED;
   }
+  const secret = await readSecret(id);
+  if (!secretValue(connector, secret)) {
+    return STATUS.DISCONNECTED;
+  }
   if (connector.auth.type === "oauth2") {
-    const secret = await readSecret(id);
-    if (!secret || !secret.access_token) {
-      return STATUS.DISCONNECTED;
-    }
     if (secret.renewal_failed || (secret.expires_at && secret.expires_at < Date.now() && !secret.refresh_token)) {
       return STATUS.EXPIRED;
     }
@@ -213,39 +220,80 @@ async function refreshToken(connector, secret) {
   return next;
 }
 
+function secretValue(connector, secret) {
+  if (!secret) {
+    return "";
+  }
+  const type = connector.auth.type;
+  if (type === "basic") {
+    return secret.username ? secret.username + ":" + (secret.password ?? "") : "";
+  }
+  if (type === "oauth2") {
+    return secret.access_token || "";
+  }
+  return String(secret.token || secret.key || "").trim();
+}
+
+function schemePrefix(prefix) {
+  const text = String(prefix ?? "");
+  return text && !text.endsWith(" ") ? text + " " : text;
+}
+
+function headerValue(header, prefix, value) {
+  const scheme = schemePrefix(prefix);
+  if (!scheme && header.toLowerCase() === AUTHORIZATION_HEADER.toLowerCase() && !value.includes(" ")) {
+    return DEFAULT_BEARER_PREFIX + value;
+  }
+  return scheme + value;
+}
+
 async function authorize(connector, url, headers) {
   const type = connector.auth.type;
   if (type === "none") {
-    return true;
+    return AUTH_OK;
+  }
+  if (!(await hasSecret(connector.id))) {
+    return AUTH_MISSING;
   }
   let secret = await readSecret(connector.id);
   if (!secret) {
-    return false;
+    return AUTH_UNREADABLE;
+  }
+  const value = secretValue(connector, secret);
+  if (!value) {
+    return AUTH_MISSING;
   }
   if (type === "bearer") {
-    headers.Authorization = (connector.auth.prefix ?? DEFAULT_BEARER_PREFIX) + secret.token;
-    return true;
+    const header = connector.auth.header || AUTHORIZATION_HEADER;
+    headers[header] = headerValue(header, connector.auth.prefix ?? DEFAULT_BEARER_PREFIX, value);
+    return AUTH_OK;
   }
   if (type === "api_key") {
     if (connector.auth.query_param) {
-      url.searchParams.set(connector.auth.query_param, secret.key);
+      url.searchParams.set(connector.auth.query_param, value);
     } else {
-      headers[connector.auth.header || DEFAULT_API_KEY_HEADER] = secret.key;
+      const header = connector.auth.header || DEFAULT_API_KEY_HEADER;
+      headers[header] = headerValue(header, connector.auth.prefix, value);
     }
-    return true;
+    return AUTH_OK;
   }
   if (type === "basic") {
-    headers.Authorization = "Basic " + base64Utf8(secret.username + ":" + secret.password);
-    return true;
+    headers.Authorization = "Basic " + base64Utf8(value);
+    return AUTH_OK;
   }
   if (secret.expires_at && secret.expires_at - EXPIRY_MARGIN_MS < Date.now()) {
     if (!(await renewCredential(connector.id))) {
-      return false;
+      return AUTH_EXPIRED;
     }
     secret = await readSecret(connector.id);
   }
   headers.Authorization = DEFAULT_BEARER_PREFIX + secret.access_token;
-  return true;
+  return AUTH_OK;
+}
+
+function apiMessage(data) {
+  const text = typeof data === "string" ? data : String(data?.message || data?.error_description || data?.error?.message || data?.error || "");
+  return text.slice(0, MAX_ERROR_CHARS);
 }
 
 export async function connectorFetch(id, method, path, query, body) {
@@ -262,9 +310,11 @@ export async function connectorFetch(id, method, path, query, body) {
     url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   const headers = { Accept: "application/json" };
-  if (!(await authorize(connector, url, headers))) {
-    return { ok: false, error: NOT_CONNECTED };
+  const auth = await authorize(connector, url, headers);
+  if (auth !== AUTH_OK) {
+    return { ok: false, error: NOT_CONNECTED, reason: auth };
   }
+  const secretText = Object.values(headers).join(" ") + " " + url.search;
   const init = { method, headers };
   if (body && Object.keys(body).length) {
     headers["Content-Type"] = "application/json";
@@ -276,15 +326,16 @@ export async function connectorFetch(id, method, path, query, body) {
   } catch {
     return { ok: false, error: "No se pudo conectar con el servicio" };
   }
-  if (response.status === 401 && connector.auth.type !== "none") {
-    return { ok: false, status: 401, error: NOT_CONNECTED };
-  }
   const text = await response.text();
   let data;
   try {
     data = JSON.parse(text);
   } catch {
     data = text.slice(0, MAX_RESPONSE_CHARS);
+  }
+  if (response.status === 401 && connector.auth.type !== "none") {
+    const message = apiMessage(data);
+    return { ok: false, status: 401, error: NOT_CONNECTED, reason: AUTH_REJECTED, api_message: secretText.includes(message) ? "" : message };
   }
   if (typeof data !== "string" && JSON.stringify(data).length > MAX_RESPONSE_CHARS) {
     data = JSON.stringify(data).slice(0, MAX_RESPONSE_CHARS);

@@ -7,7 +7,7 @@ Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de 
 ## Uso
 
 1. Abre la app en GitHub Pages.
-2. En **Ajustes** pon tu clave de OpenRouter y, si quieres, el modelo (por defecto `openrouter/auto`).
+2. En **Ajustes** pon tu clave de OpenRouter y, si quieres, el modelo (por defecto `deepseek/deepseek-v4.1-flash-1017`).
 3. Pide lo que necesites, por ejemplo «Conéctate a mi Gmail». Eco propone el conector, tú lo apruebas y la app te muestra un formulario seguro para iniciar sesión.
 
 ## Conectores

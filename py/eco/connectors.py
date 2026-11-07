@@ -8,6 +8,12 @@ AUTH_TYPES = ["none", "bearer", "api_key", "basic", "oauth2"]
 METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 PARAM_LOCATIONS = ["path", "query", "body"]
 NOT_CONNECTED = "not_connected"
+AUTH_REASONS = {
+    "missing_credential": "No hay credencial guardada para este conector.",
+    "credential_unreadable": "La credencial guardada no se pudo descifrar en este navegador.",
+    "expired": "El acceso expiró y no se pudo renovar.",
+    "rejected_by_api": "El servicio rechazó la credencial (401): puede ser inválida, revocada o sin permisos.",
+}
 SIGN_IN_REQUESTED = "El conector no está conectado. Se pidió a la persona iniciar sesión; vuelve a intentarlo cuando confirme."
 
 DEFINITION_SCHEMA = {
@@ -235,6 +241,10 @@ async def create_connector(args):
     definition, error = normalize_definition(args)
     if error:
         return {"ok": False, "error": error}
+    host = urlparse(definition["base_url"]).hostname
+    existing = [item for item in await connectors() if urlparse(item.get("base_url", "")).hostname == host]
+    if existing and not any(item["id"] == definition["id"] for item in existing):
+        definition["id"] = existing[0]["id"]
     try:
         result = json.loads(await ecoBridge.createConnector(json.dumps(definition, ensure_ascii=False)))
     except Exception:
@@ -303,8 +313,12 @@ async def call_connector(args):
     )
     result = json.loads(raw)
     if result.get("error") == NOT_CONNECTED:
+        reason = result.get("reason", "")
         await ecoBridge.requestSignIn(connector_id)
-        return {"error": SIGN_IN_REQUESTED}
+        detail = AUTH_REASONS.get(reason, "")
+        if result.get("api_message"):
+            detail += " Respuesta del servicio: " + str(result["api_message"])
+        return {"error": SIGN_IN_REQUESTED, "reason": reason, "detail": detail.strip()}
     return result
 
 
