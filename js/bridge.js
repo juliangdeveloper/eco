@@ -1,3 +1,4 @@
+import { redactSecurityData } from "./security.js";
 import { discoverEnvironment, readEnvironmentStorage } from "./environment.js";
 import { readDeviceDocumentation, listDeviceTools, manageDeviceTool, callDeviceTool } from "./device-tools.js";
 import { timedFetch } from "./network.js";
@@ -216,7 +217,7 @@ window.ecoBridge = {
     } catch {
       args = {};
     }
-    const result = await callMcpTool(String(id), String(name), args, jobSignal(jobId));
+    const result = redactSecurityData(await callMcpTool(String(id), String(name), args, jobSignal(jobId)));
     stateApi?.refreshConnectors();
     return JSON.stringify(result);
   },

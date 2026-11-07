@@ -1,3 +1,4 @@
+import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
 export const MEMORY_COLUMNS = Object.freeze(["id", "fecha", "eco_autor", "usuario_autor", "tipo", "para", "hilo", "responde_a", "contenido", "etiquetas", "reemplaza_a"]);
 export const MEMORY_PROTOCOL = Object.freeze([
   ["clave", "valor"],
@@ -52,13 +53,16 @@ export class DriveMemory {
   }
   async call(method, path, query = {}, body = null) {
     const execute = async () => {
+      if (isWiping()) throw new Error("Memoria detenida");
       if (this.throttle) {
         const delay = Math.max(0, lastRequest + REQUEST_INTERVAL_MS - Date.now());
         if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        if (isWiping()) throw new Error("Memoria detenida");
         lastRequest = Date.now();
       }
       const result = await this.request(method, path, query, body);
       if (!result.ok) throw new Error(result.error === "not_connected" ? "Inicia sesión de nuevo en Memoria persistente Google Drive." : String(result.data?.error?.message || result.error || "No se pudo leer o guardar la memoria."));
+      if (result.redactMemory) this.redactMemory = result.redactMemory;
       return result.data;
     };
     const pending = queue.then(execute);
@@ -88,22 +92,35 @@ export class DriveMemory {
     const rows = await this.values("'records'!A" + start + ":K" + (start + BATCH_ROWS - 1));
     if (cursor.id && (rows[0]?.[0] || "") !== cursor.id) throw new Error("La hoja cambió de orden o se borraron filas. Reconecta para volver a leerla sin perder registros.");
     const skip = cursor.id ? 1 : 0;
-    const incoming = rows.slice(skip);
-    const records = incoming.filter((row) => row[0]).map((row) => Object.fromEntries(MEMORY_COLUMNS.map((key, index) => [key, row[index] || ""])));
-    if (rows.length) this.saveCursor({ row: start + rows.length - 1, id: rows.at(-1)[0] || "" });
-    return { records, hay_mas: rows.length === BATCH_ROWS, contenido_no_confiable: true };
+    const records = [];
+    let processed = skip;
+    let deferred = false;
+    for (let index = skip; index < rows.length; index++) {
+      const cells = rows[index];
+      const record = Object.fromEntries(MEMORY_COLUMNS.map((key, column) => [key, cells[column] || ""]));
+      const security = securityState();
+      if (isSecurityCommand(record.contenido) && security.enabled && security.lockedUntil > Date.now()) { deferred = true; break; }
+      if (record.id && !await inspectSecurityRecord(record, this.config.eco, () => this.redactMemory?.(start + index))) records.push(record);
+      processed = index + 1;
+      if (isWiping()) break;
+    }
+    if (processed) this.saveCursor({ row: start + processed - 1, id: rows[processed - 1][0] || "" });
+    return { records, hay_mas: !deferred && rows.length === BATCH_ROWS, contenido_no_confiable: true };
   }
   async search(filters = {}) {
     const records = [];
     let row = FIRST_ROW;
     while (true) {
       const rows = await this.values("'records'!A" + row + ":K" + (row + BATCH_ROWS - 1));
-      for (const cells of rows) {
+      for (let index = 0; index < rows.length; index++) {
+        const cells = rows[index];
         const record = Object.fromEntries(MEMORY_COLUMNS.map((key, index) => [key, cells[index] || ""]));
+        if (await inspectSecurityRecord(record, this.config.eco, () => this.redactMemory?.(row + index))) continue;
+        if (isWiping()) break;
         const matches = (!filters.texto || record.contenido.toLocaleLowerCase().includes(String(filters.texto).toLocaleLowerCase())) && (!filters.etiqueta || record.etiquetas.split(",").map((tag) => tag.trim()).includes(filters.etiqueta)) && (!filters.autor || record.eco_autor === filters.autor) && (!filters.hilo || record.hilo === filters.hilo) && (!filters.id || record.id === filters.id);
         if (record.id && matches) records.push(record);
       }
-      if (rows.length < BATCH_ROWS) break;
+      if (isWiping() || rows.length < BATCH_ROWS) break;
       row += BATCH_ROWS;
     }
     return { records, contenido_no_confiable: true };
@@ -114,6 +131,7 @@ export class DriveMemory {
     return pending;
   }
   async append(args) {
+    if (isSecurityCommand(args?.contenido)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
     if (!RECORD_TYPES.includes(args.tipo) || !String(args.contenido || "").trim() || String(args.contenido).length > MAX_CONTENT) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
     const id = args.id || crypto.randomUUID();
     if (!UUID_PATTERN.test(id)) throw new Error("El id debe ser un UUID.");

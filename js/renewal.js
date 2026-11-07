@@ -1,3 +1,4 @@
+import { isWiping } from "./security.js";
 import { credentialsDue, renewCredential } from "./connectors.js";
 
 const RENEW_CHECK_MS = 60000;
@@ -6,7 +7,7 @@ const RENEW_AHEAD_MS = 300000;
 let running = false;
 
 async function renewDue(onChange) {
-  if (running || !navigator.onLine) {
+  if (isWiping() || running || !navigator.onLine) {
     return;
   }
   running = true;

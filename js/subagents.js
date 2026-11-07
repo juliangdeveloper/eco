@@ -1,3 +1,4 @@
+import { interceptSecurityCommand, isWiping } from "./security.js";
 import { all } from "./storage.js";
 import { byId } from "./ui.js";
 
@@ -17,22 +18,27 @@ export function abortJob(id) {
 }
 
 export function resumeJob(id) {
+  if (isWiping()) return;
   controllers.set(id, new AbortController());
 }
 
 export async function jobSnapshot(id, sessionId) {
+  if (isWiping()) return;
   const session = await api.resolveSession(sessionId);
   return session.subagents?.find((row) => row.id === id) || null;
 }
 
 export async function jobRecords(sessionId) {
+  if (isWiping()) return;
   const session = await api.resolveSession(sessionId);
   return (session.subagents || []).map(({ id, task, project, status, summary }) => ({ id, task, project, status, summary: (summary || "").slice(0, PREVIEW_CHARS) }));
 }
 
 export async function jobUpdate(raw, finished) {
   const value = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (isWiping()) return;
   const session = await api.resolveSession(value.session);
+  if (isWiping()) return;
   session.subagents ||= [];
   const previous = session.subagents.find((row) => row.id === value.id);
   const next = { ...previous, ...value, updatedAt: Date.now(), revision: (previous?.revision || 0) + 1, todos: previous?.todos || [] };
@@ -42,12 +48,14 @@ export async function jobUpdate(raw, finished) {
   if (value.status === ACTIVE && !controllers.has(value.id)) resumeJob(value.id);
   if (value.status !== ACTIVE) controllers.delete(value.id);
   await api.persist(session);
+  if (isWiping()) return;
   renderSubagents();
   if (finished) api.receiveJob(session, structuredClone(previous || next)).catch(() => { window.dispatchEvent(new Event("eco-storage-error")); });
   return true;
 }
 
 async function control(action, instruction = "") {
+  if (await interceptSecurityCommand(instruction) || isWiping()) return;
   const rows = api.getSession().subagents || [];
   const job = rows[selected];
   if (!job) return;
@@ -79,6 +87,7 @@ export async function setupSubagents(options) {
   api = options;
   for (const saved of await all("sessions")) {
     if (!(saved.subagents || []).some((job) => job.status === ACTIVE)) continue;
+    if (isWiping()) return;
     const session = await api.resolveSession(saved.id);
     for (const job of session.subagents || []) {
       if (job.status === ACTIVE) {
@@ -105,4 +114,10 @@ export async function setupSubagents(options) {
     await control("modificar", instruction);
   };
   renderSubagents();
+}
+
+export function stopSubagents() {
+  for (const id of controllers.keys()) { try { abortJob(id); } catch {} }
+  controllers.clear();
+  api = null;
 }

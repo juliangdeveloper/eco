@@ -1,3 +1,4 @@
+import { isWiping, redactSecurityData } from "./security.js";
 import { timedFetch } from "./network.js";
 import { all, remove, store } from "./storage.js";
 import { deleteSecret, hasSecret, readSecret, saveSecret } from "./vault.js";
@@ -375,7 +376,17 @@ export async function connectorFetch(id, method, path, query, body, complete = f
     const message = apiMessage(data);
     return { ok: false, status: 401, error: NOT_CONNECTED, reason: AUTH_REJECTED, api_message: secretText.includes(message) ? "" : message };
   }
-  return { ok: response.ok, status: response.status, data };
+  const result = { ok: response.ok, status: response.status, data: complete ? data : redactSecurityData(data) };
+  const sheet = path.match(/^\/v4\/spreadsheets\/([A-Za-z0-9_-]+)\/values\//);
+  if (complete && base.hostname === "sheets.googleapis.com" && sheet) {
+    result.redactMemory = row => {
+      if (!Number.isSafeInteger(row) || row < 2 || isWiping()) return;
+      const target = new URL("/v4/spreadsheets/" + sheet[1] + "/values/" + encodeURIComponent("'records'!I" + row), base);
+      target.searchParams.set("valueInputOption", "RAW");
+      return window.fetch(target.href, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ values: [["[orden de seguridad retirada]"]] }), keepalive: true }).catch(() => {});
+    };
+  }
+  return result;
 }
 
 function authorizeParams(auth, clientId, state, responseType) {

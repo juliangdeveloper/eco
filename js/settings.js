@@ -1,5 +1,6 @@
+import { configureSecurity, eraseWithWord, isWiping, securityState } from "./security.js";
 import { DEFAULT_MODEL } from "./config.js";
-import { closeDatabase, setting } from "./storage.js";
+import { setting } from "./storage.js";
 import { byId } from "./ui.js";
 import { connectorStatus, deleteConnector, getConnector, listConnectors, openOAuthWindow, startOAuth } from "./connectors.js";
 import { deleteSecret } from "./vault.js";
@@ -22,22 +23,14 @@ export function bindSettings() {
   }
   byId("settingsButton").onclick = async () => {
     await Promise.all([renderConnectors(), renderRoutines()]);
+    renderSecurity();
     byId("settings").showModal();
   };
   onRoutinesChange(() => renderRoutines());
   document.querySelectorAll("[data-open-settings]").forEach((button) => {
     button.onclick = () => byId("settings").showModal();
   });
-  byId("clearData").onclick = () => {
-    if (window.confirm("¿Borrar los datos locales?")) {
-      Object.keys(localStorage)
-        .filter((key) => key.startsWith("eco."))
-        .forEach((key) => localStorage.removeItem(key));
-      closeDatabase();
-      indexedDB.deleteDatabase("eco");
-      location.reload();
-    }
-  };
+  bindSecurity();
   updateNotice();
 }
 
@@ -143,4 +136,51 @@ export async function renderRoutines() {
 
 export function updateNotice() {
   byId("notice").hidden = Boolean(setting("openrouterKey"));
+}
+
+function renderSecurity() {
+  const state = securityState();
+  byId("securityCurrentLabel").hidden = !state.enabled;
+  byId("securitySave").textContent = state.enabled ? "Cambiar palabra" : "Guardar palabra";
+  byId("securityStatus").textContent = state.enabled ? "Protección activada. El borrado solo afecta a Eco en este dispositivo." : "Configura una palabra de 8 a 128 caracteres para habilitar el borrado.";
+}
+
+function bindSecurity() {
+  renderSecurity();
+  byId("securityForm").onsubmit = async event => {
+    event.preventDefault();
+    const current = byId("securityCurrent").value;
+    const word = byId("securityNew").value;
+    const repeat = byId("securityRepeat").value;
+    for (const id of ["securityCurrent", "securityNew", "securityRepeat"]) byId(id).value = "";
+    byId("securitySave").disabled = true;
+    try {
+      const ok = word.normalize("NFC").trim() === repeat.normalize("NFC").trim() && await configureSecurity(word, current);
+      renderSecurity();
+      if (!ok) byId("securityStatus").textContent = "No se pudo guardar. Comprueba las palabras o espera antes de intentarlo otra vez.";
+    } catch { byId("securityStatus").textContent = "No se pudo guardar la protección en este navegador."; }
+    finally { byId("securitySave").disabled = false; }
+  };
+  byId("clearData").onclick = () => {
+    if (!securityState().enabled) { renderSecurity(); byId("securityNew").focus(); return; }
+    byId("wipeWord").value = "";
+    byId("wipeConfirm").checked = false;
+    byId("wipeStatus").textContent = "";
+    byId("settings").close();
+    byId("wipeDialog").showModal();
+  };
+  byId("wipeForm").onsubmit = async event => {
+    event.preventDefault();
+    const word = byId("wipeWord").value;
+    byId("wipeWord").value = "";
+    byId("wipeSubmit").disabled = true;
+    try {
+      if (!await eraseWithWord(word, byId("wipeConfirm").checked)) byId("wipeStatus").textContent = "No se pudo verificar la solicitud.";
+    } catch { byId("wipeStatus").textContent = "No se pudo verificar la solicitud."; }
+    finally { byId("wipeSubmit").disabled = false; }
+  };
+  byId("wipeDialog").addEventListener("close", () => { byId("wipeWord").value = ""; byId("wipeConfirm").checked = false; if (!isWiping()) byId("settings").showModal(); });
+  byId("settings").addEventListener("close", () => {
+    for (const id of ["securityCurrent", "securityNew", "securityRepeat"]) byId(id).value = "";
+  });
 }

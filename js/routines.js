@@ -1,3 +1,4 @@
+import { isWiping } from "./security.js";
 import { all, remove, store } from "./storage.js";
 import { connectorFetch, getConnector } from "./connectors.js";
 import { memoryMentions } from "./passive-skills.js";
@@ -14,6 +15,7 @@ const CHECK_TYPES = Object.freeze(["memoria_menciones", "conector"]);
 const MCP_KIND = "mcp";
 
 let triggerTurn = null;
+let routineTimer;
 let ticking = false;
 let changeListener = () => {};
 
@@ -144,6 +146,7 @@ async function runRoutine(routine) {
   } catch {
     result = null;
   }
+  if (isWiping()) return;
   const fresh = (await listRoutines()).find((item) => item.id === routine.id);
   if (!fresh) return;
   fresh.ultima_ejecucion = Date.now();
@@ -155,11 +158,12 @@ async function runRoutine(routine) {
 }
 
 export async function tick() {
-  if (ticking) return;
+  if (isWiping() || ticking) return;
   ticking = true;
   try {
     const now = Date.now();
     for (const routine of await listRoutines()) {
+      if (isWiping()) break;
       if (routine.activa && now - (routine.ultima_ejecucion || 0) >= routine.cada_segundos * 1000) await runRoutine(routine);
     }
   } finally {
@@ -174,5 +178,8 @@ export function onRoutinesChange(listener) {
 export function startRoutines(trigger) {
   triggerTurn = trigger;
   tick().catch(() => {});
-  setInterval(() => tick().catch(() => {}), TICK_MS);
+  clearInterval(routineTimer);
+  routineTimer = setInterval(() => tick().catch(() => {}), TICK_MS);
 }
+
+export function stopRoutines() { clearInterval(routineTimer); triggerTurn = null; changeListener = () => {}; }

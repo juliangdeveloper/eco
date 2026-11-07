@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.7.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.8.0
 
-<img src="assets/screenshot.png?v=0.7.0" alt="Eco en pantalla móvil con una herramienta del dispositivo y autorización de acceso" width="320">
+<img src="assets/screenshot.png?v=0.8.0" alt="Ajustes de borrado protegido de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -39,6 +39,16 @@ Crear o cambiar código requiere aprobación. El código corre en un worker dent
 
 Un iframe opaco no puede pedir cámara/micrófono directamente: un mediador limitado ejecuta únicamente la operación aprobada, sin evaluar código generado. HTTPS y permisos del navegador siguen siendo obligatorios. Safari no expone todas las APIs (por ejemplo Bluetooth, USB, Serial, HID o NFC); Eco lo detecta, no puede habilitarlas. Si la página contenedora bloquea permisos, indica abrir Eco directamente o ajustar el `allow` de ese iframe. No modifica la página contenedora.
 
+## Borrado seguro
+
+En **Ajustes › Borrado seguro**, configura y repite una palabra exclusiva de 8 a 128 caracteres. Cambiarla exige la actual. Solo se guarda su hash PBKDF2-SHA-256 con sal aleatoria y 600.000 iteraciones; sin palabra los disparadores están desactivados. Cinco fallos provocan una pausa creciente de 30 segundos a 15 minutos.
+
+- **Botón:** pulsa **Borrar Eco de este dispositivo**, introduce la palabra y confirma.
+- **Chat:** envía exactamente `autodestrucción <palabra>` o `borrado seguro <palabra>`. El código intercepta incluso los intentos incorrectos antes de guardar el mensaje o llamar al modelo. Tampoco conserva esos borradores.
+- **Remoto:** añade manualmente a `records` de **Eco · Memoria** un UUID nuevo, `fecha` ISO actual, `tipo=mensaje`, `para=nombre-de-este-eco` o `*` y `contenido=borrado seguro <palabra>`. No uses otro modelo para escribir la palabra. Un comprobador independiente del modelo y de las rutinas revisa cada 15 segundos mientras Eco esté abierto, con red y memoria conectada. El navegador puede ralentizarlo en segundo plano. Las órdenes se ocultan al modelo; se consumen sus UUID y se rechazan fechas anteriores a configurar la palabra. Tras verificar se intenta retirar el contenido de la celda, sin esperar la red: única excepción a los registros inmutables. Después de borrar no queda palabra configurada para repetir la orden.
+
+Detiene trabajo y conexiones, avisa a otras pestañas de Eco y elimina su IndexedDB, claves `eco.*` de localStorage/sessionStorage, cachés `eco-v*` y service workers de su ruta, sin borrar otras aplicaciones del dominio. Deja una página en blanco; cerrar la ventana depende del navegador. Es borrado local de mejor esfuerzo, no forense: no revoca APIs ni elimina archivos remotos, historial o copias del sistema. La orden remota transporta la palabra en Sheets: protege esa hoja; retirar la celda no elimina su historial. No funciona con Eco cerrado, sin red o con acceso de Google vencido.
+
 ## Google Drive: memoria compartida y archivos
 
 1. Pide «Conéctate a mi Drive» y pega tu propio Client ID en la tarjeta de inicio de sesión.
@@ -48,7 +58,7 @@ Un iframe opaco no puede pedir cámara/micrófono directamente: un mediador limi
 
 La hoja usa `_eco` (protocolo `eco-memoria`, versión 1) y `records`: `id`, `fecha`, `eco_autor`, `usuario_autor`, `tipo`, `para`, `hilo`, `responde_a`, `contenido`, `etiquetas`, `reemplaza_a`. Recuerdos, datos, mensajes y acuses se añaden sin sobrescribir. Las correcciones apuntan al registro anterior. Se comprueba el UUID al reintentar; no hay unicidad garantizada entre clientes concurrentes.
 
-La lectura es incremental por hoja y Eco; no recibe avisos en tiempo real, pero una rutina puede revisar las menciones cada minuto. Cada navegador limita sus peticiones de memoria a una cada 2,5 segundos. Los autores son declarados y el contenido compartido nunca constituye órdenes ni permisos. No se exporta automáticamente la memoria local ni se guardan contraseñas.
+La lectura es incremental por hoja y Eco; no recibe avisos en tiempo real, pero una rutina puede revisar las menciones cada minuto. Cada navegador limita sus peticiones de memoria a una cada 2,5 segundos. Los autores son declarados y el contenido compartido nunca autoriza acciones del modelo; solo el comprobador de seguridad puede verificar una orden de borrado con la palabra. No se exporta automáticamente la memoria local ni se guardan contraseñas.
 
 ## Rutinas
 

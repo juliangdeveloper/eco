@@ -1,3 +1,4 @@
+import { isWiping } from "./security.js";
 import { DATABASE_NAME, STORAGE_PREFIX } from "./config.js";
 
 const DATABASE_VERSION = 4;
@@ -7,6 +8,7 @@ const key = (name) => STORAGE_PREFIX + name;
 
 export function setting(name, value) {
   if (value === undefined) return localStorage.getItem(key(name)) || "";
+  if (isWiping()) return null;
   localStorage.setItem(key(name), value);
   return value;
 }
@@ -19,6 +21,7 @@ export function json(name, value) {
       return null;
     }
   }
+  if (isWiping()) return null;
   localStorage.setItem(key(name), JSON.stringify(value));
   return value;
 }
@@ -27,14 +30,18 @@ const OPEN_TIMEOUT_MS = 8000;
 const TRANSACTION_TIMEOUT_MS = 12000;
 let databasePromise = null;
 const pendingWrites = new Set();
+const transactions = new Set();
 
 export function closeDatabase() {
+  for (const transaction of transactions) { try { transaction.abort(); } catch {} }
+  transactions.clear();
   const pending = databasePromise;
   databasePromise = null;
   pending?.then((database) => database.close()).catch(() => {});
 }
 
 export function db() {
+  if (isWiping()) return Promise.reject(new Error("Almacenamiento cerrado"));
   if (databasePromise) return databasePromise;
   databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
@@ -69,13 +76,15 @@ export function db() {
 
 async function transact(name, mode, operation) {
   const database = await db();
+  if (isWiping()) throw new Error("Almacenamiento cerrado");
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(name, mode);
+    transactions.add(transaction);
     let value;
     let error;
     const timer = setTimeout(() => { error = new Error("El almacenamiento no responde. Tus mensajes pendientes se conservan para recuperarlos."); transaction.abort(); }, TRANSACTION_TIMEOUT_MS);
-    transaction.oncomplete = () => { clearTimeout(timer); resolve(value); };
-    transaction.onabort = transaction.onerror = () => { clearTimeout(timer); reject(error || new Error("No se pudo guardar en el almacenamiento local.")); };
+    transaction.oncomplete = () => { clearTimeout(timer); transactions.delete(transaction); resolve(value); };
+    transaction.onabort = transaction.onerror = () => { clearTimeout(timer); transactions.delete(transaction); reject(error || new Error("No se pudo guardar en el almacenamiento local.")); };
     operation(transaction.objectStore(name), (result) => { value = result; });
   });
 }

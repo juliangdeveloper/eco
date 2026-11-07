@@ -1,3 +1,4 @@
+import { interceptSecurityCommand, isWiping } from "./security.js";
 import { appendMessage, byId, renderEmpty, renderMessages, renderReply, renderTodos, updateToolCard } from "./ui.js";
 import { renderSubagents } from "./subagents.js";
 
@@ -38,6 +39,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   }
 
   async function append(session, message) {
+    if (isWiping()) return message;
     message.id ||= messageId();
     session.messages.push(message);
     const saved = persist(session);
@@ -55,6 +57,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   }
 
   async function send(text) {
+    if (isWiping() || await interceptSecurityCommand(text)) return;
     const content = text.trim();
     if (!content || !getPyodide()) return;
     if (!localStorage.getItem("eco.openrouterKey")) { byId("settings").showModal(); return; }
@@ -94,6 +97,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   }
 
   function merge(session, result) {
+    if (isWiping()) return;
     const incoming = (result.messages || []).filter((message, index) => !(index === 0 && message.role === "system"));
     let anchor = -1;
     for (const message of incoming) {
@@ -115,7 +119,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   }
 
   async function drain() {
-    if (sending || !getPyodide() || !pending.length || !localStorage.getItem("eco.openrouterKey")) return;
+    if (isWiping() || sending || !getPyodide() || !pending.length || !localStorage.getItem("eco.openrouterKey")) return;
     const item = pending.shift();
     setSending(true);
     try { await run(item); }

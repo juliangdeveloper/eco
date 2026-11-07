@@ -1,3 +1,8 @@
+import { startSecurityMemory, stopSecurityMemory } from "./passive-skills.js";
+import { interceptSecurityCommand, isSecurityCommand, isWiping, safeDraft, setSecurityShutdown } from "./security.js";
+import { stopDeviceTools } from "./device-runtime.js";
+import { abortNetwork } from "./network.js";
+import { clearVaultMemory } from "./vault.js";
 import { checkpointSession, flushSessions, recoverSessions, saveSession } from "./session-store.js";
 import { createAgentPanel } from "./agentPanel.js";
 import { setBridgeState, setToolListener } from "./bridge.js";
@@ -6,13 +11,13 @@ import { createChat } from "./chat.js";
 import { metaDeclararProyecto, metaUpdate } from "./meta.js";
 import { loadAgent } from "./pyodide.js";
 import { startRenewal } from "./renewal.js";
-import { startRoutines, tick } from "./routines.js";
+import { startRoutines, stopRoutines, tick } from "./routines.js";
 import { listConnectors, connectorStatus, STATUS } from "./connectors.js";
 import { renderReconnectNotice } from "./credentials.js";
-import { setupSubagents, renderSubagents } from "./subagents.js";
+import { setupSubagents, renderSubagents, stopSubagents } from "./subagents.js";
 import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
-import { all, flushWrites, json } from "./storage.js";
+import { all, closeDatabase, flushWrites, json } from "./storage.js";
 import { autoExpand, bindReplyGestures, byId, pretty, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "Nueva conversación";
@@ -60,6 +65,7 @@ function statsSave() {
 }
 
 async function persist(value = session) {
+  if (isWiping()) return;
   value.updatedAt = Date.now();
   if (value.title === DEFAULT_TITLE) {
     value.title = value.messages.find((item) => item.role === "user")?.content.slice(0, 48) || DEFAULT_TITLE;
@@ -140,9 +146,12 @@ function bindClarify() {
     }
   };
   dialog.onclose = () => finish(dialog.returnValue || "");
-  byId("clarifyForm").onsubmit = (event) => {
+  byId("clarifyForm").onsubmit = async (event) => {
     event.preventDefault();
-    dialog.returnValue = byId("clarifyText").value;
+    const value = byId("clarifyText").value;
+    byId("clarifyText").value = "";
+    if (await interceptSecurityCommand(value)) return;
+    dialog.returnValue = value;
     dialog.close();
   };
   return (question, raw) => new Promise((done) => {
@@ -184,18 +193,29 @@ async function refreshCredentials() {
 
 function bindComposer() {
   const prompt = byId("prompt");
-  prompt.oninput = () => autoExpand(prompt);
+  prompt.oninput = () => { autoExpand(prompt); byId("securityNotice").hidden = true; };
   byId("composer").onsubmit = (event) => {
     event.preventDefault();
     const text = prompt.value;
     prompt.value = "";
     autoExpand(prompt);
-    chat.send(text).catch(() => { byId("prompt").value = text; });
+    chat.send(text).catch(() => { if (!isWiping() && !isSecurityCommand(text)) byId("prompt").value = text; });
     refreshCredentials();
   };
 }
 
 async function main() {
+  setSecurityShutdown(() => {
+    for (const stop of [stopRoutines, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
+    for (const item of interactions.splice(0)) item.resolve(item.kind === "confirm" ? false : "");
+    for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close("cancelled");
+    pyodide = null;
+    knownSessions.clear();
+    session = newSessionData();
+    stats = {};
+    window.ecoBridge = null;
+    for (const input of document.querySelectorAll("input, textarea")) input.value = "";
+  });
   byId("version").textContent = APP_VERSION;
   metaDeclararProyecto(APP_ID, APP_VERSION);
   statsSave();
@@ -265,17 +285,21 @@ async function main() {
     byId("reconnectText").textContent = "El almacenamiento está lleno. No cierres Eco hasta guardar tus mensajes.";
   });
   const flush = () => {
-    currentSession().draft = byId("prompt").value;
+    if (isWiping()) return;
+    currentSession().draft = safeDraft(byId("prompt").value);
     for (const value of knownSessions.values()) checkpointSession(value);
     flushSessions(knownSessions.values());
     flushWrites();
   };
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flush(); });
   window.addEventListener("pagehide", flush);
+  startSecurityMemory();
   startRenewal(refreshCredentials);
   refreshCredentials();
   try {
-    pyodide = await loadAgent();
+    const loaded = await loadAgent();
+    if (isWiping()) return;
+    pyodide = loaded;
   } catch (error) {
     if (byId("empty")) byId("empty").textContent = LOAD_ERROR;
     throw error;
@@ -292,7 +316,7 @@ window.ecoApp = {
     byId("send").disabled = true;
     return false;
   }),
-  send: (text) => window.ecoApp.ready.then(() => chat?.send(text))
+  send: (text) => isSecurityCommand(text) ? interceptSecurityCommand(text) : window.ecoApp.ready.then(() => chat?.send(text))
 };
 
 document.getElementById("reloadButton").onclick = async () => {
@@ -302,5 +326,5 @@ document.getElementById("reloadButton").onclick = async () => {
 };
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js?v=" + APP_VERSION);
+  navigator.serviceWorker.register("sw.js?v=" + APP_VERSION).then(registration => { if (isWiping()) registration.unregister(); }).catch(() => {});
 }

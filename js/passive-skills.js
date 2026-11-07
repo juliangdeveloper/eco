@@ -1,3 +1,4 @@
+import { isWiping, securityState } from "./security.js";
 import { APP_VERSION } from "./config.js";
 import { json } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
@@ -224,3 +225,31 @@ export async function configureMemory(action) {
     };
   });
 }
+
+let securityChecking = false;
+let securityTimer;
+
+export async function checkSecurityMemory() {
+  const security = securityState();
+  if (securityChecking || isWiping() || !security.enabled || security.lockedUntil > Date.now() || !navigator.onLine) return;
+  securityChecking = true;
+  try {
+    const config = await connectedConfig();
+    if (!config || isWiping()) return;
+    const cursorKey = "securityMemoryCursor:" + identityOf(config);
+    const reader = ADAPTERS[config.backend].create({ config, request: memoryRequest(ADAPTERS[config.backend]), loadCursor: () => json(cursorKey), saveCursor: value => json(cursorKey, value) });
+    for (let batch = 0; batch < MAX_MENTION_BATCHES && !isWiping(); batch++) {
+      if (!(await reader.readNew()).hay_mas) break;
+    }
+  } catch {} finally { securityChecking = false; }
+}
+
+export function startSecurityMemory() {
+  clearInterval(securityTimer);
+  securityTimer = setInterval(checkSecurityMemory, 15000);
+  for (const event of ["online", "focus", "eco-credentials-changed", "eco-security-changed"]) window.addEventListener(event, checkSecurityMemory);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkSecurityMemory(); });
+  checkSecurityMemory();
+}
+
+export function stopSecurityMemory() { clearInterval(securityTimer); activeAdapter = null; activeIdentity = ""; skillTexts.clear(); }

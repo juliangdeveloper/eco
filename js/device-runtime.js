@@ -1,12 +1,20 @@
+import { isWiping } from "./security.js";
 import { featureDefinitions, featureValue, policyState } from "./environment.js";
 import { sandboxDocument } from "./device-sandbox.js";
 
 const MAX_BYTES = 131072;
+const executions = new Set();
+
+export function stopDeviceTools() {
+  for (const stop of executions) { try { stop(); } catch {} }
+  executions.clear();
+}
 const forbidden = new Set(["composedPath", "watchPosition", "addEventListener", "removeEventListener", "dispatchEvent", "constructor", "prototype", "__proto__", "caller", "callee", "arguments", "call", "apply", "bind", "eval", "valueOf", "toString", "toLocaleString", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "window", "parent", "top", "self", "globalThis", "document", "ownerDocument", "defaultView", "source", "ports", "view", "target", "currentTarget", "srcElement", "path"]);
 const bytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
 const validPart = value => /^[A-Za-z][A-Za-z0-9]*$/.test(value) && !forbidden.has(value);
 
 export function executeDeviceTool(tool, params, signal) {
+  if (isWiping()) return Promise.resolve({ ok: false, error: "Acceso cancelado" });
   return new Promise((resolve) => {
     const frame = document.createElement("iframe");
     frame.hidden = true;
@@ -36,6 +44,7 @@ export function executeDeviceTool(tool, params, signal) {
     const finish = (result) => {
       if (settled) return;
       settled = true;
+      executions.delete(abort);
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
       for (const cleanup of cleanups) cleanup();
@@ -48,6 +57,7 @@ export function executeDeviceTool(tool, params, signal) {
     };
     const abort = () => finish({ ok: false, error: "Acceso al dispositivo cancelado" });
     const timer = setTimeout(() => finish({ ok: false, error: "La herramienta del dispositivo agotó su tiempo. Puedes volver a intentarlo." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
+    executions.add(abort);
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener("abort", abort, { once: true });
 

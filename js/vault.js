@@ -9,6 +9,8 @@ const IV_BYTES = 12;
 
 let keyPromise = null;
 
+export function clearVaultMemory() { keyPromise = null; }
+
 async function findRecord(storeName, id) {
   const rows = await all(storeName);
   return rows.find((row) => row.id === id) || null;

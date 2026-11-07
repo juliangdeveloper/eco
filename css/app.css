@@ -983,3 +983,9 @@ dialog small {
 .deviceRequest pre { max-height: 88px; overflow: auto; white-space: pre-wrap; }
 .deviceRequest button { padding: 8px 12px; border-radius: 14px; margin-right: 8px; margin-top: 4px; }
 .deviceRequest button:first-of-type { background: var(--blue); color: white; }
+
+.securitySection { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 4px; }
+.securitySection p, #wipeStatus, #securityNotice { font-size: 12px; line-height: 1.5; color: var(--muted); }
+#securityNotice { padding: 6px 18px; }
+.checkLabel { display: flex; align-items: flex-start; gap: 10px; }
+.checkLabel input { width: auto; flex: 0 0 auto; margin-top: 4px; }
