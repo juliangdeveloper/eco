@@ -975,9 +975,13 @@ dialog small {
   font-size: 12px;
 }
 
-#deviceRequests { flex: 0 1 auto; max-height: 34dvh; overflow: auto; overscroll-behavior: contain; }
+#deviceRequests { max-height: 70dvh; padding: 16px; }
+#deviceRequests .deviceRequest:not(:first-child) { display: none; }
+#deviceRequests details pre { max-height: 16dvh; }
 #deviceRequests:empty { display: none; }
-#deviceRequests .deviceRequest { max-width: 100%; width: auto; margin: 8px 16px; overflow-wrap: anywhere; }
+#deviceRequests .deviceRequest { max-width: 100%; width: auto; margin: 0; overflow-wrap: anywhere; }
+#deviceRequests .deviceRequest p { margin-top: 0; }
+#deviceRequests .deviceRequest button { margin: 12px 8px 0 0; min-height: 44px; }
 .deviceRequest p { margin: 0 0 8px; }
 .deviceRequest details { font-size: 12px; margin-bottom: 8px; }
 .deviceRequest pre { max-height: 88px; overflow: auto; white-space: pre-wrap; }

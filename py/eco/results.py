@@ -3,6 +3,8 @@ from contextvars import ContextVar
 from .registry import schema
 
 COMPACT_BYTE_LIMIT = 128 * 1024
+RESULT_HISTORY_BYTES = 8 * 1024 * 1024
+RESULT_HISTORY_COUNT = 64
 MAX_LIST_ITEMS = 20
 MAX_STRING_CHARS = 600
 READ_DEFAULT_LIMIT = COMPACT_BYTE_LIMIT
@@ -28,16 +30,34 @@ def load(items):
     current_store()["items"] = dict(items or {})
     numbers = [int(key[1:]) for key in current_store()["items"] if key[1:].isdigit()]
     current_store()["next"] = max(numbers, default=0) + 1
+    prune_history()
 
 
 def dump():
     return current_store()["items"]
 
 
+def prune_history():
+    items = current_store()["items"]
+    total = 0
+    keep = []
+    for key, item in reversed(list(items.items())):
+        size = len(item.get("content", "").encode("utf-8"))
+        if size > RESULT_HISTORY_BYTES:
+            item["content"] = dumps({"error": "El resultado excede los 8 MiB del historial. Solicita datos por partes en el origen.", "total_bytes": size})
+            item["omitted"] = True
+            size = len(item["content"].encode("utf-8"))
+        if len(keep) < RESULT_HISTORY_COUNT and total + size <= RESULT_HISTORY_BYTES:
+            keep.append(key)
+            total += size
+    current_store()["items"] = {key: items[key] for key in reversed(keep)}
+
+
 def save(name, text):
     key = "r" + str(current_store()["next"])
     current_store()["next"] += 1
     current_store()["items"][key] = {"tool": name, "content": text}
+    prune_history()
     return key
 
 
@@ -106,6 +126,8 @@ def compact(name, result, args=None):
     if len(small.encode("utf-8")) > COMPACT_BYTE_LIMIT:
         shown = small.encode("utf-8")[:COMPACT_BYTE_LIMIT].decode("utf-8", errors="ignore")
     note = "[resultado resumido; completo en historial id=" + key + ", " + str(len(full.encode("utf-8"))) + " bytes UTF-8; usa leer_resultado para ver más]"
+    if current_store()["items"].get(key, {}).get("omitted") or key not in current_store()["items"]:
+        note = "[resultado resumido; excede los 8 MiB del historial. Solicita datos por partes en el origen]"
     return dumps({"resumen": shown, "nota": note}), key
 
 

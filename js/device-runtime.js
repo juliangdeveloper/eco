@@ -3,6 +3,8 @@ import { featureDefinitions, featureValue, policyState } from "./environment.js"
 import { sandboxDocument } from "./device-sandbox.js";
 
 const MAX_BYTES = 131072;
+const STARTUP_TIMEOUT_MS = 5000;
+const BROWSER_RESPONSE_TIMEOUT_MS = 20000;
 const executions = new Set();
 const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
 const CALL_SIGNATURE = "Usa device.call(ruta, [args])";
@@ -48,9 +50,12 @@ export function executeDeviceTool(tool, params, signal) {
       settled = true;
       executions.delete(abort);
       clearTimeout(timer);
+      clearTimeout(startupTimer);
       signal?.removeEventListener("abort", abort);
       for (const cleanup of cleanups) cleanup();
       for (const card of cards) card.remove();
+      const panel = document.getElementById("deviceRequests");
+      if (!panel.children.length && panel.open) panel.close();
       for (const { value, feature } of [...handles.values()].reverse()) stopObject(value, feature);
       channel.port1.postMessage({ kind: "stop" });
       channel.port1.close();
@@ -58,7 +63,8 @@ export function executeDeviceTool(tool, params, signal) {
       resolve({ untrusted: true, ...result });
     };
     const abort = () => finish({ ok: false, error: "Acceso al dispositivo cancelado" });
-    const timer = setTimeout(() => finish({ ok: false, error: "La herramienta del dispositivo agotó su tiempo. Puedes volver a intentarlo." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
+    const startupTimer = setTimeout(() => finish({ ok: false, error: "No se pudo iniciar la herramienta aislada en este navegador. Actualiza Safari y vuelve a intentar." }), STARTUP_TIMEOUT_MS);
+    const timer = setTimeout(() => finish({ ok: false, error: cards.size ? "Falta autorizar el acceso al dispositivo. Toca Permitir una vez y vuelve a intentar." : "La herramienta del dispositivo no terminó. Vuelve a intentarlo." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
     executions.add(abort);
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener("abort", abort, { once: true });
@@ -189,13 +195,32 @@ export function executeDeviceTool(tool, params, signal) {
       cancel.type = "button";
       cancel.textContent = "Cancelar";
       let cancelled = false;
+      let replied = false;
+      let browserTimer;
+      const panel = document.getElementById("deviceRequests");
+      const dismiss = event => {
+        if (event.defaultPrevented || panel.firstElementChild !== card) return;
+        event.preventDefault(); cancel.click();
+      };
+      panel.addEventListener("cancel", dismiss);
+      const cleanup = () => { clearTimeout(browserTimer); panel.removeEventListener("cancel", dismiss); };
+      cleanups.add(cleanup);
       const reply = result => {
+        if (replied) return;
+        replied = true;
+        cleanup(); cleanups.delete(cleanup);
         card.remove(); cards.delete(card);
+        if (!panel.children.length && panel.open) panel.close();
         if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, ...result });
       };
       allow.onclick = () => {
         if (settled || allow.disabled) return;
         allow.disabled = true;
+        allow.textContent = "Esperando al navegador…";
+        browserTimer = setTimeout(() => {
+          cancelled = true;
+          reply({ error: "El navegador no respondió al permiso. Revisa el permiso de cámara o micrófono de Safari y vuelve a intentar. Si Eco está dentro de otra página, ábrelo directamente." });
+        }, BROWSER_RESPONSE_TIMEOUT_MS);
         let task;
         try { task = invoke(message, () => cancelled); } catch (error) { task = Promise.reject(error); }
         task.then(result => {
@@ -209,15 +234,15 @@ export function executeDeviceTool(tool, params, signal) {
       cancel.onclick = () => { cancelled = true; reply({ error: "Acceso cancelado por la persona" }); };
       card.append(text, details, allow, cancel);
       cards.add(card);
-      document.getElementById("deviceRequests").append(card);
-      card.scrollIntoView({ block: "nearest" });
+      panel.append(card);
+      if (!panel.open) panel.showModal();
     }
 
     channel.port1.onmessage = ({ data }) => {
       if (settled) return;
       try {
         if (bytes(data) > MAX_BYTES) throw new Error("Mensaje demasiado grande");
-        if (data.kind === "ready") { if (started) throw new Error("Inicio duplicado"); started = true; channel.port1.postMessage({ kind: "run", code: tool.code, params }); return; }
+        if (data.kind === "ready") { if (started) throw new Error("Inicio duplicado"); started = true; clearTimeout(startupTimer); channel.port1.postMessage({ kind: "run", code: tool.code, params }); return; }
         if (data.kind === "done") { finish(data.error ? { ok: false, error: data.error } : { ok: true, data: data.result }); return; }
         if (!["call", "get", "construct", "listen"].includes(data.kind)) throw new Error("kind debe ser call, get, construct o listen. " + CALL_SIGNATURE);
         if (!Number.isInteger(data.id) || data.id < 1) throw new Error("id debe ser un entero positivo. " + CALL_SIGNATURE);

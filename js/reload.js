@@ -1,5 +1,5 @@
 import { APP_VERSION } from "./config.js";
-import { json } from "./storage.js";
+import { all, json, remove, store } from "./storage.js";
 import { isWiping } from "./security.js";
 
 const MARKER_KEY = "reloadResume";
@@ -16,17 +16,18 @@ let reloading = false;
 
 export function reloadPending() { return reloading; }
 
-export function resumeMarker() {
-  const marker = json(MARKER_KEY);
+export async function resumeMarker() {
+  const marker = (await all("state")).find(row => row.id === MARKER_KEY)?.value || json(MARKER_KEY);
   if (!marker || marker.owner !== sessionStorage.getItem(OWNER_KEY)) return null;
   if (Date.now() - marker.createdAt > RESUME_TTL_MS) {
-    clearResumeMarker();
+    await clearResumeMarker();
     return null;
   }
   return marker;
 }
 
-export function clearResumeMarker() {
+export async function clearResumeMarker() {
+  await remove("state", MARKER_KEY);
   localStorage.removeItem("eco." + MARKER_KEY);
   sessionStorage.removeItem(OWNER_KEY);
 }
@@ -77,7 +78,7 @@ export async function commitReload(raw) {
     const marker = await api.checkpoint(check.motivo);
     const owner = crypto.randomUUID();
     sessionStorage.setItem(OWNER_KEY, owner);
-    json(MARKER_KEY, { ...marker, owner, before: APP_VERSION, reason: check.motivo, createdAt: Date.now() });
+    await store("state", { id: MARKER_KEY, value: { ...marker, owner, before: APP_VERSION, reason: check.motivo, createdAt: Date.now() } });
     const now = Date.now();
     json(HISTORY_KEY, [...(json(HISTORY_KEY) || []).filter((stamp) => now - stamp < RELOAD_WINDOW_MS), now]);
     api.stop();
@@ -87,7 +88,7 @@ export async function commitReload(raw) {
     await new Promise(() => {});
   } catch (error) {
     reloading = false;
-    clearResumeMarker();
+    await clearResumeMarker();
     throw error;
   }
 }

@@ -50,7 +50,7 @@ export async function jobUpdate(raw, finished) {
   await api.persist(session);
   if (isWiping()) return;
   renderSubagents();
-  if (finished) api.receiveJob(session, structuredClone(previous || next)).catch(() => { window.dispatchEvent(new Event("eco-storage-error")); });
+  if (finished) api.receiveJob(session, structuredClone(previous || next)).catch(() => { byId("subagentError").textContent = "No se pudo entregar el resultado. Indica al subagente que continúe."; });
   return true;
 }
 

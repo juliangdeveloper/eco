@@ -1,32 +1,33 @@
 import { all, json, store } from "./storage.js";
+import { sessionSnapshot } from "./session-data.js";
 
 const JOURNAL_PREFIX = "sessionJournal:";
 const queues = new Map();
 
-export function checkpointSession(session) {
-  const value = { id: session.id, title: session.title, messages: session.messages, results: session.results, pendingTurns: session.pendingTurns || [], inFlight: session.inFlight || null, contextMessages: session.contextMessages || [], contextKnownIds: session.contextKnownIds || [], replyDraft: session.replyDraft || null, draft: session.draft || "", subagents: session.subagents || [], todos: session.todos || [], updatedAt: session.updatedAt, revision: session.revision };
-  try { json(JOURNAL_PREFIX + session.id, value); }
-  catch { window.dispatchEvent(new Event("eco-storage-error")); }
-}
+const latest = new Map();
 
 export function saveSession(session) {
   session.revision = (session.revision || 0) + 1;
   session.updatedAt = Date.now();
-  checkpointSession(session);
-  const snapshot = structuredClone(session);
-  const previous = queues.get(session.id) || Promise.resolve();
-  const pending = previous.catch(() => {}).then(() => store("sessions", snapshot)).then(() => {
-    const journal = json(JOURNAL_PREFIX + session.id);
-    if (journal?.revision === snapshot.revision) localStorage.removeItem("eco." + JOURNAL_PREFIX + session.id);
-  });
+  const snapshot = sessionSnapshot(session);
+  session.results = snapshot.results;
+  for (const job of session.subagents || []) job.results = snapshot.subagents.find(row => row.id === job.id)?.results || {};
+  latest.set(session.id, snapshot);
+  if (queues.has(session.id)) return queues.get(session.id);
+  const pending = (async () => {
+    while (latest.has(session.id)) {
+      const next = latest.get(session.id);
+      await store("sessions", next);
+      if (latest.get(session.id) === next) latest.delete(session.id);
+    }
+  })();
   queues.set(session.id, pending);
   pending.finally(() => { if (queues.get(session.id) === pending) queues.delete(session.id); }).catch(() => {});
   return pending;
 }
 
 export function flushSessions(sessions) {
-  for (const session of sessions) checkpointSession(session);
-  return Promise.allSettled([...queues.values()]);
+  return Promise.all([...sessions].map(saveSession));
 }
 
 export async function recoverSessions(resume = null) {
@@ -38,7 +39,7 @@ export async function recoverSessions(resume = null) {
     const index = rows.findIndex((row) => row.id === journal.id);
     const previous = rows[index] || { todos: [], results: {}, subagents: [] };
     if ((journal.revision || 0) >= (previous.revision || 0)) {
-      const restored = { ...previous, ...journal };
+      const restored = sessionSnapshot({ ...previous, ...journal });
       await store("sessions", restored);
       if (index < 0) rows.push(restored);
       else rows[index] = restored;
@@ -58,6 +59,7 @@ export async function recoverSessions(resume = null) {
       row.inFlight = null;
       row.pendingTurns = [];
     }
+    Object.assign(row, sessionSnapshot(row));
     await store("sessions", row);
   }
   return rows;

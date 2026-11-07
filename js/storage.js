@@ -1,8 +1,9 @@
+import { sessionSnapshot } from "./session-data.js";
 import { isWiping } from "./security.js";
 import { DATABASE_NAME, STORAGE_PREFIX } from "./config.js";
 
-const DATABASE_VERSION = 4;
-const STORES = ["sessions", "skills", "connectors", "secrets", "keys", "routines", "deviceTools"];
+const DATABASE_VERSION = 5;
+const STORES = ["sessions", "skills", "connectors", "secrets", "keys", "routines", "deviceTools", "state"];
 
 const key = (name) => STORAGE_PREFIX + name;
 
@@ -82,16 +83,72 @@ async function transact(name, mode, operation) {
     transactions.add(transaction);
     let value;
     let error;
-    const timer = setTimeout(() => { error = new Error("El almacenamiento no responde. Tus mensajes pendientes se conservan para recuperarlos."); transaction.abort(); }, TRANSACTION_TIMEOUT_MS);
+    const timer = setTimeout(() => { error = new DOMException("El almacenamiento no responde. No cierres Eco hasta guardar.", "TimeoutError"); transaction.abort(); }, TRANSACTION_TIMEOUT_MS);
     transaction.oncomplete = () => { clearTimeout(timer); transactions.delete(transaction); resolve(value); };
-    transaction.onabort = transaction.onerror = () => { clearTimeout(timer); transactions.delete(transaction); reject(error || new Error("No se pudo guardar en el almacenamiento local.")); };
-    operation(transaction.objectStore(name), (result) => { value = result; });
+    transaction.onabort = transaction.onerror = (event) => { clearTimeout(timer); transactions.delete(transaction); reject(error || event.target?.error || transaction.error || new Error("No se pudo guardar en el almacenamiento local.")); };
+    try { operation(transaction.objectStore(name), (result) => { value = result; }); }
+    catch (cause) { error = cause; transaction.abort(); }
   });
 }
 
+const WRITE_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 200;
+const failedWrites = new Map();
+let reclaiming = null;
+
+function reportStorageError(error, scope = "sessions") {
+  if (isWiping()) return;
+  window.dispatchEvent(new CustomEvent("eco-storage-error", { detail: { name: error?.name || "Error", scope } }));
+}
+
+async function reclaimSpace() {
+  navigator.storage?.persist?.().catch(() => {});
+  const sessions = await all("sessions");
+  for (const session of sessions.sort((a, b) => a.updatedAt - b.updatedAt)) {
+    await transact("sessions", "readwrite", table => {
+      const request = table.get(session.id);
+      request.onsuccess = () => { if (request.result) table.put(sessionSnapshot(request.result, true)); };
+    });
+  }
+}
+
+export function retryFailedWrites() {
+  return Promise.all([...failedWrites.values()].map(({ name, value }) => store(name, value)));
+}
+
 export function store(name, value) {
-  const snapshot = structuredClone(value);
-  const write = transact(name, "readwrite", (table, done) => { table.put(snapshot); done(snapshot); });
+  const snapshot = name === "sessions" ? sessionSnapshot(value) : structuredClone(value);
+  const id = name + ":" + snapshot.id;
+  const write = (async () => {
+    let failure;
+    for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+      try {
+        const result = await transact(name, "readwrite", (table, done) => { table.put(snapshot); done(snapshot); });
+        failedWrites.delete(id);
+        if (!failedWrites.size) window.dispatchEvent(new CustomEvent("eco-storage-saved", { detail: { scope: name } }));
+        return result;
+      } catch (error) {
+        failure = error;
+        if (error.name === "InvalidStateError") {
+          const previous = databasePromise;
+          databasePromise = null;
+          previous?.then(database => database.close()).catch(() => {});
+        }
+        if (isWiping() || error.name === "DataCloneError") break;
+        if (error.name === "QuotaExceededError") {
+          try {
+            reclaiming ||= reclaimSpace().finally(() => { reclaiming = null; });
+            await reclaiming;
+            if (name === "sessions") Object.assign(snapshot, sessionSnapshot(snapshot, true));
+          } catch {}
+        }
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)));
+      }
+    }
+    if (!isWiping()) failedWrites.set(id, { name, value: snapshot });
+    reportStorageError(failure, name);
+    throw failure;
+  })();
   pendingWrites.add(write);
   write.finally(() => pendingWrites.delete(write)).catch(() => {});
   return write;

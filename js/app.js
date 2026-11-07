@@ -4,7 +4,7 @@ import { interceptSecurityCommand, isSecurityCommand, isWiping, safeDraft, setSe
 import { stopDeviceTools } from "./device-runtime.js";
 import { abortNetwork } from "./network.js";
 import { clearVaultMemory } from "./vault.js";
-import { checkpointSession, flushSessions, recoverSessions, saveSession } from "./session-store.js";
+import { flushSessions, recoverSessions, saveSession } from "./session-store.js";
 import { createAgentPanel } from "./agentPanel.js";
 import { setBridgeState, setToolListener } from "./bridge.js";
 import { APP_ID, APP_VERSION, STATS } from "./config.js";
@@ -18,7 +18,7 @@ import { renderReconnectNotice } from "./credentials.js";
 import { setupSubagents, renderSubagents, stopSubagents } from "./subagents.js";
 import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
-import { all, closeDatabase, flushWrites, json } from "./storage.js";
+import { all, closeDatabase, flushWrites, json, retryFailedWrites } from "./storage.js";
 import { autoExpand, bindReplyGestures, byId, pretty, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "Nueva conversación";
@@ -218,7 +218,6 @@ async function main() {
   });
   byId("version").textContent = APP_VERSION;
   metaDeclararProyecto(APP_ID, APP_VERSION);
-  statsSave();
   bindSettings();
   bindCloseButtons();
   const confirm = bindConfirm();
@@ -233,11 +232,12 @@ async function main() {
     statsSave
   });
   chat.setSending(true);
-  const reloadResume = resumeMarker();
+  const reloadResume = await resumeMarker();
   const restored = await recoverSessions(reloadResume);
   for (const saved of restored) knownSessions.set(saved.id, saved);
   const last = restored.find((row) => row.id === json("lastSession")) || [...restored].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   replaceSession(last || session);
+  statsSave();
   agentPanel = createAgentPanel({ getTodos: () => chat.currentTodos() });
   createSessions({
     loadSession: chat.loadSession,
@@ -281,15 +281,23 @@ async function main() {
   bindReplyGestures((id) => chat.replyTo(id).catch(() => {}));
   window.addEventListener("eco-credentials-changed", () => { refreshCredentials(); tick().catch(() => {}); chat.drain(); });
   window.addEventListener("eco-reconnect-finished", () => { renderConnectors().catch(() => {}); });
-  window.addEventListener("eco-storage-error", () => {
-    byId("reconnectNotice").hidden = false;
-    byId("reconnectText").textContent = "El almacenamiento está lleno. No cierres Eco hasta guardar tus mensajes.";
+  window.addEventListener("eco-storage-error", (event) => {
+    byId("storageNotice").hidden = false;
+    byId("storageText").textContent = event.detail?.name === "QuotaExceededError"
+      ? "No queda espacio para guardar. Ya intenté liberar resultados antiguos. No cierres Eco hasta guardar tus mensajes."
+      : "No se pudieron guardar los últimos cambios. No cierres Eco; vuelve a intentar guardar.";
   });
+  window.addEventListener("eco-storage-saved", () => { byId("storageNotice").hidden = true; });
+  byId("storageRetry").onclick = async () => {
+    byId("storageRetry").disabled = true;
+    try { await retryFailedWrites(); await flushSessions(knownSessions.values()); }
+    catch {}
+    finally { byId("storageRetry").disabled = false; }
+  };
   const flush = () => {
     if (isWiping()) return;
     currentSession().draft = safeDraft(byId("prompt").value);
-    for (const value of knownSessions.values()) checkpointSession(value);
-    flushSessions(knownSessions.values());
+    flushSessions(knownSessions.values()).catch(() => {});
     flushWrites();
   };
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flush(); });
@@ -328,7 +336,7 @@ async function main() {
         if (result.error) throw new Error(result.error);
       }
     }
-    clearResumeMarker();
+    await clearResumeMarker();
     if (reloadResume.session) replaceSession(await resolveSession(reloadResume.session));
     await chat.resume(owners, notice);
   }
