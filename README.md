@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.9.3
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.9.4
 
-<img src="assets/screenshot.png?v=0.9.3" alt="Permiso de cámara en Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.9.4" alt="Ajustes de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -19,7 +19,7 @@
 - Eco abre la última conversación activa. Cada mensaje y turno pendiente se guarda al añadirlo, en IndexedDB, sin duplicar conversaciones en localStorage. Reintenta fallos temporales; ante falta de espacio retira primero resultados antiguos, nunca mensajes, y solicita almacenamiento persistente si el navegador lo admite. Un aviso separado permite **Reintentar guardar** y desaparece al completar el guardado. Una recarga normal no repite turnos interrumpidos.
 - Desliza cualquier mensaje hacia la derecha (o arrástralo con el ratón) para responder citándolo. La cita aparece encima del campo, puede cancelarse y se conserva con el mensaje. Si citas un resultado de subagente, el orquestador puede continuar ese mismo trabajo.
 - Eco puede decidir recargarse con `eco_actualizar({motivo})`, sin pedir aprobación: guarda la conversación, el turno pendiente y los subagentes activos, aplica el service worker disponible y retoma al cargar con los mismos subagentes. El botón **Actualizar** hace lo mismo, también dentro de otra página. No hay búsqueda automática de versiones: puedes avisarle de una actualización por chat o memoria compartida. Máximo una recarga por minuto y tres cada diez minutos.
-- El orquestador dispone de 2 pasos por turno; cada subagente, de 20. Al alcanzar el límite resume lo logrado y puedes indicarle que continúe.
+- En Ajustes puedes cambiar los pasos por turno: orquestador de 1 a 100 (20 por defecto) y subagente de 1 a 300 (90 por defecto). Se guardan en este dispositivo, se aplican al siguiente turno y se eliminan con el borrado seguro. Al alcanzar el límite resume lo logrado y puedes indicarle que continúe.
 
 ## Subagentes
 

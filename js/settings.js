@@ -1,3 +1,4 @@
+import { bindStepLimits } from "./step-limits.js";
 import { listDeviceGrants, revokeDeviceGrant } from "./device-grants.js";
 import { configureSecurity, eraseWithWord, isWiping, securityState } from "./security.js";
 import { DEFAULT_MODEL } from "./config.js";
@@ -14,6 +15,7 @@ const SECONDS_PER_MINUTE = 60;
 const EMPTY_CONNECTORS = "Pídele a Eco que se conecte a un servicio y aparecerá aquí.";
 
 export function bindSettings() {
+  bindStepLimits(byId);
   for (const id of TEXT_SETTINGS) {
     const field = byId(id);
     field.value = setting(id) || (id === "model" ? DEFAULT_MODEL : "");

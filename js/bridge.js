@@ -1,3 +1,4 @@
+import { stepLimits } from "./step-limits.js";
 import { prepareReload, commitReload } from "./reload.js";
 import { redactSecurityData } from "./security.js";
 import { discoverEnvironment, readEnvironmentStorage } from "./environment.js";
@@ -144,6 +145,7 @@ window.ecoBridge = {
     return JSON.stringify({
       key: setting("openrouterKey"),
       model: setting("model") || DEFAULT_MODEL,
+      ...stepLimits(),
       origin: location.origin
     });
   },

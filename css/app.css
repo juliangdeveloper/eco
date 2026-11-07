@@ -998,3 +998,6 @@ dialog small {
 .deviceGrantSettings summary { cursor: pointer; font-weight: 600; }
 #deviceRequests .deviceRequest .primary { display: block; width: 100%; margin-right: 0; background: var(--blue); color: white; }
 #deviceRequests .deviceRequest .primary ~ button { background: var(--surface-muted); color: var(--text); }
+
+.stepLimits { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#settings .securitySection { margin-top: 14px; padding-top: 12px; }

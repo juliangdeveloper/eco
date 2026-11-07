@@ -9,8 +9,6 @@ from .compression import compact
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 APP_TITLE = "Eco"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
-MAX_ITERACIONES = 2
-MAX_ITERACIONES_SUBAGENTE = 20
 CONTEXT_TOKEN_LIMIT = 128000
 LIMIT_PROMPT = (
     "Llegaste al límite de pasos de este turno y ya no puedes usar herramientas. "
@@ -134,7 +132,7 @@ async def checkpoint(messages, job=None):
 
 async def run_loop(messages, config, child=False, job=None):
     tools = registry(config, child)
-    maximum = MAX_ITERACIONES_SUBAGENTE if child else MAX_ITERACIONES
+    maximum = config["subagentSteps" if child else "orchestratorSteps"]
     compressed = False
 
     async def summarize(items, unused):
