@@ -11,8 +11,6 @@ DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
 MAX_ITERACIONES = 20
 MAX_ITERACIONES_SUBAGENTE = 10
 CONTEXT_TOKEN_LIMIT = 24000
-# Se trunca en el origen para no persistir ni reenviar salidas enormes al modelo.
-MAX_TOOL_RESULT_CHARS = 8000
 LIMIT_MESSAGE = "Se alcanzó el límite de pasos sin una respuesta final."
 SYSTEM_PROMPT = (
     "Eres Eco, un asistente que trabaja en el navegador de la persona usuaria. "
@@ -115,8 +113,6 @@ async def run_loop(messages, config, child=False):
             except Exception as error:
                 result = {"error": str(error)}
             content = json.dumps(result, ensure_ascii=False)
-            if len(content) > MAX_TOOL_RESULT_CHARS:
-                content = content[:MAX_TOOL_RESULT_CHARS] + "… [resultado truncado, " + str(len(content)) + " caracteres en total]"
             await ecoBridge.onToolEnd(name, content)
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": content})
     return {"error": LIMIT_MESSAGE, "messages": messages, "compressed": compressed}
