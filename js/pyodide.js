@@ -8,6 +8,7 @@ const FILES = [
   "tools_memory.py",
   "tools_todo.py",
   "tools_extra.py",
+  "device_tools.py",
   "compression.py",
   "connectors.py",
   "results.py",

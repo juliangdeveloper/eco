@@ -1,3 +1,5 @@
+import { discoverEnvironment, readEnvironmentStorage } from "./environment.js";
+import { readDeviceDocumentation, listDeviceTools, manageDeviceTool, callDeviceTool } from "./device-tools.js";
 import { timedFetch } from "./network.js";
 import { passiveMemory, memoryCall, configureMemory } from "./passive-skills.js";
 import { abortJob, jobRecords, jobSignal, jobSnapshot, jobUpdate, resumeJob } from "./subagents.js";
@@ -76,6 +78,18 @@ async function createConnectorSafely(raw) {
 }
 
 window.ecoBridge = {
+  async deviceEnvironment() { return JSON.stringify(await discoverEnvironment()); },
+  async deviceStorage() { return JSON.stringify(readEnvironmentStorage()); },
+  async deviceDocumentation(url) {
+    try { return JSON.stringify(await readDeviceDocumentation(String(url))); }
+    catch (error) { return JSON.stringify({ ok: false, error: String(error.message || error) }); }
+  },
+  async deviceTools(name) { return JSON.stringify(await listDeviceTools(String(name || ""))); },
+  async deviceManage(raw) {
+    try { return JSON.stringify(await manageDeviceTool(parsed(raw))); }
+    catch (error) { return JSON.stringify({ ok: false, error: String(error.message || error) }); }
+  },
+  async deviceCall(name, raw, sessionId, jobId) { return JSON.stringify(await callDeviceTool(String(name), parsed(raw), jobSignal(jobId))); },
   async abortJob(id) { abortJob(id); return true; },
   async resumeJob(id) { resumeJob(id); return true; },
   jobUpdate,

@@ -18,6 +18,7 @@ import { autoExpand, bindReplyGestures, byId, pretty, updateToolCard } from "./u
 const DEFAULT_TITLE = "Nueva conversación";
 const LOAD_ERROR = "No se pudo preparar el agente. Recarga la página.";
 const CONFIRM_LABELS = {
+  herramienta_dispositivo_gestionar: (args) => ({ crear: "Crear", actualizar: "Actualizar", borrar: "Borrar" }[args.action] || "Cambiar") + " herramienta del dispositivo «" + args.name + "»",
   create_connector: (args) => "Crear conector " + (args.definition?.name || "") + " (" + (args.definition?.base_url || "") + ")",
   call_connector: (args) => args.connector + ": " + args.operation + " (" + args.method + " " + args.path + ")",
   skill_manage: (args) => (args.action === "delete" ? "Borrar" : args.action === "edit" ? "Editar" : "Crear") + " habilidad " + args.name

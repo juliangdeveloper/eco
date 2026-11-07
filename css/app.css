@@ -974,3 +974,12 @@ dialog small {
   opacity: 0.8;
   font-size: 12px;
 }
+
+#deviceRequests { flex: 0 1 auto; max-height: 34dvh; overflow: auto; overscroll-behavior: contain; }
+#deviceRequests:empty { display: none; }
+#deviceRequests .deviceRequest { max-width: 100%; width: auto; margin: 8px 16px; overflow-wrap: anywhere; }
+.deviceRequest p { margin: 0 0 8px; }
+.deviceRequest details { font-size: 12px; margin-bottom: 8px; }
+.deviceRequest pre { max-height: 88px; overflow: auto; white-space: pre-wrap; }
+.deviceRequest button { padding: 8px 12px; border-radius: 14px; margin-right: 8px; margin-top: 4px; }
+.deviceRequest button:first-of-type { background: var(--blue); color: white; }
