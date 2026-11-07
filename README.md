@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.5.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.5.1
 
-<img src="assets/screenshot.png?v=0.5.0" alt="Eco en pantalla móvil con memoria local" width="320">
+<img src="assets/screenshot.png?v=0.5.1" alt="Eco en pantalla móvil con memoria local" width="320">
 
 ## Uso
 
