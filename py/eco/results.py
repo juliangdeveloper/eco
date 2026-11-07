@@ -77,9 +77,12 @@ def dumps(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def compact(name, result):
+def compact(name, result, args=None):
     full = dumps(result)
-    key = save(name, full)
+    reading = name == "leer_resultado"
+    key = result.get("id", "") if reading else save(name, full)
+    if reading and "limit" in (args or {}):
+        return full, key
     if len(full) <= COMPACT_CHAR_LIMIT:
         return full, key
     value, _ = unwrap(result)
@@ -145,6 +148,6 @@ def register(registry):
         "path": {"type": "string", "description": "Ruta JSON opcional, por ejemplo items.0.title"},
         "buscar": {"type": "string", "description": "Texto a buscar dentro del resultado"},
         "offset": {"type": "integer"},
-        "limit": {"type": "integer"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": READ_MAX_LIMIT, "description": "Caracteres por página; si se indica, devuelve el fragmento sin resumir"},
     }
     registry.add("leer_resultado", schema("Lee el resultado completo de una herramienta guardado en el historial: por partes con offset y limit, una ruta JSON o buscando texto.", properties, ["id"]), leer_resultado)

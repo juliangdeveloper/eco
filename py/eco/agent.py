@@ -124,7 +124,7 @@ async def run_loop(messages, config, child=False):
             except Exception as error:
                 result = {"error": str(error)}
             await ecoBridge.onToolEnd(name, json.dumps(result, ensure_ascii=False))
-            content, _ = results.compact(name, result)
+            content, _ = results.compact(name, result, args)
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": content})
     messages, did_compact = await compact(messages, CONTEXT_TOKEN_LIMIT, summarize)
     compressed = compressed or did_compact
