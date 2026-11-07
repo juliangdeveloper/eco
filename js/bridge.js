@@ -264,9 +264,6 @@ window.ecoBridge = {
   async sessionSearch(query, limit) {
     return JSON.stringify(await searchSessions(query, limit, stateApi?.sessionId() || ""));
   },
-  confirm(name, argsJson, sessionId, jobId) {
-    return window.ecoUI.confirm(name, argsJson, jobId, jobSignal(jobId));
-  },
   clarify(question, optionsJson, sessionId, jobId) {
     return window.ecoUI.clarify(question, optionsJson, jobId, jobSignal(jobId));
   },

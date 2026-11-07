@@ -28,6 +28,7 @@ async def clarify(args):
 def register(registry, child=False):
     registry.add("skills_list", schema("Lista habilidades.", {}), skills_list)
     registry.add("skill_view", schema("Muestra una habilidad.", {"name": {"type": "string"}}, ["name"]), skill_view)
-    registry.add("skill_manage", schema("Crea, edita o borra una habilidad.", {"action": {"type": "string", "enum": ["create", "edit", "delete"]}, "name": {"type": "string"}, "description": {"type": "string"}, "content": {"type": "string"}}, ["action", "name"]), skill_manage, True)
+    registry.add("skill_manage", schema("Crea, edita o borra una habilidad.", {"action": {"type": "string", "enum": ["create", "edit", "delete"]}, "name": {"type": "string"}, "description": {"type": "string"}, "content": {"type": "string"}}, ["action", "name"]), skill_manage)
     registry.add("session_search", schema("Busca sesiones anteriores.", {"query": {"type": "string"}, "limit": {"type": "integer"}}, ["query"]), session_search)
-    registry.add("clarify", schema("Pide una aclaración.", {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}}, ["question"]), clarify)
+    if not child:
+        registry.add("clarify", schema("Pide una aclaración.", {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}}, ["question"]), clarify)

@@ -58,7 +58,7 @@ export async function discoverEnvironment() {
     screen: { width: screen.width, height: screen.height, pixelRatio: devicePixelRatio, viewport: { width: innerWidth, height: innerHeight } },
     touchPoints: navigator.maxTouchPoints || 0, cores: navigator.hardwareConcurrency || null, memoryGB: navigator.deviceMemory || null,
     features: featureDefinitions().map((entry) => ({ ...entry, available: Boolean(featureValue(entry.path)), requestPermission: typeof featureValue(entry.path)?.requestPermission === "function", policies: Object.fromEntries(entry.policies.map((name) => [name, policyState(name)])) })),
-    permissions, execution: "Código aislado en worker de iframe opaco. Solo device.call/get/construct/listen/capture cruzan al navegador. Permitir siempre por herramienta y dispositivo en operaciones sin activación transitoria; las demás necesitan un toque por acceso. device.capture(stream) devuelve JPEG con dataUrl, width y height y detiene las pistas. No hay acceso a almacenamiento, DOM de Eco ni credenciales. Las APIs ausentes o bloqueadas no pueden habilitarse con código."
+    permissions, execution: "Código aislado en worker de iframe opaco. Solo device.call/get/construct/listen/capture cruzan al navegador. Acceso automático sin confirmación salvo cuando el navegador requiere un toque. device.capture(stream) devuelve JPEG con dataUrl, width y height y detiene las pistas. No hay acceso a almacenamiento, DOM de Eco ni credenciales. Las APIs ausentes o bloqueadas no pueden habilitarse con código."
   };
 }
 

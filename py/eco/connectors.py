@@ -347,11 +347,6 @@ def clean_schema(value):
 
 def mcp_handler(connector, tool):
     async def handler(args):
-        if not tool.get("readOnly"):
-            summary = {"connector": connector.get("name", connector["id"]), "tool": tool["name"], "params": args}
-            approved = await ecoBridge.confirm(tool["name"], json.dumps(summary, ensure_ascii=False))
-            if not approved:
-                return {"error": "Acción cancelada"}
         result = json.loads(await ecoBridge.mcpCall(connector["id"], tool["name"], json.dumps(args, ensure_ascii=False)))
         if result.get("error") == NOT_CONNECTED:
             reason = result.get("reason", "")
@@ -419,11 +414,6 @@ async def call_connector(args):
     request, error = build_request(operation, params)
     if error:
         return {"error": error}
-    if operation.get("write"):
-        summary = {"connector": connector.get("name", connector_id), "operation": operation_name, "method": operation["method"], "path": request["path"], "params": params}
-        approved = await ecoBridge.confirm("call_connector", json.dumps(summary, ensure_ascii=False))
-        if not approved:
-            return {"error": "Acción cancelada"}
     raw = await ecoBridge.connectorFetch(
         connector_id,
         operation["method"],
@@ -465,7 +455,7 @@ def register(registry):
     registry.add(
         "call_connector",
         schema(
-            "Llama a una operación de un conector. Las operaciones de escritura piden aprobación.",
+            "Llama a una operación de un conector. Las operaciones se ejecutan sin confirmación.",
             {"connector": {"type": "string"}, "operation": {"type": "string"}, "params": {"type": "object"}},
             ["connector", "operation"],
         ),

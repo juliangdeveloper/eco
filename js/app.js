@@ -19,15 +19,10 @@ import { setupSubagents, renderSubagents, stopSubagents } from "./subagents.js";
 import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
 import { all, closeDatabase, flushWrites, json, retryFailedWrites } from "./storage.js";
-import { autoExpand, bindReplyGestures, byId, pretty, updateToolCard } from "./ui.js";
+import { autoExpand, bindReplyGestures, byId, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "Nueva conversación";
 const LOAD_ERROR = "No se pudo preparar el agente. Recarga la página.";
-const CONFIRM_LABELS = {
-  create_connector: (args) => "Crear conector " + (args.definition?.name || "") + " (" + (args.definition?.base_url || "") + ")",
-  call_connector: (args) => args.connector + ": " + args.operation + " (" + args.method + " " + args.path + ")",
-  skill_manage: (args) => (args.action === "delete" ? "Borrar" : args.action === "edit" ? "Editar" : "Crear") + " habilidad " + args.name
-};
 
 let pyodide;
 let session = newSessionData();
@@ -87,7 +82,7 @@ let activeInteraction = null;
 function interaction(kind, open, args) {
   return new Promise((resolve) => {
     const item = { kind, open, args, resolve, job: args[2], signal: args[3] };
-    if (item.signal?.aborted) return resolve(kind === "confirm" ? false : "");
+    if (item.signal?.aborted) return resolve("");
     interactions.push(item);
     drainInteractions();
   });
@@ -97,7 +92,7 @@ async function drainInteractions() {
   if (activeInteraction || !interactions.length) return;
   const item = interactions.shift();
   if (item.signal?.aborted) {
-    item.resolve(item.kind === "confirm" ? false : "");
+    item.resolve("");
     drainInteractions();
     return;
   }
@@ -111,29 +106,8 @@ async function drainInteractions() {
 }
 
 function cancelJob(id) {
-  for (const item of interactions.filter((row) => row.job === id)) item.resolve(item.kind === "confirm" ? false : "");
+  for (const item of interactions.filter((row) => row.job === id)) item.resolve("");
   if (activeInteraction?.job === id) byId(activeInteraction.kind).close("cancelled");
-}
-
-function bindConfirm() {
-  let resolve;
-  const dialog = byId("confirm");
-  const finish = (value) => {
-    if (resolve) {
-      resolve(value);
-      resolve = null;
-    }
-  };
-  byId("approveConfirm").onclick = () => dialog.close("approved");
-  byId("cancelConfirm").onclick = () => dialog.close("cancelled");
-  dialog.onclose = () => finish(dialog.returnValue === "approved");
-  return (name, raw) => new Promise((done) => {
-    const args = parseArgs(raw);
-    byId("confirmText").textContent = CONFIRM_LABELS[name]?.(args) || name;
-    byId("confirmArgs").textContent = pretty(args);
-    resolve = done;
-    dialog.show();
-  });
 }
 
 function bindClarify() {
@@ -207,7 +181,7 @@ function bindComposer() {
 async function main() {
   setSecurityShutdown(() => {
     for (const stop of [stopRoutines, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
-    for (const item of interactions.splice(0)) item.resolve(item.kind === "confirm" ? false : "");
+    for (const item of interactions.splice(0)) item.resolve("");
     for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close("cancelled");
     pyodide = null;
     knownSessions.clear();
@@ -220,7 +194,6 @@ async function main() {
   metaDeclararProyecto(APP_ID, APP_VERSION);
   bindSettings();
   bindCloseButtons();
-  const confirm = bindConfirm();
   const clarify = bindClarify();
   chat = createChat({
     getPyodide: () => pyodide,
@@ -266,7 +239,6 @@ async function main() {
   });
   window.ecoUI = {
     clarify: (...args) => interaction("clarify", clarify, args),
-    confirm: (...args) => interaction("confirm", confirm, args),
     cancelJob
   };
   await setupSubagents({ getSession: currentSession, getPyodide: () => pyodide, persist, receiveJob: chat.receiveJob, resolveSession });

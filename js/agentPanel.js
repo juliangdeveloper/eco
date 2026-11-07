@@ -79,10 +79,8 @@ export function createAgentPanel({ getTodos }) {
       removeButton.type = "button";
       view.onclick = () => alert(skill.description + "\n\n" + skill.content);
       removeButton.onclick = async () => {
-        if (window.confirm("¿Borrar esta habilidad?")) {
-          await remove("skills", skill.id);
-          await render();
-        }
+        await remove("skills", skill.id);
+        await render();
       };
       actions.append(view, removeButton);
       head.append(title, actions);

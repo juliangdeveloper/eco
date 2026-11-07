@@ -1,4 +1,3 @@
-import { deviceGrantIdentity, hasDeviceGrant, allowDeviceGrant } from "./device-grants.js";
 import { isWiping } from "./security.js";
 import { featureDefinitions, featureValue, policyState } from "./environment.js";
 import { sandboxDocument } from "./device-sandbox.js";
@@ -12,27 +11,14 @@ const PHOTO_QUALITY = 0.8;
 const PHOTO_SCALE = 0.75;
 const FRAME_TIMEOUT_MS = 10000;
 const FRAME_SETTLE_MS = 300;
-const SAFE_METHODS = {
-  mediaDevices: new Set(["getUserMedia", "enumerateDevices", "getSupportedConstraints", "getTracks", "getVideoTracks", "getAudioTracks", "getSettings", "getCapabilities", "getConstraints", "applyConstraints", "stop"]),
-  mediaRecorder: new Set(["start", "stop", "pause", "resume", "requestData", "isTypeSupported"]),
-  geolocation: new Set(["getCurrentPosition", "clearWatch"]),
-  permissions: new Set(["query"]),
-  storage: new Set(["estimate", "persisted"]),
-  battery: new Set(["getBattery"]),
-  bluetooth: new Set(["getDevices"]),
-  usb: new Set(["getDevices"]),
-  hid: new Set(["getDevices"]),
-  serial: new Set(["getPorts"]),
-  wakeLock: new Set(["request", "release"])
-};
-const SENSOR_FEATURES = new Set(["accelerometer", "gyroscope", "magnetometer", "ambientLight", "absoluteOrientation", "relativeOrientation"]);
+const ACTIVATION_METHODS = new Set(["requestDevice", "requestPort", "requestPermission", "requestFullscreen", "showOpenFilePicker", "showSaveFilePicker", "showDirectoryPicker"]);
+const ACTIVATION_FEATURES = new Set(["nfc"]);
 const executions = new Set();
 const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
 const CALL_SIGNATURE = "Usa device.call(ruta, [args])";
 const BLOCKED_ERRORS = new Set(["NotAllowedError", "SecurityError"]);
 const DENIED_MESSAGE = "El navegador tiene bloqueado el acceso a: ";
 const DENIED_HELP = ". Actívalo para este sitio en Ajustes > Safari > Cámara o Micrófono (o en el ícono aA de la barra de dirección) y vuelve a intentar.";
-const sessionPermissions = new Set();
 const PERMISSION_LABELS = { camera: "cámara", microphone: "micrófono", geolocation: "ubicación" };
 
 export function stopDeviceTools() {
@@ -45,7 +31,6 @@ const validPart = value => /^[A-Za-z][A-Za-z0-9]*$/.test(value) && !forbidden.ha
 
 export async function executeDeviceTool(tool, params, signal) {
   if (isWiping()) return { ok: false, error: "Acceso cancelado" };
-  const identity = await deviceGrantIdentity(tool);
   if (isWiping()) return Promise.resolve({ ok: false, error: "Acceso cancelado" });
   return new Promise((resolve) => {
     const frame = document.createElement("iframe");
@@ -277,15 +262,11 @@ export async function executeDeviceTool(tool, params, signal) {
       }
     }
 
-    function canRemember(message) {
+    function canRunWithoutTap(message) {
       const entry = locate(message.path);
       const method = message.path.split(".").pop();
-      if (message.kind === "capture") return entry.value instanceof MediaStream;
-      if (message.kind === "get") return true;
-      if (message.kind === "listen") return !["nfc", "clipboard"].includes(entry.feature.name);
-      if (method === "requestPermission") return false;
-      if (SENSOR_FEATURES.has(entry.feature.name)) return message.kind === "construct" || ["start", "stop"].includes(method);
-      return Boolean(SAFE_METHODS[entry.feature.name]?.has(method));
+      if (message.kind === "get" || message.kind === "capture") return true;
+      return !ACTIVATION_METHODS.has(method) && !ACTIVATION_FEATURES.has(entry.feature.name);
     }
 
     function browserPermissions(message) {
@@ -309,14 +290,12 @@ export async function executeDeviceTool(tool, params, signal) {
     }
 
     async function requestAccess(message) {
-      const remember = canRemember(message);
+      const automatic = canRunWithoutTap(message);
       const needs = browserPermissions(message);
-      const states = await Promise.all(needs.map(permissionState));
       if (settled) return;
       const denied = await deniedError(needs);
       if (denied) { channel.port1.postMessage({ kind: "response", id: message.id, error: denied }); return; }
-      const ready = needs.every((name, index) => states[index] === "granted" || sessionPermissions.has(name));
-      if (remember && hasDeviceGrant(identity) && ready) {
+      if (automatic) {
         let cancelled = false;
         const timeout = setTimeout(() => {
           cancelled = true;
@@ -334,7 +313,7 @@ export async function executeDeviceTool(tool, params, signal) {
           if (settled || cancelled) return;
           if (BLOCKED_ERRORS.has(error?.name)) {
             const blocked = await deniedError(needs);
-            if (!blocked) { needs.forEach(name => sessionPermissions.delete(name)); showCard(message, remember, needs); return; }
+            if (!blocked) { showCard(message, needs); return; }
             channel.port1.postMessage({ kind: "response", id: message.id, error: blocked });
             return;
           }
@@ -342,41 +321,27 @@ export async function executeDeviceTool(tool, params, signal) {
         }).finally(() => { cleanup(); cleanups.delete(cleanup); });
         return;
       }
-      showCard(message, remember, needs);
+      showCard(message, needs);
     }
 
-    function showCard(message, remember, needs) {
+    function showCard(message, needs) {
 
       const card = document.createElement("div");
       card.className = "deviceRequest message assistant";
       card.dataset.deviceRequest = "true";
       const text = document.createElement("p");
       text.textContent = tool.name + (message.kind === "capture" ? " quiere capturar una foto" : " quiere acceder a " + message.path);
-      const explanation = document.createElement("small");
-      explanation.textContent = remember ? "Permitir siempre se aplica a esta herramienta en este dispositivo hasta que cambie su código. Puedes revocarlo en Ajustes. El navegador conserva sus propios permisos." : "El navegador exige un toque para esta operación o no garantiza acceso automático. Debes permitirla cada vez.";
-      const details = document.createElement("details");
-      const summary = document.createElement("summary");
-      summary.textContent = "Ver parámetros";
-      const pre = document.createElement("pre");
-      pre.textContent = JSON.stringify(message.args, null, 2);
-      details.append(summary, pre);
       const allow = document.createElement("button");
       allow.type = "button";
-      allow.textContent = "Permitir una vez";
-      const always = document.createElement("button");
-      always.type = "button";
-      always.textContent = "Permitir siempre";
-      always.className = "primary";
-      const cancel = document.createElement("button");
-      cancel.type = "button";
-      cancel.textContent = "Cancelar";
+      allow.textContent = "Continuar";
+      allow.className = "primary";
       let cancelled = false;
       let replied = false;
       let browserTimer;
       const panel = document.getElementById("deviceRequests");
       const dismiss = event => {
         if (event.defaultPrevented || panel.firstElementChild !== card) return;
-        event.preventDefault(); cancel.click();
+        event.preventDefault();
       };
       panel.addEventListener("cancel", dismiss);
       const cleanup = () => { clearTimeout(browserTimer); panel.removeEventListener("cancel", dismiss); };
@@ -389,14 +354,9 @@ export async function executeDeviceTool(tool, params, signal) {
         if (!panel.children.length && panel.open) panel.close();
         if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, ...result });
       };
-      const run = persistent => {
+      const run = () => {
         if (settled || allow.disabled) return;
-        if (persistent) {
-          try { allowDeviceGrant(identity); }
-          catch { reply({ error: "No se pudo guardar el permiso. Usa Permitir una vez o libera almacenamiento." }); return; }
-        }
         allow.disabled = true;
-        always.disabled = true;
         allow.textContent = "Esperando al navegador…";
         browserTimer = setTimeout(() => {
           cancelled = true;
@@ -406,7 +366,6 @@ export async function executeDeviceTool(tool, params, signal) {
         try { task = invoke(message, () => cancelled); } catch (error) { task = Promise.reject(error); }
         task.then(result => {
           if (bytes(result) > MAX_BYTES) throw new Error("Resultado mayor de 128 KiB");
-          needs.forEach(name => sessionPermissions.add(name));
           reply({ result });
         }).catch(async error => {
           const denied = BLOCKED_ERRORS.has(error?.name) ? await deniedError(needs) : "";
@@ -415,12 +374,8 @@ export async function executeDeviceTool(tool, params, signal) {
           reply({ error: String(error.message || error) + (blocked.length ? ". La página contenedora bloquea: " + [...new Set(blocked)].join(", ") + ". Abre Eco directamente o solicita ajustar allow en el iframe." : "") });
         });
       };
-      allow.onclick = () => run(false);
-      always.onclick = () => run(true);
-      cancel.onclick = () => { cancelled = true; reply({ error: "Acceso cancelado por la persona" }); };
-      card.append(text, explanation, details);
-      if (remember) card.append(always);
-      card.append(allow, cancel);
+      allow.onclick = run;
+      card.append(text, allow);
       cards.add(card);
       panel.append(card);
       if (!panel.open) panel.showModal();
