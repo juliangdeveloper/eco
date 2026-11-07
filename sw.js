@@ -1,6 +1,6 @@
 let wiping = false;
-const CACHE_NAME = "eco-v0.8.1";
-const VERSION_QUERY = "?v=0.8.1";
+const CACHE_NAME = "eco-v0.9.0";
+const VERSION_QUERY = "?v=0.9.0";
 const SHELL_FILES = [
   "./",
   "index.html",
@@ -28,7 +28,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   event.respondWith(
-    fetch(event.request)
+    fetch(new Request(event.request, { cache: "no-store" }))
       .then((response) => {
         const copy = response.clone();
         if (!wiping) event.waitUntil(caches.open(CACHE_NAME).then(cache => { if (!wiping) return cache.put(event.request, copy); }).catch(() => {}));
@@ -39,6 +39,7 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("message", event => {
+  if (event.data?.type === "eco-activate") { self.skipWaiting(); return; }
   if (event.data?.type !== "eco-wipe") return;
   wiping = true;
   event.waitUntil(Promise.all([self.registration.unregister(), caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith("eco-v")).map(key => caches.delete(key))))]));

@@ -1,3 +1,4 @@
+import { reloadPending } from "./reload.js";
 import { interceptSecurityCommand, isWiping } from "./security.js";
 import { appendMessage, byId, renderEmpty, renderMessages, renderReply, renderTodos, updateToolCard } from "./ui.js";
 import { renderSubagents } from "./subagents.js";
@@ -119,7 +120,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   }
 
   async function drain() {
-    if (isWiping() || sending || !getPyodide() || !pending.length || !localStorage.getItem("eco.openrouterKey")) return;
+    if (isWiping() || reloadPending() || sending || !getPyodide() || !pending.length || !localStorage.getItem("eco.openrouterKey")) return;
     const item = pending.shift();
     setSending(true);
     try { await run(item); }
@@ -160,7 +161,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     byId("prompt").value = session.draft || "";
     renderTodos(session.todos || []);
     for (const job of session.subagents || []) {
-      if (job.status !== "ejecutando" && !job.delivered) receiveJob(session, job).catch(() => {});
+      if (!["ejecutando", "interrumpido"].includes(job.status) && !job.delivered) receiveJob(session, job).catch(() => {});
     }
   }
 
@@ -173,7 +174,33 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     byId("prompt").focus();
   }
 
+  async function resume(sessions, notice) {
+    for (const session of sessions) {
+      const context = session.contextMessages || [];
+      const answered = new Set(context.filter((message) => message.role === "tool").map((message) => message.tool_call_id));
+      for (const call of context.flatMap((message) => message.tool_calls || [])) {
+        if (!answered.has(call.id)) {
+          const message = { id: messageId(), role: "tool", tool_call_id: call.id, name: call.function.name, content: "Interrumpido al recargar. Comprueba el estado antes de repetir acciones; no repitas escrituras automáticamente." };
+          context.push(message);
+          session.messages.push(message);
+        }
+      }
+      if (session.pendingTurns?.length) {
+        const message = { id: messageId(), role: "user", event: true, content: notice };
+        session.messages.push(message);
+        context.push(message);
+      }
+      session.inFlight = null;
+      for (const turn of session.pendingTurns || []) {
+        turn.state = "queued";
+        if (!pending.some((item) => item.turn.id === turn.id)) pending.push({ session, turn, resolve: () => {} });
+      }
+      await persist(session);
+    }
+    drain();
+  }
+
   function currentTodos() { return getSession().todos || []; }
   async function setTodos(todos) { getSession().todos = todos; renderTodos(todos); await persist(getSession()); }
-  return { currentTodos, drain, loadSession, receiveJob, replyTo, send, setSending, setTodos, trigger, updateTurn };
+  return { resume, currentTodos, drain, loadSession, receiveJob, replyTo, send, setSending, setTodos, trigger, updateTurn };
 }

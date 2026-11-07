@@ -17,7 +17,7 @@ def public(job):
 
 
 async def publish(job, finished=False):
-    value = {key: item for key, item in job.items() if key not in ("inbox", "owner_instructions", "todos")}
+    value = {key: item for key, item in job.items() if key != "todos"}
     await bridge.jobUpdate(json.dumps(value, ensure_ascii=False), finished)
 
 
@@ -75,7 +75,7 @@ async def control(args):
         saved = json.loads(await bridge.jobSnapshot(key))
         if not saved or saved.get("session") != owner:
             return {"error": "Subagente no encontrado en esta conversación"}
-        job = {**saved, "inbox": [], "owner_instructions": scope().get("owner_instructions", "")}
+        job = {**saved, "inbox": saved.get("inbox", []), "owner_instructions": scope().get("owner_instructions") or saved.get("owner_instructions", "")}
         jobs[key] = job
     action = args.get("action", "consultar")
     if action == "consultar":
@@ -132,7 +132,7 @@ async def memory_context(job):
 
 async def job_control(raw):
     args = json.loads(raw)
-    token = execution.set({"session": args.pop("session", ""), "owner_instructions": args.get("instruction", "")})
+    token = execution.set({"session": args.pop("session", ""), "owner_instructions": args.pop("owner_instructions", args.get("instruction", ""))})
     try:
         return json.dumps(await control(args), ensure_ascii=False)
     finally:

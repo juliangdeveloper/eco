@@ -1,3 +1,4 @@
+import { prepareReload, commitReload } from "./reload.js";
 import { redactSecurityData } from "./security.js";
 import { discoverEnvironment, readEnvironmentStorage } from "./environment.js";
 import { readDeviceDocumentation, listDeviceTools, manageDeviceTool, callDeviceTool } from "./device-tools.js";
@@ -79,6 +80,8 @@ async function createConnectorSafely(raw) {
 }
 
 window.ecoBridge = {
+  async prepareReload(raw) { return JSON.stringify(prepareReload(parsed(raw))); },
+  commitReload,
   async deviceEnvironment() { return JSON.stringify(await discoverEnvironment()); },
   async deviceStorage() { return JSON.stringify(readEnvironmentStorage()); },
   async deviceDocumentation(url) {

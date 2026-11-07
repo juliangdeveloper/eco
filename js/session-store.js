@@ -4,7 +4,7 @@ const JOURNAL_PREFIX = "sessionJournal:";
 const queues = new Map();
 
 export function checkpointSession(session) {
-  const value = { id: session.id, title: session.title, messages: session.messages, results: session.results, pendingTurns: session.pendingTurns || [], inFlight: session.inFlight || null, contextMessages: session.contextMessages || [], contextKnownIds: session.contextKnownIds || [], replyDraft: session.replyDraft || null, draft: session.draft || "", updatedAt: session.updatedAt, revision: session.revision };
+  const value = { id: session.id, title: session.title, messages: session.messages, results: session.results, pendingTurns: session.pendingTurns || [], inFlight: session.inFlight || null, contextMessages: session.contextMessages || [], contextKnownIds: session.contextKnownIds || [], replyDraft: session.replyDraft || null, draft: session.draft || "", subagents: session.subagents || [], todos: session.todos || [], updatedAt: session.updatedAt, revision: session.revision };
   try { json(JOURNAL_PREFIX + session.id, value); }
   catch { window.dispatchEvent(new Event("eco-storage-error")); }
 }
@@ -29,7 +29,7 @@ export function flushSessions(sessions) {
   return Promise.allSettled([...queues.values()]);
 }
 
-export async function recoverSessions() {
+export async function recoverSessions(resume = null) {
   const rows = await all("sessions");
   for (const key of Object.keys(localStorage).filter((name) => name.startsWith("eco." + JOURNAL_PREFIX))) {
     const name = key.slice("eco.".length);
@@ -48,7 +48,7 @@ export async function recoverSessions() {
   for (const row of rows) {
     row.messages ||= [];
     for (const message of row.messages) message.id ||= "m-" + crypto.randomUUID();
-    if (row.inFlight || row.pendingTurns?.length) {
+    if ((row.inFlight || row.pendingTurns?.length) && !resume?.sessions?.some((item) => item.id === row.id)) {
       row.messages.push({ id: "m-" + crypto.randomUUID(), role: "assistant", content: "La respuesta se interrumpió. Tus mensajes están guardados; puedes pedir que continúe." });
       const context = row.contextMessages || [];
       const answered = new Set(context.filter((message) => message.role === "tool").map((message) => message.tool_call_id));

@@ -1,3 +1,4 @@
+import { setupReload, resumeMarker, clearResumeMarker, prepareReload, commitReload } from "./reload.js";
 import { startSecurityMemory, stopSecurityMemory } from "./passive-skills.js";
 import { interceptSecurityCommand, isSecurityCommand, isWiping, safeDraft, setSecurityShutdown } from "./security.js";
 import { stopDeviceTools } from "./device-runtime.js";
@@ -23,7 +24,6 @@ import { autoExpand, bindReplyGestures, byId, pretty, updateToolCard } from "./u
 const DEFAULT_TITLE = "Nueva conversación";
 const LOAD_ERROR = "No se pudo preparar el agente. Recarga la página.";
 const CONFIRM_LABELS = {
-  herramienta_dispositivo_gestionar: (args) => ({ crear: "Crear", actualizar: "Actualizar", borrar: "Borrar" }[args.action] || "Cambiar") + " herramienta del dispositivo «" + args.name + "»",
   create_connector: (args) => "Crear conector " + (args.definition?.name || "") + " (" + (args.definition?.base_url || "") + ")",
   call_connector: (args) => args.connector + ": " + args.operation + " (" + args.method + " " + args.path + ")",
   skill_manage: (args) => (args.action === "delete" ? "Borrar" : args.action === "edit" ? "Editar" : "Crear") + " habilidad " + args.name
@@ -233,7 +233,8 @@ async function main() {
     statsSave
   });
   chat.setSending(true);
-  const restored = await recoverSessions();
+  const reloadResume = resumeMarker();
+  const restored = await recoverSessions(reloadResume);
   for (const saved of restored) knownSessions.set(saved.id, saved);
   const last = restored.find((row) => row.id === json("lastSession")) || [...restored].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   replaceSession(last || session);
@@ -304,8 +305,36 @@ async function main() {
     if (byId("empty")) byId("empty").textContent = LOAD_ERROR;
     throw error;
   }
+  setupReload({
+    async checkpoint() {
+      currentSession().draft = safeDraft(byId("prompt").value);
+      for (const value of knownSessions.values()) await persist(value);
+      await flushSessions(knownSessions.values());
+      await flushWrites();
+      return { session: currentSession().id, sessions: [...knownSessions.values()].filter((value) => value.pendingTurns?.length || value.subagents?.some((job) => job.status === "ejecutando")).map((value) => ({ id: value.id, jobs: (value.subagents || []).filter((job) => job.status === "ejecutando").map((job) => job.id) })) };
+    },
+    stop: stopRoutines
+  });
+  if (reloadResume) {
+    const notice = "Eco se recargó de " + reloadResume.before + " a " + APP_VERSION + ". Motivo: " + reloadResume.reason + ". Continúa el trabajo pendiente desde el último punto guardado. Los subagentes activos se reanudan con su mismo id. Comprueba el estado de operaciones interrumpidas antes de repetirlas; no dupliques escrituras ni tareas.";
+    const owners = [];
+    for (const item of reloadResume.sessions || []) {
+      const owner = await resolveSession(item.id);
+      owners.push(owner);
+      for (const id of item.jobs) {
+        const job = owner.subagents?.find((row) => row.id === id);
+        if (job?.status !== "interrumpido") continue;
+        const result = JSON.parse(await pyodide.globals.get("job_control")(JSON.stringify({ session: owner.id, id, action: "modificar", instruction: notice, owner_instructions: job.owner_instructions || owner.messages.filter((message) => message.role === "user" && !message.event).map((message) => message.content).join("\n") })));
+        if (result.error) throw new Error(result.error);
+      }
+    }
+    clearResumeMarker();
+    if (reloadResume.session) replaceSession(await resolveSession(reloadResume.session));
+    await chat.resume(owners, notice);
+  }
   chat.setSending(false);
   chat.loadSession(currentSession());
+  chat.drain();
   renderSubagents();
   startRoutines(chat.trigger);
 }
@@ -320,9 +349,10 @@ window.ecoApp = {
 };
 
 document.getElementById("reloadButton").onclick = async () => {
-  const registration = await navigator.serviceWorker?.getRegistration();
-  await registration?.update().catch(() => {});
-  location.reload();
+  await window.ecoApp.ready;
+  const check = prepareReload({ motivo: "Actualizar desde el botón" });
+  if (!check.ok) { updateToolCard("eco_actualizar", "error", check); return; }
+  commitReload(check).catch((error) => updateToolCard("eco_actualizar", "error", { error: error.message }));
 };
 
 if ("serviceWorker" in navigator) {

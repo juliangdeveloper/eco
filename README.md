@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.8.1
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.9.0
 
-<img src="assets/screenshot.png?v=0.8.1" alt="Ajustes de borrado protegido de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.9.0" alt="Ajustes de borrado protegido de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -16,9 +16,9 @@
 - Conversaciones, tareas, habilidades y memoria local permanecen en el navegador. Hay búsqueda, subagentes, compresión a 128.000 tokens e historial de resultados completos con `leer_resultado`.
 - La memoria local admite 6.000 caracteres (perfil: 3.000). `memory` reemplaza o elimina por fragmento único o `index` desde 0, muestra candidatos si hay ambigüedad y devuelve espacio usado y libre; al exceder el límite, indica el exceso y las entradas actuales con índice y tamaño.
 - `leer_resultado` no añade lecturas al historial. Devuelve fragmentos literales de hasta 128 KiB (131.072 bytes UTF-8), también por defecto; `offset`, `limit`, `total` y `siguiente_offset` se miden en bytes. No corta caracteres multibyte. HTTP y MCP conservan la respuesta completa en el historial; la vista del modelo se resume por encima de 128 KiB.
-- Eco abre la última conversación activa. Cada mensaje y turno pendiente se guarda al añadirlo, con recuperación tras una recarga y copia de seguridad local al ocultar o cerrar la página. Los turnos interrumpidos no se repiten solos.
+- Eco abre la última conversación activa. Cada mensaje y turno pendiente se guarda al añadirlo, con recuperación tras una recarga y copia de seguridad local al ocultar o cerrar la página. Una recarga normal no repite turnos interrumpidos.
 - Desliza cualquier mensaje hacia la derecha (o arrástralo con el ratón) para responder citándolo. La cita aparece encima del campo, puede cancelarse y se conserva con el mensaje. Si citas un resultado de subagente, el orquestador puede continuar ese mismo trabajo.
-- El botón de actualizar recarga Eco con la última versión, útil cuando se abre dentro de otra página sin controles del navegador. El inicio de sesión OAuth también funciona en ese caso.
+- Eco puede decidir recargarse con `eco_actualizar({motivo})`, sin pedir aprobación: guarda la conversación, el turno pendiente y los subagentes activos, aplica el service worker disponible y retoma al cargar con los mismos subagentes. El botón **Actualizar** hace lo mismo, también dentro de otra página. No hay búsqueda automática de versiones: puedes avisarle de una actualización por chat o memoria compartida. Máximo una recarga por minuto y tres cada diez minutos.
 - El orquestador dispone de 2 pasos por turno; cada subagente, de 20. Al alcanzar el límite resume lo logrado y puedes indicarle que continúe.
 
 ## Subagentes
@@ -29,13 +29,13 @@ Cada subagente recibe automáticamente la memoria local, las instrucciones de la
 
 Las modificaciones se incorporan en el próximo paso sin perder la conversación; una respuesta del modelo que haya quedado desactualizada se descarta antes de ejecutar herramientas. Detener cancela el bucle y aborta solicitudes del modelo, HTTP y MCP cuando es posible; no revierte acciones ya ejecutadas ni garantiza cancelar solicitudes que un servicio ya recibió. Las aprobaciones concurrentes se atienden de una en una sin bloquear el chat. Al terminar, aparece una respuesta atribuida al subagente y el orquestador recibe el resultado para resumirlo; el contenido completo queda en el historial. Las rutinas también pueden delegar.
 
-El estado se guarda en la conversación. Al recargar, las tareas activas quedan **interrumpidas**, no se reinician solas ni siguen trabajando con Eco cerrado; puedes darles instrucciones para continuar.
+El estado se guarda en la conversación. Tras `eco_actualizar` o **Actualizar**, los subagentes activos continúan desde su último punto guardado sin repetir automáticamente operaciones inciertas. En una recarga normal quedan **interrumpidos** y puedes indicarles que continúen. No trabajan con Eco cerrado; la reanudación requiere acceso al modelo y almacenamiento disponible. El marcador pertenece a la pestaña que recargó y caduca a los 30 minutos.
 
 ## Herramientas del dispositivo
 
 Eco descubre APIs, permisos, pantalla y restricciones del navegador con `entorno_descubrir`; `almacenamiento_local_leer` solo muestra configuración conocida y filtrada; oculta el texto libre de memoria/perfil y nunca lee claves o el vault. Lee documentación oficial con `documentacion_dispositivo_leer` (MDN se obtiene de su repositorio oficial si hace falta CORS) y crea herramientas con nombre, descripción, esquema JSON y JavaScript mediante `herramienta_dispositivo_gestionar`. Se pueden listar, ver, actualizar y borrar; quedan en IndexedDB solo en ese navegador. Aparecen como `dispositivo_nombre` para los subagentes. No hay herramientas de cámara, GPS u otros periféricos predefinidas.
 
-Crear o cambiar código requiere aprobación. El código corre en un worker dentro de un iframe opaco sin acceso al almacenamiento, DOM, red o credenciales de Eco, con límites de tiempo y tamaño. Usa `device.call/get/construct/listen` sobre las capacidades detectadas y referencias efímeras, nunca JavaScript ejecutado en Eco. Los argumentos pueden ser una lista o un valor único, que se envuelve en una lista; por ejemplo, `await device.call('navigator.mediaDevices.getUserMedia', [{video:true}])`. Cada acceso presenta **Permitir una vez** en el chat: la llamada real se hace directamente dentro de ese toque, también para permisos de movimiento en iOS. Los resultados son datos no confiables; los recursos temporales se liberan al terminar cuando la API lo permite. No admite vigilancia GPS continua ni trabajo con Eco cerrado.
+Crear, actualizar o borrar estas herramientas no pide aprobación. Eco consulta el entorno, revisa las herramientas existentes y lee documentación antes de escribir la herramienta final y ejecutarla; solo la corrige ante un error concreto, sin sondas temporales. El código corre en un worker dentro de un iframe opaco sin acceso al almacenamiento, DOM, red o credenciales de Eco, con límites de tiempo y tamaño. Usa `device.call/get/construct/listen` sobre las capacidades detectadas y referencias efímeras, nunca JavaScript ejecutado en Eco. Los argumentos pueden ser una lista o un valor único, que se envuelve en una lista; por ejemplo, `await device.call('navigator.mediaDevices.getUserMedia', [{video:true}])`. Cada acceso presenta **Permitir una vez** en el chat: la llamada real se hace directamente dentro de ese toque, también para permisos de movimiento en iOS. Los resultados son datos no confiables; los recursos temporales se liberan al terminar cuando la API lo permite. No admite vigilancia GPS continua ni trabajo con Eco cerrado.
 
 Un iframe opaco no puede pedir cámara/micrófono directamente: un mediador limitado ejecuta únicamente la operación aprobada, sin evaluar código generado. HTTPS y permisos del navegador siguen siendo obligatorios. Safari no expone todas las APIs (por ejemplo Bluetooth, USB, Serial, HID o NFC); Eco lo detecta, no puede habilitarlas. Si la página contenedora bloquea permisos, indica abrir Eco directamente o ajustar el `allow` de ese iframe. No modifica la página contenedora.
 
