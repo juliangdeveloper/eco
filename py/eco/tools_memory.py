@@ -1,10 +1,12 @@
+import asyncio
 import json
-from js import ecoBridge
+from .runtime import bridge as ecoBridge
 from .registry import schema
 
 MEMORY_LIMIT = 6000
 USER_LIMIT = 3000
 ENTRY_INDEX_START = 0
+MEMORY_LOCK = asyncio.Lock()
 
 
 def describe_entries(entries):
@@ -42,17 +44,17 @@ def mutate(text, action, content, old_text, limit, index=None):
 
 
 async def memory(args):
-    state = json.loads(await ecoBridge.state())
-    target = args.get("target", "memory")
-    if target not in ("memory", "user"):
-        return {"error": "Destino inválido"}
-    limit = MEMORY_LIMIT if target == "memory" else USER_LIMIT
-    result = mutate(state.get(target, ""), args.get("action", "add"), args.get("content", ""), args.get("old_text", ""), limit, args.get("index"))
-    if isinstance(result, dict):
-        return result
-    state[target] = result
-    await ecoBridge.saveState(json.dumps(state, ensure_ascii=False))
-    return {"ok": True, "target": target, "entries": result.split("\n") if result else [], "used_chars": len(result), "free_chars": limit - len(result)}
+    async with MEMORY_LOCK:
+        state = json.loads(await ecoBridge.state())
+        target = args.get("target", "memory")
+        if target not in ("memory", "user"):
+            return {"error": "Destino inválido"}
+        limit = MEMORY_LIMIT if target == "memory" else USER_LIMIT
+        result = mutate(state.get(target, ""), args.get("action", "add"), args.get("content", ""), args.get("old_text", ""), limit, args.get("index"))
+        if isinstance(result, dict):
+            return result
+        await ecoBridge.saveMemory(target, result)
+        return {"ok": True, "target": target, "entries": result.split("\n") if result else [], "used_chars": len(result), "free_chars": limit - len(result)}
 
 
 def register(registry):

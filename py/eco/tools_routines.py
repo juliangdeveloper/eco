@@ -1,5 +1,5 @@
 import json
-from js import ecoBridge
+from .runtime import bridge as ecoBridge
 from .registry import schema
 
 CHECK_SCHEMA = {

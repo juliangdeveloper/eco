@@ -1,4 +1,5 @@
 import json
+from contextvars import ContextVar
 from .registry import schema
 
 COMPACT_CHAR_LIMIT = 6000
@@ -11,23 +12,32 @@ MAX_SEARCH_MATCHES = 20
 NOISE_KEYS = {"node_id", "avatar_url", "gravatar_id", "_links", "etag", "url", "events_url", "received_events_url", "followers_url", "following_url", "gists_url", "starred_url", "subscriptions_url", "organizations_url", "repos_url", "labels_url", "comments_url", "timeline_url", "performed_via_github_app", "reactions", "permissions", "sha_url", "git_url", "ssh_url", "svn_url", "clone_url", "mirror_url", "keys_url", "collaborators_url", "teams_url", "hooks_url", "issue_events_url", "assignees_url", "branches_url", "tags_url", "blobs_url", "git_tags_url", "git_refs_url", "trees_url", "statuses_url", "languages_url", "stargazers_url", "contributors_url", "subscribers_url", "subscription_url", "commits_url", "git_commits_url", "merges_url", "archive_url", "downloads_url", "issues_url", "pulls_url", "milestones_url", "notifications_url", "releases_url", "deployments_url", "compare_url", "contents_url", "review_comments_url", "review_comment_url", "statuses_url", "diff_url", "patch_url", "issue_url", "commit_url", "repository_url", "user_view_type", "site_admin", "type_url"}
 KEEP_URL_KEYS = {"html_url"}
 
-store = {"items": {}, "next": 1}
+stores = ContextVar("result_history", default=None)
+
+
+def current_store():
+    value = stores.get()
+    if value is None:
+        value = {"items": {}, "next": 1}
+        stores.set(value)
+    return value
 
 
 def load(items):
-    store["items"] = dict(items or {})
-    numbers = [int(key[1:]) for key in store["items"] if key[1:].isdigit()]
-    store["next"] = max(numbers, default=0) + 1
+    stores.set({"items": {}, "next": 1})
+    current_store()["items"] = dict(items or {})
+    numbers = [int(key[1:]) for key in current_store()["items"] if key[1:].isdigit()]
+    current_store()["next"] = max(numbers, default=0) + 1
 
 
 def dump():
-    return store["items"]
+    return current_store()["items"]
 
 
 def save(name, text):
-    key = "r" + str(store["next"])
-    store["next"] += 1
-    store["items"][key] = {"tool": name, "content": text}
+    key = "r" + str(current_store()["next"])
+    current_store()["next"] += 1
+    current_store()["items"][key] = {"tool": name, "content": text}
     return key
 
 
@@ -112,9 +122,9 @@ def select(value, path):
 
 async def leer_resultado(args):
     key = str(args.get("id", ""))
-    item = store["items"].get(key)
+    item = current_store()["items"].get(key)
     if not item:
-        return {"error": "No existe el resultado " + key, "disponibles": list(store["items"].keys())[-MAX_SEARCH_MATCHES:]}
+        return {"error": "No existe el resultado " + key, "disponibles": list(current_store()["items"].keys())[-MAX_SEARCH_MATCHES:]}
     text = item["content"]
     try:
         value = unwrap(json.loads(text))[0]

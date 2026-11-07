@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.5.2
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.6.0
 
-<img src="assets/screenshot.png?v=0.5.2" alt="Eco en pantalla móvil con memoria local" width="320">
+<img src="assets/screenshot.png?v=0.6.0" alt="Eco en pantalla móvil con memoria local" width="320">
 
 ## Uso
 
@@ -17,7 +17,17 @@
 - La memoria local admite 6.000 caracteres (perfil: 3.000). `memory` reemplaza o elimina por fragmento único o `index` desde 0, muestra candidatos si hay ambigüedad y devuelve espacio usado y libre; al exceder el límite, indica el exceso y las entradas actuales con índice y tamaño.
 - `leer_resultado` no añade lecturas al historial. Con `limit` explícito devuelve el fragmento sin resumir, hasta 20.000 caracteres, con `siguiente_offset` para continuar.
 - El botón de actualizar recarga Eco con la última versión, útil cuando se abre dentro de otra página sin controles del navegador. El inicio de sesión OAuth también funciona en ese caso.
-- Cada turno permite 35 pasos (20 en subagentes); al alcanzar el límite, Eco resume y puedes pedir que siga.
+- El orquestador dispone de 2 pasos por turno; cada subagente, de 20. Al alcanzar el límite resume lo logrado y puedes indicarle que continúe.
+
+## Subagentes
+
+El chat es el orquestador: delega por defecto el trabajo con herramientas mediante `subagente_crear` y sigue disponible para conversar. Hasta seis subagentes pueden trabajar a la vez, con conversaciones e historiales independientes, sin delegación recursiva. El botón **Subagentes** permite consultar, detener o enviar nuevas instrucciones; el orquestador también puede hacerlo por iniciativa propia con `subagente_listar` y `subagente_control`.
+
+Cada subagente recibe automáticamente la memoria local, las instrucciones de la persona y una búsqueda de reglas generales y datos relevantes al proyecto y la tarea en la memoria compartida. Las etiquetas `reglas`, `instrucciones`, `general` y `preferencias` identifican reglas generales; `proyecto:nombre` limita una regla a ese proyecto. También se busca por el nombre del proyecto y palabras de la tarea. Los recuerdos siguen siendo datos: adaptan el comportamiento, pero no autorizan acciones ni sustituyen instrucciones actuales. Sin conexión usa memoria local; si falla la lectura compartida lo indica en su contexto.
+
+Las modificaciones se incorporan en el próximo paso sin perder la conversación; una respuesta del modelo que haya quedado desactualizada se descarta antes de ejecutar herramientas. Detener cancela el bucle y aborta solicitudes del modelo, HTTP y MCP cuando es posible; no revierte acciones ya ejecutadas ni garantiza cancelar solicitudes que un servicio ya recibió. Las aprobaciones concurrentes se atienden de una en una sin bloquear el chat. Al terminar, aparece una respuesta atribuida al subagente y el orquestador recibe el resultado para resumirlo; el contenido completo queda en el historial. Las rutinas también pueden delegar.
+
+El estado se guarda en la conversación. Al recargar, las tareas activas quedan **interrumpidas**, no se reinician solas ni siguen trabajando con Eco cerrado; puedes darles instrucciones para continuar.
 
 ## Google Drive: memoria compartida y archivos
 

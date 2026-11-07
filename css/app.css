@@ -849,3 +849,72 @@ dialog small {
   font-size: 13px;
   color: var(--text-muted);
 }
+
+.subagentsButton {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  max-width: calc(100% - 32px);
+  margin: 0 16px 4px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.subagentsPanel {
+  overflow: hidden;
+}
+
+.subagentPager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 0;
+}
+
+#subagentTask,
+#subagentStatus {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#subagentResult {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+#subagentForm {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+#subagentInstruction {
+  min-width: 0;
+}
+
+#subagentError {
+  color: var(--red);
+  font-size: 13px;
+}
+
+.subagentLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+#confirm,
+#clarify {
+  position: fixed;
+  top: 64px;
+  bottom: auto;
+  z-index: 20;
+  max-height: calc(100dvh - 180px);
+}

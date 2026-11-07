@@ -1,4 +1,5 @@
 import { passiveMemory, memoryCall, configureMemory } from "./passive-skills.js";
+import { abortJob, jobRecords, jobSignal, jobSnapshot, jobUpdate, resumeJob } from "./subagents.js";
 import { DEFAULT_MODEL } from "./config.js";
 import { all, remove, setting, store } from "./storage.js";
 import { connectorFetch, deleteConnector, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
@@ -9,6 +10,10 @@ import { callMcpTool, probeMcp, verifyMcp } from "./mcp.js";
 
 const MCP_KIND = "mcp";
 const PROBE_ID = "probe";
+const MEMORY_CONTEXT_CHAR_LIMIT = 16000;
+const GENERAL_MEMORY_TAG = /^(reglas?|instrucciones?|general|global|preferencias?|rules?|instructions?)$/i;
+const PROJECT_MEMORY_TAG = /^proyecto[:=/](.+)$/i;
+const TASK_STOP_WORDS = new Set(["proyecto", "archivos", "revisar", "revisa", "tarea", "para", "como", "esta", "este", "hacer", "sobre", "with", "from", "that", "this", "project"]);
 
 let toolListener = () => {};
 let stateApi = null;
@@ -70,11 +75,46 @@ async function createConnectorSafely(raw) {
 }
 
 window.ecoBridge = {
-  fetch(url, init) {
+  async abortJob(id) { abortJob(id); return true; },
+  async resumeJob(id) { resumeJob(id); return true; },
+  jobUpdate,
+  async jobRecords(sessionId) {
+    return JSON.stringify(await jobRecords(sessionId));
+  },
+  async jobSnapshot(id, sessionId) {
+    return JSON.stringify(await jobSnapshot(id, sessionId));
+  },
+  async memoryContext(task, project) {
+    if (!await passiveMemory()) return JSON.stringify({ estado: "Memoria local" });
+    const result = await memoryCall("buscar", {});
+    const words = (String(task).toLocaleLowerCase().match(/[\p{L}\p{N}_-]{4,}/gu) || []).filter((word) => !TASK_STOP_WORDS.has(word));
+    const projectName = String(project).trim().toLocaleLowerCase();
+    const superseded = new Set(result.records.map((row) => row.reemplaza_a).filter(Boolean));
+    const records = result.records.filter((row) => !superseded.has(row.id)).map((row) => {
+      const tags = String(row.etiquetas || "").split(",").map((tag) => tag.trim());
+      const content = String(row.contenido + " " + row.etiquetas).toLocaleLowerCase();
+      const scopes = tags.map((tag) => tag.match(PROJECT_MEMORY_TAG)?.[1]?.toLocaleLowerCase()).filter(Boolean);
+      const projectMatch = projectName && (scopes.length ? scopes.includes(projectName) : content.includes(projectName));
+      const sharedRule = tags.some((tag) => GENERAL_MEMORY_TAG.test(tag)) && (!scopes.length || projectMatch);
+      const relevant = projectMatch || !scopes.length && words.some((word) => content.includes(word));
+      return { row, score: (sharedRule ? 2 : 0) + (relevant ? 1 : 0) };
+    }).filter(({ row, score }) => score && (["recuerdo", "dato"].includes(row.tipo) || score >= 2)).sort((a, b) => b.score - a.score);
+    const selected = [];
+    let used = 0;
+    for (const { row } of records) {
+      const size = JSON.stringify(row).length;
+      if (used + size > MEMORY_CONTEXT_CHAR_LIMIT) continue;
+      selected.push(row);
+      used += size;
+    }
+    return JSON.stringify({ records: selected, omitidos: records.length - selected.length, contenido_no_confiable: true });
+  },
+  fetch(url, init, sessionId, jobId) {
     const options = plain(init);
     if (options.body == null) {
       delete options.body;
     }
+    options.signal = jobSignal(jobId);
     return window.fetch(url, options);
   },
   async config() {
@@ -84,19 +124,21 @@ window.ecoBridge = {
       origin: location.origin
     });
   },
-  async state() {
+  async state(sessionId, jobId) {
     return JSON.stringify({
       memory: setting("memory"),
       user: setting("user"),
-      todos: stateApi?.todos() || []
+      todos: await stateApi?.todos(sessionId, jobId) || []
     });
   },
-  async saveState(raw) {
-    const value = parsed(raw);
-    setting("memory", value.memory || "");
-    setting("user", value.user || "");
-    await stateApi?.setTodos(Array.isArray(value.todos) ? value.todos : []);
+  async saveMemory(target, value) {
+    if (!["memory", "user"].includes(target)) throw new Error("Destino inválido");
+    setting(target, String(value));
     stateApi?.refreshAgent();
+    return true;
+  },
+  async saveTodos(raw, sessionId, jobId) {
+    await stateApi?.setTodos(parsed(raw), sessionId, jobId);
     return true;
   },
   async connectors() {
@@ -118,8 +160,8 @@ window.ecoBridge = {
     stateApi?.refreshConnectors();
     return JSON.stringify({ ok: true, id: connector.id, status });
   },
-  async connectorFetch(id, method, path, queryJson, bodyJson) {
-    const result = await connectorFetch(String(id), String(method), String(path), parsed(queryJson) || {}, parsed(bodyJson));
+  async connectorFetch(id, method, path, queryJson, bodyJson, sessionId, jobId) {
+    const result = await connectorFetch(String(id), String(method), String(path), parsed(queryJson) || {}, parsed(bodyJson), false, jobSignal(jobId));
     return JSON.stringify(result);
   },
   async probeMcp(url, headersJson) {
@@ -148,14 +190,14 @@ window.ecoBridge = {
     stateApi?.refreshConnectors();
     return JSON.stringify({ ok: true });
   },
-  async mcpCall(id, name, argsJson) {
+  async mcpCall(id, name, argsJson, sessionId, jobId) {
     let args = {};
     try {
       args = parsed(argsJson) || {};
     } catch {
       args = {};
     }
-    const result = await callMcpTool(String(id), String(name), args);
+    const result = await callMcpTool(String(id), String(name), args, jobSignal(jobId));
     stateApi?.refreshConnectors();
     return JSON.stringify(result);
   },
@@ -197,16 +239,18 @@ window.ecoBridge = {
   async sessionSearch(query, limit) {
     return JSON.stringify(await searchSessions(query, limit, stateApi?.sessionId() || ""));
   },
-  confirm(name, argsJson) {
-    return window.ecoUI.confirm(name, argsJson);
+  confirm(name, argsJson, sessionId, jobId) {
+    return window.ecoUI.confirm(name, argsJson, jobId, jobSignal(jobId));
   },
-  clarify(question, optionsJson) {
-    return window.ecoUI.clarify(question, optionsJson);
+  clarify(question, optionsJson, sessionId, jobId) {
+    return window.ecoUI.clarify(question, optionsJson, jobId, jobSignal(jobId));
   },
-  async onToolStart(name, argsJson) {
+  async onToolStart(name, argsJson, sessionId, jobId) {
+    if (jobId || sessionId !== stateApi?.sessionId()) return;
     toolListener(name, "trabajando", argsJson);
   },
-  async onToolEnd(name, resultJson) {
+  async onToolEnd(name, resultJson, sessionId, jobId) {
+    if (jobId || sessionId !== stateApi?.sessionId()) return;
     let result = resultJson;
     try {
       result = parsed(resultJson);

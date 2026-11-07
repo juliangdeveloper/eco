@@ -1,7 +1,7 @@
 import json
 import re
 from urllib.parse import quote, urlparse
-from js import ecoBridge
+from .runtime import bridge as ecoBridge
 from .registry import schema
 
 AUTH_TYPES = ["none", "bearer", "api_key", "basic", "oauth2"]

@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f5f5f7">
-  <link rel="manifest" href="manifest.webmanifest?v=0.5.2">
-  <link rel="icon" href="assets/icon.svg?v=0.5.2">
-  <link rel="stylesheet" href="css/app.css?v=0.5.2">
+  <link rel="manifest" href="manifest.webmanifest?v=0.6.0">
+  <link rel="icon" href="assets/icon.svg?v=0.6.0">
+  <link rel="stylesheet" href="css/app.css?v=0.6.0">
   <title>Eco</title>
 </head>
 <body>
@@ -22,6 +22,7 @@
     </header>
     <section id="notice" class="notice" hidden><span>Configura tu clave para empezar.</span><button data-open-settings type="button">Ajustes</button></section>
     <section id="todoBar" class="todoBar" hidden></section>
+    <button id="subagentsButton" class="subagentsButton" type="button" hidden>Subagentes</button>
     <section id="chat" aria-live="polite"><div class="empty" id="empty">Preparando el agente…</div></section>
     <form id="composer"><textarea id="prompt" rows="1" placeholder="Preparando el agente…" aria-label="Mensaje"></textarea><button id="send" type="submit" disabled>Enviar</button></form>
   </main>
@@ -30,6 +31,7 @@
   <dialog id="settings"><div class="panelHead"><h2>Ajustes</h2><button data-close type="button">Cerrar</button></div><label>Clave OpenRouter<input id="openrouterKey" type="password" autocomplete="off"></label><label>Modelo<input id="model" autocomplete="off"></label><h3 class="sectionTitle">Conectores</h3><div id="connectorList" class="connectorList"></div><h3 class="sectionTitle">Rutinas</h3><div id="routineList" class="connectorList"></div><button id="clearData" class="danger" type="button">Borrar datos locales</button></dialog>
   <dialog id="confirm"><h2>Confirmar acción</h2><p id="confirmText"></p><pre id="confirmArgs"></pre><div class="actions"><button id="cancelConfirm" type="button">Cancelar</button><button id="approveConfirm" type="button">Aprobar</button></div></dialog>
   <dialog id="clarify"><h2 id="clarifyQuestion"></h2><div id="clarifyOptions" class="clarifyOptions"></div><form id="clarifyForm"><input id="clarifyText" placeholder="Tu respuesta"><button type="submit">Continuar</button></form></dialog>
-  <script type="module" src="js/app.js?v=0.5.2"></script>
+  <dialog id="subagentsPanel" class="subagentsPanel"><div class="panelHead"><h2>Subagentes</h2><button type="button" data-close>Cerrar</button></div><div class="subagentPager"><button id="subagentPrevious" type="button" aria-label="Anterior">‹</button><span id="subagentPosition"></span><button id="subagentNext" type="button" aria-label="Siguiente">›</button></div><strong id="subagentTask"></strong><small id="subagentStatus"></small><p id="subagentResult"></p><button id="subagentStop" type="button">Detener</button><form id="subagentForm"><input id="subagentInstruction" placeholder="Cambiar instrucciones o continuar" aria-label="Instrucciones para el subagente" maxlength="12000"><button id="subagentFollow" type="submit">Enviar</button></form><p id="subagentError" role="status"></p></dialog>
+  <script type="module" src="js/app.js?v=0.6.0"></script>
 </body>
 </html>

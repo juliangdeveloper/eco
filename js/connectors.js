@@ -332,7 +332,7 @@ function apiMessage(data) {
   return text.slice(0, MAX_ERROR_CHARS);
 }
 
-export async function connectorFetch(id, method, path, query, body, complete = false) {
+export async function connectorFetch(id, method, path, query, body, complete = false, signal) {
   const connector = await getConnector(id);
   if (!connector) {
     return { ok: false, error: "Conector no encontrado" };
@@ -351,7 +351,7 @@ export async function connectorFetch(id, method, path, query, body, complete = f
     return { ok: false, error: NOT_CONNECTED, reason: auth };
   }
   const secretText = Object.values(headers).join(" ") + " " + url.search;
-  const init = { method, headers };
+  const init = { method, headers, signal };
   if (body && Object.keys(body).length) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);

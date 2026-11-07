@@ -1,5 +1,5 @@
 import json
-from js import ecoBridge
+from .runtime import bridge as ecoBridge
 from .registry import schema
 
 MEMORY_TOOLS = ("memoria_guardar", "memoria_buscar", "memoria_leer_nuevos")

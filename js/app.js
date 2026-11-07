@@ -8,9 +8,10 @@ import { startRenewal } from "./renewal.js";
 import { startRoutines } from "./routines.js";
 import { listConnectors, connectorStatus, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
+import { setupSubagents, renderSubagents } from "./subagents.js";
 import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
-import { json, store } from "./storage.js";
+import { all, json, store } from "./storage.js";
 import { autoExpand, byId, pretty, renderEmpty, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "Nueva conversación";
@@ -23,12 +24,13 @@ const CONFIRM_LABELS = {
 
 let pyodide;
 let session = newSessionData();
+const knownSessions = new Map([[session.id, session]]);
 let agentPanel;
 let chat;
 let stats = json("stats") || { mensajes_enviados: 0, herramientas_usadas: 0 };
 
 function newSessionData() {
-  return { id: crypto.randomUUID(), title: DEFAULT_TITLE, messages: [], todos: [], results: {}, updatedAt: Date.now() };
+  return { id: crypto.randomUUID(), title: DEFAULT_TITLE, messages: [], todos: [], results: {}, subagents: [], updatedAt: Date.now() };
 }
 
 function currentSession() {
@@ -36,10 +38,17 @@ function currentSession() {
 }
 
 function replaceSession(value) {
-  if (value === session) {
-    return;
-  }
-  session = { ...newSessionData(), ...value, messages: value.messages || [], todos: value.todos || [], results: value.results || {} };
+  session = knownSessions.get(value.id) || { ...newSessionData(), ...value };
+  knownSessions.set(session.id, session);
+}
+
+async function resolveSession(id) {
+  if (!id) return session;
+  if (knownSessions.has(id)) return knownSessions.get(id);
+  const saved = (await all("sessions")).find((row) => row.id === id);
+  if (!saved) throw new Error("Conversación no encontrada");
+  if (!knownSessions.has(id)) knownSessions.set(id, saved);
+  return knownSessions.get(id);
 }
 
 function statsSave() {
@@ -47,12 +56,12 @@ function statsSave() {
   metaUpdate(APP_ID, APP_VERSION, { stats }, { declare: STATS });
 }
 
-async function persist() {
-  session.updatedAt = Date.now();
-  if (session.title === DEFAULT_TITLE) {
-    session.title = session.messages.find((item) => item.role === "user")?.content.slice(0, 48) || DEFAULT_TITLE;
+async function persist(value = session) {
+  value.updatedAt = Date.now();
+  if (value.title === DEFAULT_TITLE) {
+    value.title = value.messages.find((item) => item.role === "user")?.content.slice(0, 48) || DEFAULT_TITLE;
   }
-  await store("sessions", session);
+  await store("sessions", value);
 }
 
 function parseArgs(raw) {
@@ -61,6 +70,40 @@ function parseArgs(raw) {
   } catch {
     return {};
   }
+}
+
+const interactions = [];
+let activeInteraction = null;
+
+function interaction(kind, open, args) {
+  return new Promise((resolve) => {
+    const item = { kind, open, args, resolve, job: args[2], signal: args[3] };
+    if (item.signal?.aborted) return resolve(kind === "confirm" ? false : "");
+    interactions.push(item);
+    drainInteractions();
+  });
+}
+
+async function drainInteractions() {
+  if (activeInteraction || !interactions.length) return;
+  const item = interactions.shift();
+  if (item.signal?.aborted) {
+    item.resolve(item.kind === "confirm" ? false : "");
+    drainInteractions();
+    return;
+  }
+  activeInteraction = item;
+  try {
+    item.resolve(await item.open(...item.args));
+  } finally {
+    activeInteraction = null;
+    drainInteractions();
+  }
+}
+
+function cancelJob(id) {
+  for (const item of interactions.filter((row) => row.job === id)) item.resolve(item.kind === "confirm" ? false : "");
+  if (activeInteraction?.job === id) byId(activeInteraction.kind).close("cancelled");
 }
 
 function bindConfirm() {
@@ -80,7 +123,7 @@ function bindConfirm() {
     byId("confirmText").textContent = CONFIRM_LABELS[name]?.(args) || name;
     byId("confirmArgs").textContent = pretty(args);
     resolve = done;
-    dialog.showModal();
+    dialog.show();
   });
 }
 
@@ -114,7 +157,7 @@ function bindClarify() {
       return button;
     }));
     resolve = done;
-    dialog.showModal();
+    dialog.show();
   });
 }
 
@@ -184,23 +227,34 @@ async function main() {
   createSessions({
     loadSession: chat.loadSession,
     newSession: () => {
-      replaceSession(newSessionData());
-      renderEmpty(chat.send);
+      chat.loadSession(newSessionData());
     }
   });
   setBridgeState({
     refreshAgent: () => agentPanel.render(),
     refreshConnectors: () => renderConnectors(),
     sessionId: () => currentSession().id,
-    setTodos: chat.setTodos,
-    todos: chat.currentTodos
+    async setTodos(todos, sessionId, jobId) {
+      const owner = await resolveSession(sessionId);
+      const target = jobId ? owner.subagents?.find((job) => job.id === jobId) : owner;
+      if (!target) return;
+      target.todos = todos;
+      await persist(owner);
+      if (owner === currentSession() && !jobId) await chat.setTodos(todos);
+    },
+    async todos(sessionId, jobId) {
+      const owner = await resolveSession(sessionId);
+      return (jobId ? owner.subagents?.find((job) => job.id === jobId) : owner)?.todos || [];
+    }
   });
   window.ecoUI = {
-    clarify,
-    confirm
+    clarify: (...args) => interaction("clarify", clarify, args),
+    confirm: (...args) => interaction("confirm", confirm, args),
+    cancelJob
   };
+  await setupSubagents({ getSession: currentSession, getPyodide: () => pyodide, persist, receiveJob: chat.receiveJob, resolveSession });
   setToolListener((name, status, value) => {
-    updateToolCard(name, status, value);
+    if (!["subagente_crear", "subagente_listar", "subagente_control"].includes(name)) updateToolCard(name, status, value);
     if (status !== "trabajando") {
       stats.herramientas_usadas += 1;
       statsSave();
@@ -216,6 +270,7 @@ async function main() {
   }
   chat.setSending(false);
   renderEmpty(chat.send);
+  renderSubagents();
   startRoutines(chat.trigger);
 }
 

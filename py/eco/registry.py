@@ -18,7 +18,7 @@ class Registry:
         if not item:
             return {"error": "Herramienta no disponible"}
         if item["confirmar"]:
-            from js import ecoBridge
+            from .runtime import bridge as ecoBridge
             approved = await ecoBridge.confirm(name, json.dumps(args, ensure_ascii=False))
             if not approved:
                 return {"error": "Acción cancelada"}

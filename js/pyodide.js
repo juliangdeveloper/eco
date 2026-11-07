@@ -3,6 +3,8 @@ import { APP_VERSION, PYODIDE_URL } from "./config.js";
 const FILES = [
   "__init__.py",
   "registry.py",
+  "runtime.py",
+  "subagents.py",
   "tools_memory.py",
   "tools_todo.py",
   "tools_extra.py",
@@ -31,6 +33,6 @@ export async function loadAgent() {
     }
     pyodide.FS.writeFile("/home/pyodide/eco/" + file, await response.text());
   }
-  await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); from eco.agent import run_turn, run_delegate");
+  await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); from eco.agent import run_turn; from eco.subagents import job_control");
   return pyodide;
 }

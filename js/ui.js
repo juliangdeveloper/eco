@@ -5,7 +5,9 @@ export const MAX_TOOL_PREVIEW = 2400;
 export const TOOL_LABELS = {
   memory: "Memoria",
   todo_list: "Tareas",
-  delegate_task: "Subagente",
+  subagente_crear: "Subagente",
+  subagente_listar: "Subagentes",
+  subagente_control: "Subagente",
   clarify: "Pregunta",
   session_search: "Buscar sesiones",
   skills_list: "Habilidades",
@@ -53,7 +55,7 @@ export function preview(value) {
   return text.length > MAX_TOOL_PREVIEW ? text.slice(0, MAX_TOOL_PREVIEW) + "…" : text;
 }
 
-export function appendMessage(role, content) {
+export function appendMessage(role, content, label = "") {
   byId("empty")?.remove();
   const message = element("div", "", "message " + role);
   if (role === "assistant") {
@@ -65,6 +67,7 @@ export function appendMessage(role, content) {
   } else {
     appendTextWithLinks(message, content || "");
   }
+  if (label) message.prepend(element("strong", label, "subagentLabel"));
   byId("chat").append(message);
   scrollChat();
   return message;
@@ -89,8 +92,8 @@ export function renderMessages(messages) {
   const chat = byId("chat");
   chat.replaceChildren();
   for (const item of messages) {
-    if (item.role === "user" || item.role === "assistant") {
-      appendMessage(item.role, item.content);
+    if (!item.event && item.content && (item.role === "user" || item.role === "assistant")) {
+      appendMessage(item.role, item.content, item.uiLabel || "");
     }
   }
 }

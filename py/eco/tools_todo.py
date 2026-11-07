@@ -1,5 +1,5 @@
 import json
-from js import ecoBridge
+from .runtime import bridge as ecoBridge
 from .registry import schema
 
 VALID_STATUS = {"pending", "in_progress", "completed", "cancelled"}
@@ -24,7 +24,7 @@ async def todo_list(args):
             state["todos"] = list(indexed.values())
         else:
             state["todos"] = incoming
-        await ecoBridge.saveState(json.dumps(state, ensure_ascii=False))
+        await ecoBridge.saveTodos(json.dumps(state["todos"], ensure_ascii=False))
     return {"todos": state.get("todos", [])}
 
 
