@@ -57,7 +57,11 @@ export function appendMessage(role, content) {
   byId("empty")?.remove();
   const message = element("div", "", "message " + role);
   if (role === "assistant") {
-    renderMarkdown(message, content || "");
+    try {
+      renderMarkdown(message, content || "");
+    } catch {
+      message.replaceChildren(document.createTextNode(content || ""));
+    }
   } else {
     appendTextWithLinks(message, content || "");
   }

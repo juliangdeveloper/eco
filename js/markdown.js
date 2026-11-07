@@ -12,9 +12,9 @@ function safeUrl(value) {
   }
 }
 
-function appendLink(parent, label, url) {
+function appendLink(parent, label, url, insideLink = false) {
   const href = safeUrl(url);
-  if (!href) {
+  if (!href || insideLink) {
     parent.append(document.createTextNode(label));
     return;
   }
@@ -22,31 +22,31 @@ function appendLink(parent, label, url) {
   link.href = href;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  appendInline(link, label);
+  appendInline(link, label, true);
   parent.append(link);
 }
 
-function appendInline(parent, text) {
+function appendInline(parent, text, insideLink = false) {
   let lastIndex = 0;
   INLINE_PATTERN.lastIndex = 0;
   for (const match of text.matchAll(INLINE_PATTERN)) {
     parent.append(document.createTextNode(text.slice(lastIndex, match.index)));
     if (match[2] !== undefined) {
-      appendLink(parent, match[2], match[3]);
+      appendLink(parent, match[2], match[3], insideLink);
     } else if (match[4] !== undefined) {
       const code = document.createElement("code");
       code.textContent = match[4];
       parent.append(code);
     } else if (match[5] !== undefined) {
       const strong = document.createElement("strong");
-      appendInline(strong, match[5]);
+      appendInline(strong, match[5], insideLink);
       parent.append(strong);
     } else if (match[6] !== undefined || match[7] !== undefined) {
       const emphasis = document.createElement("em");
-      appendInline(emphasis, match[6] ?? match[7]);
+      appendInline(emphasis, match[6] ?? match[7], insideLink);
       parent.append(emphasis);
     } else {
-      appendLink(parent, match[0], match[0]);
+      appendLink(parent, match[0], match[0], insideLink);
     }
     lastIndex = match.index + match[0].length;
   }

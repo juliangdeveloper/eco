@@ -43,6 +43,11 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     try {
       const raw = await getPyodide().globals.get("run_turn")(JSON.stringify({ messages: session.messages }));
       const result = JSON.parse(raw);
+      if (Array.isArray(result.messages)) {
+        session.messages = result.messages.filter((item, index) => !(index === 0 && item.role === "system"));
+      }
+      setSession(session);
+      await persist();
       if (result.error) {
         appendMessage("assistant", "Error: " + result.error);
       } else {
@@ -51,11 +56,6 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
         }
         appendMessage("assistant", result.message || "");
       }
-      if (Array.isArray(result.messages)) {
-        session.messages = result.messages.filter((item, index) => !(index === 0 && item.role === "system"));
-      }
-      setSession(session);
-      await persist();
     } catch (error) {
       appendMessage("assistant", "No se pudo completar la respuesta: " + error.message);
       await persist();
