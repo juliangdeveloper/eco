@@ -1,4 +1,4 @@
-import { connectorStatus, redirectUri, saveManualCredential, startOAuth, STATUS } from "./connectors.js";
+import { connectorStatus, openOAuthWindow, redirectUri, saveManualCredential, startOAuth, STATUS } from "./connectors.js";
 import { verifyMcp } from "./mcp.js";
 import { deleteSecret } from "./vault.js";
 
@@ -188,6 +188,7 @@ export function showCredentialCard(connector, options = {}) {
     skip.onclick = () => done(SKIPPED_TEXT, STATUS.DISCONNECTED);
     form.onsubmit = async (event) => {
       event.preventDefault();
+      const popup = type === "oauth2" ? openOAuthWindow() : null;
       submit.disabled = true;
       error.hidden = true;
       const values = Object.fromEntries(inputs.map((input) => [input.name, input.value.trim()]));
@@ -195,7 +196,7 @@ export function showCredentialCard(connector, options = {}) {
       let rejected = false;
       try {
         ok = type === "oauth2"
-          ? await startOAuth(connector.id, values.client_id || connector.auth.client_id)
+          ? await startOAuth(connector.id, values.client_id || connector.auth.client_id, popup)
           : await saveManualCredential(connector.id, values);
         if (ok && connector.kind === MCP_KIND) {
           const check = await verifyMcp(connector.id);

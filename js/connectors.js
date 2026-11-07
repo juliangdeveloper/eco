@@ -540,9 +540,14 @@ export function redirectUri() {
   return url.href;
 }
 
-export async function startOAuth(id, clientId) {
+export function openOAuthWindow() {
+  return window.open("", "eco-oauth", POPUP_FEATURES);
+}
+
+export async function startOAuth(id, clientId, openedPopup = null) {
   const connector = await getConnector(id);
   if (!connector || connector.auth.type !== "oauth2" || !clientId) {
+    openedPopup?.close();
     return false;
   }
   const auth = connector.auth;
@@ -555,7 +560,12 @@ export async function startOAuth(id, clientId) {
     params.set("code_challenge", base64Url(digest));
     params.set("code_challenge_method", "S256");
   }
-  const popup = window.open(authorizeUrl(auth, params), "eco-oauth", POPUP_FEATURES);
+  let popup = openedPopup;
+  if (popup && !popup.closed) {
+    popup.location.href = authorizeUrl(auth, params);
+  } else {
+    popup = window.open(authorizeUrl(auth, params), "eco-oauth", POPUP_FEATURES);
+  }
   if (!popup) {
     return false;
   }
