@@ -14,10 +14,11 @@ Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de 
 
 ### MCP remotos
 
-- Eco busca el servidor MCP remoto oficial del servicio, comprueba con `probe_mcp` que responda desde el navegador y si pide token, y lo crea con `create_connector` y `mcp_url`.
+- Eco siempre busca primero el servidor MCP remoto oficial del servicio, comprueba con `probe_mcp` que responda desde el navegador y si pide token, y lo crea con `create_connector` y `mcp_url`.
 - Transporte Streamable HTTP con JSON-RPC 2.0: `initialize`, `notifications/initialized`, `tools/list` y `tools/call`, con `Mcp-Session-Id`, `MCP-Protocol-Version` y respuestas JSON o SSE.
 - Acceso sin credencial o con token Bearer. El conector queda «Conectado» solo si `tools/list` responde con tu token; si el servicio lo rechaza, la tarjeta te lo dice y el token no se guarda.
 - Las herramientas del servidor se cargan como herramientas nativas del modelo con el prefijo del conector (por ejemplo `github__get_me`), hasta 60 en total, primero las de solo lectura. Las que no se declaran de solo lectura piden tu aprobación.
+- Solo crea un conector de API HTTP si el servicio no tiene MCP. Un conector MCP reemplaza al conector de API del mismo servicio.
 - El servidor tiene que permitir CORS; los MCP locales no se pueden usar desde una página web.
 
 ### APIs HTTP
@@ -44,7 +45,7 @@ Al crear un conector OAuth, Eco elige cómo renovar el acceso: con refresh token
 
 `create_connector`, `probe_mcp`, `list_connectors`, `call_connector`, `request_sign_in`, las herramientas de cada MCP conectado, `memory`, `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `session_search`, `clarify` y `delegate_task` (encarga una tarea a un subagente con contexto limpio).
 
-El historial largo se resume automáticamente. Las respuestas se muestran con formato Markdown seguro.
+El historial largo se resume automáticamente. Las respuestas se muestran con formato Markdown seguro, incluidas tablas que se desplazan dentro de su propio recuadro en pantallas pequeñas.
 
 ## Privacidad
 

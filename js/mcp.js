@@ -18,6 +18,8 @@ const AUTH_REJECTED = "rejected_by_api";
 const SESSION_EXPIRED_STATUS = 404;
 const UNAUTHORIZED_STATUS = 401;
 const FORBIDDEN_STATUS = 403;
+const BAD_REQUEST_STATUS = 400;
+const AUTH_ERROR_PATTERN = /authoriz|token|credential/i;
 
 const sessions = new Map();
 let nextId = 1;
@@ -74,6 +76,9 @@ async function post(connector, session, body, auth) {
     return { ok: false, status: response.status, session_expired: true };
   }
   const text = await response.text();
+  if (auth && response.status === BAD_REQUEST_STATUS && AUTH_ERROR_PATTERN.test(text)) {
+    return { ok: false, status: response.status, error: NOT_CONNECTED, reason: AUTH_REJECTED, auth_required: true };
+  }
   if (body.id === undefined) {
     return { ok: response.ok, status: response.status };
   }

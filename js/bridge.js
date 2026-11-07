@@ -1,6 +1,6 @@
 import { DEFAULT_MODEL } from "./config.js";
 import { all, remove, setting, store } from "./storage.js";
-import { connectorFetch, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
+import { connectorFetch, deleteConnector, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
 import { searchSessions } from "./sessions.js";
 import { callMcpTool, probeMcp, verifyMcp } from "./mcp.js";
@@ -135,6 +135,15 @@ window.ecoBridge = {
     } catch {
       return JSON.stringify({ ok: false, error: "URL inválida" });
     }
+  },
+  async replaceConnector(id) {
+    const connector = await getConnector(String(id));
+    if (!connector || connector.kind === MCP_KIND) {
+      return JSON.stringify({ ok: false });
+    }
+    await deleteConnector(connector.id);
+    stateApi?.refreshConnectors();
+    return JSON.stringify({ ok: true });
   },
   async mcpCall(id, name, argsJson) {
     let args = {};

@@ -1,6 +1,8 @@
 const INLINE_PATTERN = /(\[([^\]]*)\]\(([^\s)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_|https:\/\/[^\s<]+)/g;
 const HEADING_PATTERN = /^(#{1,6})\s+(.+)$/;
 const UNORDERED_LIST_PATTERN = /^(\s*)[-*+]\s+(.+)$/;
+const TABLE_ROW_PATTERN = /^\s*\|.*\|\s*$/;
+const TABLE_DIVIDER_PATTERN = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const ORDERED_LIST_PATTERN = /^(\s*)(\d+)[.)]\s+(.+)$/;
 
 function safeUrl(value) {
@@ -95,6 +97,51 @@ function appendList(parent, lines, start) {
   return index;
 }
 
+function tableCells(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function isTableStart(lines, index) {
+  return TABLE_ROW_PATTERN.test(lines[index] || "") && TABLE_DIVIDER_PATTERN.test(lines[index + 1] || "");
+}
+
+function alignments(line) {
+  return tableCells(line).map((cell) => (cell.startsWith(":") && cell.endsWith(":") ? "center" : cell.endsWith(":") ? "right" : ""));
+}
+
+function appendRow(parent, cells, tag, align, width) {
+  const row = document.createElement("tr");
+  for (let column = 0; column < width; column++) {
+    const cell = document.createElement(tag);
+    if (align[column]) {
+      cell.style.textAlign = align[column];
+    }
+    appendInline(cell, cells[column] ?? "");
+    row.append(cell);
+  }
+  parent.append(row);
+}
+
+function appendTable(parent, lines, start) {
+  const header = tableCells(lines[start]);
+  const align = alignments(lines[start + 1]);
+  const box = document.createElement("div");
+  box.className = "tableBox";
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  appendRow(head, header, "th", align, header.length);
+  const body = document.createElement("tbody");
+  let index = start + 2;
+  while (index < lines.length && TABLE_ROW_PATTERN.test(lines[index])) {
+    appendRow(body, tableCells(lines[index]), "td", align, header.length);
+    index += 1;
+  }
+  table.append(head, body);
+  box.append(table);
+  parent.append(box);
+  return index;
+}
+
 export function renderMarkdown(parent, text) {
   const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
   let index = 0;
@@ -131,13 +178,17 @@ export function renderMarkdown(parent, text) {
       index += 1;
       continue;
     }
+    if (isTableStart(lines, index)) {
+      index = appendTable(parent, lines, index);
+      continue;
+    }
     if (listMatch(line)) {
       index = appendList(parent, lines, index);
       continue;
     }
     const paragraphLines = [line];
     index += 1;
-    while (index < lines.length && lines[index].trim() && !lines[index].trimStart().startsWith("```") && !lines[index].match(HEADING_PATTERN) && !listMatch(lines[index])) {
+    while (index < lines.length && lines[index].trim() && !lines[index].trimStart().startsWith("```") && !lines[index].match(HEADING_PATTERN) && !listMatch(lines[index]) && !isTableStart(lines, index)) {
       paragraphLines.push(lines[index]);
       index += 1;
     }

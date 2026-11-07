@@ -820,3 +820,27 @@ dialog small {
     opacity: 0.6;
   }
 }
+
+.message.assistant .tableBox {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 8px 0;
+  white-space: normal;
+}
+
+.message.assistant table {
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.message.assistant th,
+.message.assistant td {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 4px 8px;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.message.assistant th {
+  background: rgba(0, 0, 0, 0.04);
+}

@@ -264,12 +264,45 @@ def normalize_definition(raw):
     return result, None
 
 
+MIN_SERVICE_KEY = 4
+MCP_FIRST = "Antes de crear un conector de API, busca el servidor MCP remoto oficial del servicio y compruébalo con probe_mcp. Si el servicio no tiene MCP o no responde, vuelve a llamar a create_connector con sin_mcp en true."
+
+
+def service_key(value):
+    host = urlparse(str(value or "")).hostname or ""
+    labels = [label for label in host.split(".") if label not in ("www", "api", "mcp")]
+    return labels[-2] if len(labels) >= 2 else (labels[0] if labels else "")
+
+
+def same_service(definition, item):
+    names = {compact(definition["id"]), compact(definition["name"])}
+    if compact(item.get("id")) in names or compact(item.get("name")) in names:
+        return True
+    key = service_key(definition["base_url"])
+    other = service_key(item.get("base_url"))
+    return len(key) >= MIN_SERVICE_KEY and len(other) >= MIN_SERVICE_KEY and (key.startswith(other) or other.startswith(key))
+
+
 async def create_connector(args):
     definition, error = normalize_definition(args)
     if error:
         return {"ok": False, "error": error}
+    if definition.get("kind") == "mcp":
+        replaced = []
+        for item in await connectors():
+            if item.get("kind") != "mcp" and same_service(definition, item):
+                await ecoBridge.replaceConnector(item["id"])
+                replaced.append(item["id"])
+        result = json.loads(await ecoBridge.createConnector(json.dumps(definition, ensure_ascii=False)))
+        if replaced:
+            result["replaced"] = replaced
+        return result
+    raw = unwrap(args) or {}
+    flag = (args.get("sin_mcp") if isinstance(args, dict) else None) or raw.get("sin_mcp")
+    if flag is not True:
+        return {"ok": False, "error": MCP_FIRST}
     host = urlparse(definition["base_url"]).hostname
-    existing = [item for item in await connectors() if urlparse(item.get("base_url", "")).hostname == host and item.get("kind") == definition.get("kind")]
+    existing = [item for item in await connectors() if urlparse(item.get("base_url", "")).hostname == host and item.get("kind") != "mcp"]
     if existing and not any(item["id"] == definition["id"] for item in existing):
         definition["id"] = existing[0]["id"]
     try:
@@ -413,8 +446,8 @@ def register(registry):
     registry.add(
         "create_connector",
         schema(
-            "Crea un conector a una API externa cuando la persona pide conectarse a un servicio. Define URL base, autenticación y operaciones HTTP; marca write en las que modifican datos. Nunca pidas contraseñas ni tokens en el chat: tras crearlo, la app muestra a la persona un formulario seguro de inicio de sesión.",
-            {"definition": DEFINITION_SCHEMA},
+            "Crea un conector cuando la persona pide conectarse a un servicio. Prefiere siempre el servidor MCP remoto oficial del servicio: pasa mcp_url (comprobada antes con probe_mcp) y auth bearer si pide token; reemplaza cualquier conector de API del mismo servicio. Solo si el servicio no tiene MCP, define base_url, autenticación y operaciones HTTP, marca write en las que modifican datos y pasa sin_mcp en true. Nunca pidas contraseñas ni tokens en el chat: tras crearlo, la app muestra a la persona un formulario seguro de inicio de sesión.",
+            {"definition": DEFINITION_SCHEMA, "sin_mcp": {"type": "boolean", "description": "true solo si ya comprobaste que el servicio no tiene servidor MCP remoto."}},
             ["definition"],
         ),
         create_connector,
@@ -422,7 +455,7 @@ def register(registry):
     registry.add(
         "probe_mcp",
         schema(
-            "Comprueba si una URL https es un servidor MCP remoto que responde desde el navegador y si pide token. Úsala antes de crear un conector MCP.",
+            "Comprueba si una URL https es un servidor MCP remoto que responde desde el navegador y si pide token. Úsala siempre primero, con la URL del servidor MCP oficial que publica el proveedor en su documentación; si falla, prueba otra URL oficial antes de recurrir a una API.",
             {"url": {"type": "string"}, "headers": {"type": "object", "description": "Cabeceras X-MCP-* opcionales."}},
             ["url"],
         ),
