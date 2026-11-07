@@ -9,7 +9,7 @@ from .compression import compact
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 APP_TITLE = "Eco"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
-MAX_ITERACIONES = 2
+MAX_ITERACIONES = 20
 MAX_ITERACIONES_SUBAGENTE = 20
 CONTEXT_TOKEN_LIMIT = 128000
 LIMIT_PROMPT = (
