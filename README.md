@@ -4,7 +4,7 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.4.1
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.4.2
 
 <img src="assets/screenshot.png" alt="Eco en pantalla móvil con memoria local" width="320">
 
@@ -42,4 +42,4 @@ JavaScript ES, HTML/CSS, Pyodide/Python, OpenRouter, IndexedDB y service worker.
 
 ## Licencia
 
-MIT. Basada en Hermes Agent de Nous Research (MIT). Pyodide (MPL-2.0) desde CDN. Ver [LICENSE](LICENSE).
+MIT. Inspirada en el diseño de [Hermes Agent](https://github.com/NousResearch/hermes-agent) de Nous Research. Pyodide (MPL-2.0) desde CDN. Ver [LICENSE](LICENSE).
