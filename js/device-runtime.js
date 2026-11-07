@@ -11,6 +11,7 @@ const MAX_PHOTO_BYTES = 96000;
 const PHOTO_QUALITY = 0.8;
 const PHOTO_SCALE = 0.75;
 const FRAME_TIMEOUT_MS = 10000;
+const FRAME_SETTLE_MS = 300;
 const SAFE_METHODS = {
   mediaDevices: new Set(["getUserMedia", "enumerateDevices", "getSupportedConstraints", "getTracks", "getVideoTracks", "getAudioTracks", "getSettings", "getCapabilities", "getConstraints", "applyConstraints", "stop"]),
   mediaRecorder: new Set(["start", "stop", "pause", "resume", "requestData", "isTypeSupported"]),
@@ -28,6 +29,11 @@ const SENSOR_FEATURES = new Set(["accelerometer", "gyroscope", "magnetometer", "
 const executions = new Set();
 const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
 const CALL_SIGNATURE = "Usa device.call(ruta, [args])";
+const BLOCKED_ERRORS = new Set(["NotAllowedError", "SecurityError"]);
+const DENIED_MESSAGE = "El navegador tiene bloqueado el acceso a: ";
+const DENIED_HELP = ". Actívalo para este sitio en Ajustes > Safari > Cámara o Micrófono (o en el ícono aA de la barra de dirección) y vuelve a intentar.";
+const sessionPermissions = new Set();
+const PERMISSION_LABELS = { camera: "cámara", microphone: "micrófono", geolocation: "ubicación" };
 
 export function stopDeviceTools() {
   for (const stop of executions) { try { stop(); } catch {} }
@@ -175,7 +181,11 @@ export async function executeDeviceTool(tool, params, signal) {
           if (settled || cancelled()) { stopObject(value, entry.feature); return; }
           try { done(encode(value, entry.feature)); } catch (error) { fail(error); }
         };
-        const reject = error => fail(new Error(String(error?.message || error?.name || error || "Permiso denegado")));
+        const reject = error => {
+          const wrapped = new Error(String(error?.message || error?.name || error || "Permiso denegado"));
+          if (error?.name) wrapped.name = error.name;
+          fail(wrapped);
+        };
         if (entry.feature.name === "storage" && message.kind !== "get" && !SAFE_METHODS.storage.has(message.path.split(".").pop())) throw new Error("Solo se permite consultar el espacio de almacenamiento");
         const args = decode(message.args, respond, reject);
         if (message.kind === "capture") {
@@ -226,12 +236,20 @@ export async function executeDeviceTool(tool, params, signal) {
         if (!stream.getVideoTracks().some(track => track.readyState === "live")) throw new Error("El flujo no contiene una cámara activa");
         video.srcObject = stream;
         document.body.append(video);
+        video.setAttribute("playsinline", "");
+        video.setAttribute("muted", "");
         await new Promise((resolve, reject) => {
           failFrame = reject;
           frameTimer = setTimeout(() => reject(new Error("La cámara no entregó una imagen")), FRAME_TIMEOUT_MS);
-          video.onloadeddata = () => { if (video.videoWidth && video.videoHeight) resolve(); };
           video.onerror = () => reject(new Error("No se pudo leer la imagen de la cámara"));
-          video.play().catch(reject);
+          const ready = () => {
+            if (!video.videoWidth || !video.videoHeight) return;
+            if (typeof video.requestVideoFrameCallback === "function") video.requestVideoFrameCallback(() => resolve());
+            else setTimeout(resolve, FRAME_SETTLE_MS);
+          };
+          const start = () => video.play().then(ready, reject);
+          if (video.readyState >= HTMLMediaElement.HAVE_METADATA) start();
+          else video.onloadedmetadata = start;
         });
         clearTimeout(frameTimer);
         if (settled) throw new Error("Captura cancelada");
@@ -270,9 +288,35 @@ export async function executeDeviceTool(tool, params, signal) {
       return Boolean(SAFE_METHODS[entry.feature.name]?.has(method));
     }
 
-    function requestAccess(message) {
+    function browserPermissions(message) {
+      const method = message.path.split(".").pop();
+      if (method === "getUserMedia") {
+        const constraints = decode(message.args, null, null)[0] || {};
+        return [constraints.video && "camera", constraints.audio && "microphone"].filter(Boolean);
+      }
+      if (message.path.startsWith("navigator.geolocation") && method === "getCurrentPosition") return ["geolocation"];
+      return [];
+    }
+
+    async function permissionState(name) {
+      try { return (await navigator.permissions.query({ name })).state; } catch { return "unknown"; }
+    }
+
+    async function deniedError(needs) {
+      const states = await Promise.all(needs.map(permissionState));
+      const denied = needs.filter((name, index) => states[index] === "denied");
+      return denied.length ? DENIED_MESSAGE + denied.map(name => PERMISSION_LABELS[name]).join(", ") + DENIED_HELP : "";
+    }
+
+    async function requestAccess(message) {
       const remember = canRemember(message);
-      if (remember && hasDeviceGrant(identity)) {
+      const needs = browserPermissions(message);
+      const states = await Promise.all(needs.map(permissionState));
+      if (settled) return;
+      const denied = await deniedError(needs);
+      if (denied) { channel.port1.postMessage({ kind: "response", id: message.id, error: denied }); return; }
+      const ready = needs.every((name, index) => states[index] === "granted" || sessionPermissions.has(name));
+      if (remember && hasDeviceGrant(identity) && ready) {
         let cancelled = false;
         const timeout = setTimeout(() => {
           cancelled = true;
@@ -280,14 +324,28 @@ export async function executeDeviceTool(tool, params, signal) {
         }, BROWSER_RESPONSE_TIMEOUT_MS);
         const cleanup = () => clearTimeout(timeout);
         cleanups.add(cleanup);
-        invoke(message, () => cancelled).then(result => {
+        let task;
+        try { task = invoke(message, () => cancelled); } catch (error) { task = Promise.reject(error); }
+        task.then(result => {
           if (bytes(result) > MAX_BYTES) throw new Error("Resultado mayor de 128 KiB");
           if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, result });
-        }).catch(error => {
-          if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, error: String(error.message || error) });
+        }).catch(async error => {
+          cleanup(); cleanups.delete(cleanup);
+          if (settled || cancelled) return;
+          if (BLOCKED_ERRORS.has(error?.name)) {
+            const blocked = await deniedError(needs);
+            if (!blocked) { needs.forEach(name => sessionPermissions.delete(name)); showCard(message, remember, needs); return; }
+            channel.port1.postMessage({ kind: "response", id: message.id, error: blocked });
+            return;
+          }
+          channel.port1.postMessage({ kind: "response", id: message.id, error: String(error.message || error) });
         }).finally(() => { cleanup(); cleanups.delete(cleanup); });
         return;
       }
+      showCard(message, remember, needs);
+    }
+
+    function showCard(message, remember, needs) {
 
       const card = document.createElement("div");
       card.className = "deviceRequest message assistant";
@@ -348,8 +406,11 @@ export async function executeDeviceTool(tool, params, signal) {
         try { task = invoke(message, () => cancelled); } catch (error) { task = Promise.reject(error); }
         task.then(result => {
           if (bytes(result) > MAX_BYTES) throw new Error("Resultado mayor de 128 KiB");
+          needs.forEach(name => sessionPermissions.add(name));
           reply({ result });
-        }).catch(error => {
+        }).catch(async error => {
+          const denied = BLOCKED_ERRORS.has(error?.name) ? await deniedError(needs) : "";
+          if (denied) { reply({ error: denied }); return; }
           const blocked = features.flatMap(entry => entry.policies).filter(name => policyState(name) === "blocked");
           reply({ error: String(error.message || error) + (blocked.length ? ". La página contenedora bloquea: " + [...new Set(blocked)].join(", ") + ". Abre Eco directamente o solicita ajustar allow en el iframe." : "") });
         });
@@ -378,7 +439,7 @@ export async function executeDeviceTool(tool, params, signal) {
         requestIds.add(data.id);
         if (++operations > 40 || cards.size >= 8) throw new Error("Demasiadas solicitudes del dispositivo");
         locate(data.path);
-        requestAccess(data);
+        requestAccess(data).catch(error => finish({ ok: false, error: String(error.message || error) }));
       } catch (error) { finish({ ok: false, error: String(error.message || error) }); }
     };
     frame.onload = () => frame.contentWindow.postMessage({ kind: "connect" }, "*", [channel.port2]);
