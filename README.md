@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.4.3
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.4.4
 
-<img src="assets/screenshot.png?v=0.4.3" alt="Eco en pantalla móvil con memoria local" width="320">
+<img src="assets/screenshot.png?v=0.4.4" alt="Eco en pantalla móvil con memoria local" width="320">
 
 ## Uso
 
@@ -17,12 +17,12 @@
 - El botón de actualizar recarga Eco con la última versión, útil cuando se abre dentro de otra página sin controles del navegador.
 - Cada turno permite 35 pasos (20 en subagentes); al alcanzar el límite, Eco resume y puedes pedir que siga.
 
-## Memoria compartida en Google Drive
+## Google Drive: memoria compartida y archivos
 
-1. Pide «Conecta mi memoria a Google Drive» y pega tu propio Client ID en la tarjeta de inicio de sesión.
+1. Pide «Conéctate a mi Drive» y pega tu propio Client ID en la tarjeta de inicio de sesión.
 2. Autoriza Google, elige un nombre corto para este Eco y tu alias. Pega la URL/ID de una hoja compatible o deja el campo vacío para crear **Eco · Memoria**.
 3. Conecta la misma hoja en otro dispositivo con un nombre de Eco diferente. Cada cuenta necesita permiso de edición sobre la hoja.
-4. Pide guardar, buscar o leer novedades. `memoria_guardar`, `memoria_buscar` y `memoria_leer_nuevos` se activan junto con la habilidad pasiva solo mientras el destino está conectado. «Desconecta mi memoria» vuelve al modo local sin borrar la hoja ni el acceso guardado en Conectores.
+4. Pide guardar, buscar o leer novedades. `memoria_guardar`, `memoria_buscar` y `memoria_leer_nuevos` se activan junto con la habilidad pasiva solo mientras el destino está conectado. El mismo inicio de sesión crea el conector **Google Drive · archivos** para buscar, leer, exportar, crear, renombrar o enviar a la papelera tus archivos; sus escrituras piden aprobación. «Desconecta mi memoria» vuelve al modo local sin borrar la hoja ni el acceso guardado en Conectores.
 
 La hoja usa `_eco` (protocolo `eco-memoria`, versión 1) y `records`: `id`, `fecha`, `eco_autor`, `usuario_autor`, `tipo`, `para`, `hilo`, `responde_a`, `contenido`, `etiquetas`, `reemplaza_a`. Recuerdos, datos, mensajes y acuses se añaden sin sobrescribir. Las correcciones apuntan al registro anterior. Se comprueba el UUID al reintentar; no hay unicidad garantizada entre clientes concurrentes.
 

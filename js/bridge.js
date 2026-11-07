@@ -47,6 +47,7 @@ async function createConnectorSafely(raw) {
   const normalized = normalizeConnector(definition);
   const auth = { ...normalized.auth };
   delete auth.client_id;
+  delete auth.secret_of;
   if (previous?.auth?.client_id && auth.type === "oauth2") {
     auth.client_id = previous.auth.client_id;
   }

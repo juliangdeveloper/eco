@@ -43,6 +43,10 @@ function isHttpsUrl(value) {
   }
 }
 
+function secretId(connector) {
+  return connector.auth?.secret_of || connector.id;
+}
+
 export function validateConnector(definition) {
   if (!definition || typeof definition !== "object") {
     return { ok: false, error: "Definición inválida" };
@@ -173,10 +177,10 @@ export async function connectorStatus(id) {
   if (connector.auth.type === "none") {
     return STATUS.CONNECTED;
   }
-  if (!(await hasSecret(id))) {
+  if (!(await hasSecret(secretId(connector)))) {
     return STATUS.DISCONNECTED;
   }
-  const secret = await readSecret(id);
+  const secret = await readSecret(secretId(connector));
   if (!secretValue(connector, secret)) {
     return STATUS.DISCONNECTED;
   }
@@ -280,10 +284,10 @@ async function authorize(connector, url, headers) {
   if (type === "none") {
     return AUTH_OK;
   }
-  if (!(await hasSecret(connector.id))) {
+  if (!(await hasSecret(secretId(connector)))) {
     return AUTH_MISSING;
   }
-  let secret = await readSecret(connector.id);
+  let secret = await readSecret(secretId(connector));
   if (!secret) {
     return AUTH_UNREADABLE;
   }
@@ -310,10 +314,10 @@ async function authorize(connector, url, headers) {
     return AUTH_OK;
   }
   if (secret.expires_at && secret.expires_at - EXPIRY_MARGIN_MS < Date.now()) {
-    if (!(await renewCredential(connector.id))) {
+    if (!(await renewCredential(secretId(connector)))) {
       return AUTH_EXPIRED;
     }
-    secret = await readSecret(connector.id);
+    secret = await readSecret(secretId(connector));
   }
   headers.Authorization = DEFAULT_BEARER_PREFIX + secret.access_token;
   return AUTH_OK;
@@ -486,7 +490,7 @@ export function renewCredential(id) {
 export async function credentialsDue(aheadMs) {
   const due = [];
   for (const connector of await listConnectors()) {
-    if (connector.auth.type !== "oauth2" || connector.auth.renewal === "none") {
+    if (connector.auth.type !== "oauth2" || connector.auth.renewal === "none" || connector.auth.secret_of) {
       continue;
     }
     const secret = await readSecret(connector.id);
@@ -582,7 +586,7 @@ export async function startOAuth(id, clientId) {
   if (!token.access_token) {
     return false;
   }
-  await saveSecret(id, {
+  await saveSecret(secretId(connector), {
     access_token: token.access_token,
     refresh_token: token.refresh_token || "",
     expires_at: token.expires_in ? Date.now() + Number(token.expires_in) * 1000 : 0,

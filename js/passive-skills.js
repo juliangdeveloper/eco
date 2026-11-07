@@ -21,6 +21,20 @@ const ADAPTERS = Object.freeze({
     }
   }
 });
+const DRIVE_FILES_CONNECTOR = Object.freeze({
+  id: "google-drive-archivos",
+  name: "Google Drive · archivos",
+  base_url: "https://www.googleapis.com",
+  auth: { type: "oauth2", flow: "implicit", renewal: "silent", secret_of: CONNECTOR_ID, authorize_url: "https://accounts.google.com/o/oauth2/v2/auth", scopes: ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"] },
+  operations: [
+    { name: "buscar_archivos", description: "Lista o busca archivos y carpetas de Drive. q usa la sintaxis de búsqueda de Drive, por ejemplo name contains 'informe' and trashed = false.", method: "GET", path: "/drive/v3/files", params: { q: { type: "string", in: "query" }, pageSize: { type: "integer", in: "query" }, pageToken: { type: "string", in: "query" }, orderBy: { type: "string", in: "query" }, fields: { type: "string", in: "query", description: "Por defecto nextPageToken, files(id,name,mimeType,modifiedTime,parents,webViewLink)." } } },
+    { name: "ver_archivo", description: "Metadatos de un archivo.", method: "GET", path: "/drive/v3/files/{fileId}", params: { fileId: { type: "string", in: "path", required: true }, fields: { type: "string", in: "query" } } },
+    { name: "descargar_archivo", description: "Contenido de un archivo que no es de Google (texto, JSON, CSV...). Usa alt=media.", method: "GET", path: "/drive/v3/files/{fileId}", params: { fileId: { type: "string", in: "path", required: true }, alt: { type: "string", in: "query", required: true, description: "Siempre media." } } },
+    { name: "exportar_archivo", description: "Exporta un Doc, Hoja o Presentación de Google a texto. mimeType: text/plain para Docs, text/csv para Hojas, text/plain para Presentaciones.", method: "GET", path: "/drive/v3/files/{fileId}/export", params: { fileId: { type: "string", in: "path", required: true }, mimeType: { type: "string", in: "query", required: true } } },
+    { name: "crear_archivo", description: "Crea un archivo o carpeta vacíos (carpeta: mimeType application/vnd.google-apps.folder; Doc: application/vnd.google-apps.document).", method: "POST", path: "/drive/v3/files", params: { name: { type: "string", in: "body", required: true }, mimeType: { type: "string", in: "body" }, parents: { type: "array", in: "body" } } },
+    { name: "actualizar_archivo", description: "Renombra, mueve a la papelera (trashed true) o cambia la descripción. Para mover usa addParents y removeParents.", method: "PATCH", path: "/drive/v3/files/{fileId}", params: { fileId: { type: "string", in: "path", required: true }, name: { type: "string", in: "body" }, trashed: { type: "boolean", in: "body" }, description: { type: "string", in: "body" }, addParents: { type: "string", in: "query" }, removeParents: { type: "string", in: "query" } } }
+  ]
+});
 const skillTexts = new Map();
 let activeAdapter = null;
 let activeIdentity = "";
@@ -74,6 +88,7 @@ export async function configureMemory(action) {
   const definition = ADAPTERS["google-drive"];
   let connector = await getConnector(CONNECTOR_ID);
   if (!connector) connector = await saveConnector(definition.connector);
+  await saveConnector({ ...DRIVE_FILES_CONNECTOR, createdAt: (await getConnector(DRIVE_FILES_CONNECTOR.id))?.createdAt });
   if (await connectorStatus(CONNECTOR_ID) !== STATUS.CONNECTED) {
     const status = await showCredentialCard(connector);
     if (status !== STATUS.CONNECTED) return { ok: false, estado: "La memoria sigue local." };

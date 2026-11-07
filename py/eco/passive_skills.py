@@ -17,7 +17,7 @@ def handler(action):
 
 
 def register(registry):
-    registry.add("conectar_memoria", schema("Cuando la persona pide conectar su memoria persistente a Google Drive, muestra la tarjeta para iniciar sesión con su propio Client ID y elegir URL/ID de hoja y nombre de Eco, o crear una hoja. No busques MCP para esta conexión: usa este adaptador de protocolo integrado. También permite desconectar sin borrar la hoja; la memoria vuelve a ser local. No solicites credenciales en el chat.", {"accion": {"type": "string", "enum": ["conectar", "desconectar"]}}), configure)
+    registry.add("conectar_memoria", schema("Cuando la persona pide conectar Google Drive o su memoria persistente, llámala directamente sin preguntar para qué: conecta a la vez la memoria persistente en una hoja y el acceso a sus archivos de Drive (conector Google Drive · archivos, mismo inicio de sesión). muestra la tarjeta para iniciar sesión con su propio Client ID y elegir URL/ID de hoja y nombre de Eco, o crear una hoja. No busques MCP para esta conexión: usa este adaptador de protocolo integrado. También permite desconectar sin borrar la hoja; la memoria vuelve a ser local. No solicites credenciales en el chat.", {"accion": {"type": "string", "enum": ["conectar", "desconectar"]}}), configure)
 
 
 async def refresh(registry):
