@@ -10,6 +10,7 @@ const FILES = [
   "connectors.py",
   "results.py",
   "passive_skills.py",
+  "tools_routines.py",
   "agent.py"
 ];
 

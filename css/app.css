@@ -844,3 +844,8 @@ dialog small {
 .message.assistant th {
   background: rgba(0, 0, 0, 0.04);
 }
+
+.message.routineBubble {
+  font-size: 13px;
+  color: var(--text-muted);
+}

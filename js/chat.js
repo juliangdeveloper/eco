@@ -2,6 +2,7 @@ import { appendMessage, byId, renderEmpty, renderMessages, renderTodos, updateTo
 
 export function createChat({ getPyodide, persist, statsSave, incrementMessages, getSession, setSession }) {
   let sending = false;
+  const pending = [];
 
   function setSending(value) {
     sending = value;
@@ -34,11 +35,30 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
       byId("settings").showModal();
       return;
     }
-    const session = getSession();
     appendMessage("user", content);
-    session.messages.push({ role: "user", content });
     incrementMessages();
     statsSave();
+    await run(content);
+  }
+
+  function trigger(label, content) {
+    pending.push({ label, content });
+    drain();
+  }
+
+  function drain() {
+    if (sending || !getPyodide() || !pending.length || !localStorage.getItem("eco.openrouterKey")) {
+      return;
+    }
+    const next = pending.shift();
+    const bubble = appendMessage("assistant", next.label);
+    bubble.classList.add("routineBubble");
+    run(next.content);
+  }
+
+  async function run(content) {
+    const session = getSession();
+    session.messages.push({ role: "user", content });
     setSending(true);
     try {
       const raw = await getPyodide().globals.get("run_turn")(JSON.stringify({ messages: session.messages, results: session.results || {} }));
@@ -64,6 +84,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
       await persist();
     } finally {
       setSending(false);
+      drain();
     }
   }
 
@@ -89,5 +110,5 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     await persist();
   }
 
-  return { currentTodos, loadSession, send, setSending, setTodos };
+  return { currentTodos, drain, loadSession, send, setSending, setTodos, trigger };
 }

@@ -2,10 +2,15 @@ import { APP_VERSION } from "./config.js";
 import { json } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
-import { DriveMemory, sheetId } from "./memory-drive.js";
+import { DriveMemory, sheetId, validateProtocol } from "./memory-drive.js";
 
 const CONFIG_KEY = "persistentMemory";
 const CONNECTOR_ID = "eco-memory-drive";
+const SHEET_TITLE = "Eco · Memoria";
+const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+const MAX_CANDIDATES = 10;
+const MAX_MENTION_BATCHES = 5;
+const BROADCAST = "*";
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ADAPTERS = Object.freeze({
   "google-drive": {
@@ -39,21 +44,29 @@ const skillTexts = new Map();
 let activeAdapter = null;
 let activeIdentity = "";
 
+function identityOf(config) {
+  return [config.backend, config.sheet, config.eco, config.usuario].join(":");
+}
+
+function memoryRequest(definition) {
+  return (method, path, query, body) => connectorFetch(definition.connector.id, method, path, query, body, true);
+}
+
 function adapter(config) {
   const definition = ADAPTERS[config.backend];
   if (!definition) throw new Error("Destino de memoria no compatible.");
-  const identity = [config.backend, config.sheet, config.eco, config.usuario].join(":");
+  const identity = identityOf(config);
   if (activeIdentity !== identity) {
     const cursorKey = "memoryCursor:" + identity;
-    activeAdapter = definition.create({ config, request: (method, path, query, body) => connectorFetch(definition.connector.id, method, path, query, body, true), loadCursor: () => json(cursorKey), saveCursor: (cursor) => json(cursorKey, cursor) });
+    activeAdapter = definition.create({ config, request: memoryRequest(definition), loadCursor: () => json(cursorKey), saveCursor: (cursor) => json(cursorKey, cursor) });
     activeIdentity = identity;
   }
   return activeAdapter;
 }
 
 export async function passiveMemory() {
-  const config = json(CONFIG_KEY);
-  if (!config?.sheet || !ADAPTERS[config.backend] || await connectorStatus(ADAPTERS[config.backend].connector.id) !== STATUS.CONNECTED) return null;
+  const config = await connectedConfig();
+  if (!config) return null;
   if (!skillTexts.has(config.backend)) {
     const response = await fetch(ADAPTERS[config.backend].skill + "?v=" + APP_VERSION);
     if (!response.ok) throw new Error("No se pudo cargar la habilidad de memoria.");
@@ -70,6 +83,46 @@ export async function memoryCall(action, args) {
   if (action === "buscar") return destination.search(args);
   if (action === "leer_nuevos") return destination.readNew();
   throw new Error("Operación de memoria no compatible.");
+}
+
+async function connectedConfig() {
+  const config = json(CONFIG_KEY);
+  if (!config?.sheet || !ADAPTERS[config.backend] || await connectorStatus(ADAPTERS[config.backend].connector.id) !== STATUS.CONNECTED) return null;
+  return config;
+}
+
+export async function memoryMentions(cursor) {
+  const config = await connectedConfig();
+  if (!config) return null;
+  const identity = identityOf(config);
+  let position = cursor?.identity === identity ? cursor.position : json("memoryCursor:" + identity);
+  const reader = ADAPTERS[config.backend].create({ config, request: memoryRequest(ADAPTERS[config.backend]), loadCursor: () => position, saveCursor: (value) => { position = value; } });
+  const mention = "@" + config.eco;
+  const records = [];
+  for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
+    const result = await reader.readNew();
+    records.push(...result.records.filter((record) => record.eco_autor !== config.eco && (record.para === config.eco || record.para === BROADCAST || record.contenido.includes(mention))));
+    if (!result.hay_mas) break;
+  }
+  return { records, cursor: { identity, position } };
+}
+
+async function findExistingSheet(definition) {
+  const query = { q: "name = '" + SHEET_TITLE + "' and mimeType = '" + SHEET_MIME + "' and trashed = false", fields: "files(id,modifiedTime)", orderBy: "modifiedTime desc", pageSize: MAX_CANDIDATES };
+  const listing = await connectorFetch(DRIVE_FILES_CONNECTOR.id, "GET", "/drive/v3/files", query, null, true);
+  if (!listing.ok || !Array.isArray(listing.data?.files)) return "";
+  let best = null;
+  for (const file of listing.data.files) {
+    try {
+      const probe = definition.create({ config: { sheet: file.id }, request: memoryRequest(definition), loadCursor: () => null, saveCursor: () => {} });
+      validateProtocol(await probe.values("'_eco'!A1:B30"), (await probe.values("'records'!A1:K1"))[0]);
+      const rows = (await probe.values("'records'!A:A")).length;
+      if (!best || rows > best.rows) best = { id: file.id, rows };
+    } catch {
+      continue;
+    }
+  }
+  return best?.id || "";
 }
 
 function element(tag, text = "") {
@@ -99,7 +152,7 @@ export async function configureMemory(action) {
   const card = element("div");
   card.className = "credentialCard";
   const form = element("form");
-  form.append(element("strong", "Conectar memoria a Google Drive"), element("small", "Pega una hoja compatible o deja el campo vacío para crear Eco · Memoria. Solo se comparte lo que apruebes guardar."));
+  form.append(element("strong", "Conectar memoria a Google Drive"), element("small", "Pega una hoja compatible o deja el campo vacío para usar tu Eco · Memoria existente o crear una."));
   const inputs = {};
   for (const [name, label, initial] of [["eco", "Nombre de este Eco", previous.eco || "eco-" + crypto.randomUUID().slice(0, 6)], ["usuario", "Tu alias", previous.usuario || "usuario"], ["sheet", "Hoja de cálculo (URL o ID, opcional)", previous.sheet || ""]]) {
     const row = element("label", label);
@@ -144,6 +197,11 @@ export async function configureMemory(action) {
         config = { backend: "google-drive", eco: inputs.eco.value.trim(), usuario: inputs.usuario.value.trim(), sheet: sheetId(inputs.sheet.value) };
         if (!NAME_PATTERN.test(config.eco) || !NAME_PATTERN.test(config.usuario)) throw new Error("Usa de 1 a 40 letras minúsculas, números o guiones para el nombre y el alias.");
         if (pendingConfig?.sheet === config.sheet && pendingConfig.initialize) config.initialize = true;
+        let origin = "";
+        if (!config.sheet) {
+          config.sheet = await findExistingSheet(definition);
+          origin = config.sheet ? "reutilizada" : "creada";
+        }
         destination = adapter(config);
         const connected = await destination.connect();
         json(CONFIG_KEY, config);
@@ -151,9 +209,10 @@ export async function configureMemory(action) {
         anchor.href = connected.url;
         anchor.target = "_blank";
         anchor.rel = "noopener noreferrer";
-        card.replaceChildren(element("span", "Memoria conectada · " + config.eco), anchor);
+        const summary = origin === "reutilizada" ? " · hoja existente" : origin === "creada" ? " · hoja nueva" : "";
+        card.replaceChildren(element("span", "Memoria conectada · " + config.eco + summary), anchor);
         card.classList.add("done");
-        resolve({ ok: true, eco: config.eco, url: connected.url, estado: "Memoria conectada. Ya puedes usar las herramientas de memoria." });
+        resolve({ ok: true, eco: config.eco, url: connected.url, hoja: origin || "indicada", estado: origin === "reutilizada" ? "Memoria conectada a tu Eco · Memoria existente." : origin === "creada" ? "Memoria conectada a una Eco · Memoria nueva." : "Memoria conectada a la hoja indicada." });
       } catch (failure) {
         if (config?.sheet) inputs.sheet.value = config.sheet;
         pendingConfig = config;

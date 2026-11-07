@@ -2,7 +2,7 @@ import json
 from datetime import date
 from js import ecoBridge
 from .registry import Registry, js_value
-from . import tools_memory, tools_todo, tools_extra, connectors, results, passive_skills
+from . import tools_memory, tools_todo, tools_extra, connectors, results, passive_skills, tools_routines
 from .compression import compact
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -46,6 +46,7 @@ def registry(config, child=False):
     connectors.register(result)
     results.register(result)
     passive_skills.register(result)
+    tools_routines.register(result)
     return result
 
 

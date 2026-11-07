@@ -5,6 +5,7 @@ import { createChat } from "./chat.js";
 import { metaDeclararProyecto, metaUpdate } from "./meta.js";
 import { loadAgent } from "./pyodide.js";
 import { startRenewal } from "./renewal.js";
+import { startRoutines } from "./routines.js";
 import { listConnectors, connectorStatus, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
 import { createSessions } from "./sessions.js";
@@ -215,6 +216,7 @@ async function main() {
   }
   chat.setSending(false);
   renderEmpty(chat.send);
+  startRoutines(chat.trigger);
 }
 
 window.ecoApp = {

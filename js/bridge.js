@@ -4,6 +4,7 @@ import { all, remove, setting, store } from "./storage.js";
 import { connectorFetch, deleteConnector, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
 import { searchSessions } from "./sessions.js";
+import { routinesCall } from "./routines.js";
 import { callMcpTool, probeMcp, verifyMcp } from "./mcp.js";
 
 const MCP_KIND = "mcp";
@@ -168,6 +169,13 @@ window.ecoBridge = {
   },
   async memoryCall(action, argsJson) {
     return JSON.stringify(await memoryCall(String(action), parsed(argsJson)));
+  },
+  async routines(action, argsJson) {
+    try {
+      return JSON.stringify(await routinesCall(String(action), parsed(argsJson)));
+    } catch {
+      return JSON.stringify({ ok: false, error: "No se pudo guardar la rutina" });
+    }
   },
   async skills() {
     return JSON.stringify(await all("skills"));
