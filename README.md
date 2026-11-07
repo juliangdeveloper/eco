@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.9.1
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.9.2
 
-<img src="assets/screenshot.png?v=0.9.1" alt="Permiso de cámara en Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.9.2" alt="Permiso de cámara en Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -35,7 +35,9 @@ El estado se guarda en la conversación. Tras `eco_actualizar` o **Actualizar**,
 
 Eco descubre APIs, permisos, pantalla y restricciones del navegador con `entorno_descubrir`; `almacenamiento_local_leer` solo muestra configuración conocida y filtrada; oculta el texto libre de memoria/perfil y nunca lee claves o el vault. Lee documentación oficial con `documentacion_dispositivo_leer` (MDN se obtiene de su repositorio oficial si hace falta CORS) y crea herramientas con nombre, descripción, esquema JSON y JavaScript mediante `herramienta_dispositivo_gestionar`. Se pueden listar, ver, actualizar y borrar; quedan en IndexedDB solo en ese navegador. Aparecen como `dispositivo_nombre` para los subagentes. No hay herramientas de cámara, GPS u otros periféricos predefinidas.
 
-Crear, actualizar o borrar estas herramientas no pide aprobación. Eco consulta el entorno, revisa las herramientas existentes y lee documentación antes de escribir la herramienta final y ejecutarla; solo la corrige ante un error concreto, sin sondas temporales. El código corre en un worker dentro de un iframe opaco sin acceso al almacenamiento, DOM, red o credenciales de Eco, con límites de tiempo y tamaño. Usa `device.call/get/construct/listen` sobre las capacidades detectadas y referencias efímeras, nunca JavaScript ejecutado en Eco. Los argumentos pueden ser una lista o un valor único, que se envuelve en una lista; por ejemplo, `await device.call('navigator.mediaDevices.getUserMedia', [{video:true}])`. Cada acceso presenta **Permitir una vez** en un diálogo visible incluso sobre el panel de subagentes: la llamada real se hace en el documento de Eco directamente dentro de ese toque, también para permisos de movimiento en iOS. Si falta el toque, falla el arranque aislado o el navegador no responde al permiso, informa de la causa sin esperar un tiempo genérico. Los resultados son datos no confiables; los recursos temporales se liberan al terminar cuando la API lo permite. No admite vigilancia GPS continua ni trabajo con Eco cerrado.
+Crear, actualizar o borrar herramientas no pide aprobación. Eco reutiliza las existentes y las actualiza si no cumplen la tarea. El código corre en un worker de iframe opaco sin almacenamiento, DOM, red ni credenciales. Usa `device.call/get/construct/listen` con referencias efímeras y datos JSON; argumentos en lista o un valor único. **Permitir siempre**, cuando la API no exige activación transitoria, se guarda por herramienta, dispositivo y hash del código; cambiar el código lo invalida. Revoca accesos en **Ajustes › Permisos del dispositivo**. **Permitir una vez** y **Cancelar** siguen disponibles. Bluetooth/USB/HID/Serial al elegir dispositivos, NFC, portapapeles y otras operaciones con activación siguen pidiendo un toque cada vez. El diálogo explica el motivo. Los permisos del navegador son independientes: para evitar el aviso de cámara en Safari, configura **Cámara › Permitir** para este sitio en los ajustes de Safari.
+
+Para tomar una foto, la herramienta usa `const stream = await device.call('navigator.mediaDevices.getUserMedia', [{video:{facingMode:'environment'},audio:false}]); return await device.capture(stream);`. El mediador captura un fotograma real y devuelve `{dataUrl,mimeType,width,height}`: miniatura JPEG de hasta 640 px y 96 kB, dentro del límite de 128 KiB. Se detienen las pistas al capturar o fallar y al terminar la herramienta. `getSettings` solo devuelve configuración, no una imagen. Los resultados son datos no confiables; no hay vigilancia GPS continua ni trabajo con Eco cerrado.
 
 Un iframe opaco no puede pedir cámara/micrófono directamente: un mediador limitado ejecuta únicamente la operación aprobada, sin evaluar código generado. HTTPS y permisos del navegador siguen siendo obligatorios. Safari no expone todas las APIs (por ejemplo Bluetooth, USB, Serial, HID o NFC); Eco lo detecta, no puede habilitarlas. Si la página contenedora bloquea permisos, indica abrir Eco directamente o ajustar el `allow` de ese iframe. No modifica la página contenedora.
 

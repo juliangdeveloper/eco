@@ -1,3 +1,4 @@
+import { forgetDeviceGrants } from "./device-grants.js";
 import { all, remove, setting, store } from "./storage.js";
 import { timedFetch } from "./network.js";
 import { executeDeviceTool } from "./device-runtime.js";
@@ -78,7 +79,7 @@ export async function manageDeviceTool(args) {
   if (!/^[a-z][a-z0-9_]{0,39}$/.test(args.name || "")) throw new Error("Nombre inválido; usa letras minúsculas, números y guiones bajos");
   const id = deviceId() + ":" + args.name;
   const previous = (await listDeviceTools(args.name))[0];
-  if (args.action === "borrar") { await remove("deviceTools", id); return { ok: true, name: args.name }; }
+  if (args.action === "borrar") { forgetDeviceGrants(args.name); await remove("deviceTools", id); return { ok: true, name: args.name }; }
   if (!["crear", "actualizar"].includes(args.action)) throw new Error("Acción inválida");
   if (args.action === "crear" && previous) throw new Error("La herramienta ya existe; usa actualizar");
   if (args.action === "actualizar" && !previous) throw new Error("Herramienta no encontrada");
@@ -89,6 +90,7 @@ export async function manageDeviceTool(args) {
   validateSchema(args.parameters);
   const tool = { id, device: deviceId(), name: args.name, description: args.description, parameters: args.parameters, code: args.code, docs: args.docs, timeout_ms: Math.min(60000, Math.max(1000, Number(args.timeout_ms) || 30000)), updatedAt: Date.now() };
   await store("deviceTools", tool);
+  if (previous && previous.code !== tool.code) forgetDeviceGrants(tool.name);
   return { ok: true, name: tool.name, nativeTool: "dispositivo_" + tool.name };
 }
 

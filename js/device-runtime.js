@@ -1,3 +1,4 @@
+import { deviceGrantIdentity, hasDeviceGrant, allowDeviceGrant } from "./device-grants.js";
 import { isWiping } from "./security.js";
 import { featureDefinitions, featureValue, policyState } from "./environment.js";
 import { sandboxDocument } from "./device-sandbox.js";
@@ -5,6 +6,25 @@ import { sandboxDocument } from "./device-sandbox.js";
 const MAX_BYTES = 131072;
 const STARTUP_TIMEOUT_MS = 5000;
 const BROWSER_RESPONSE_TIMEOUT_MS = 20000;
+const MAX_PHOTO_DIMENSION = 640;
+const MAX_PHOTO_BYTES = 96000;
+const PHOTO_QUALITY = 0.8;
+const PHOTO_SCALE = 0.75;
+const FRAME_TIMEOUT_MS = 10000;
+const SAFE_METHODS = {
+  mediaDevices: new Set(["getUserMedia", "enumerateDevices", "getSupportedConstraints", "getTracks", "getVideoTracks", "getAudioTracks", "getSettings", "getCapabilities", "getConstraints", "applyConstraints", "stop"]),
+  mediaRecorder: new Set(["start", "stop", "pause", "resume", "requestData", "isTypeSupported"]),
+  geolocation: new Set(["getCurrentPosition", "clearWatch"]),
+  permissions: new Set(["query"]),
+  storage: new Set(["estimate", "persisted"]),
+  battery: new Set(["getBattery"]),
+  bluetooth: new Set(["getDevices"]),
+  usb: new Set(["getDevices"]),
+  hid: new Set(["getDevices"]),
+  serial: new Set(["getPorts"]),
+  wakeLock: new Set(["request", "release"])
+};
+const SENSOR_FEATURES = new Set(["accelerometer", "gyroscope", "magnetometer", "ambientLight", "absoluteOrientation", "relativeOrientation"]);
 const executions = new Set();
 const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
 const CALL_SIGNATURE = "Usa device.call(ruta, [args])";
@@ -17,7 +37,9 @@ const forbidden = new Set(["composedPath", "watchPosition", "addEventListener", 
 const bytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
 const validPart = value => /^[A-Za-z][A-Za-z0-9]*$/.test(value) && !forbidden.has(value);
 
-export function executeDeviceTool(tool, params, signal) {
+export async function executeDeviceTool(tool, params, signal) {
+  if (isWiping()) return { ok: false, error: "Acceso cancelado" };
+  const identity = await deviceGrantIdentity(tool);
   if (isWiping()) return Promise.resolve({ ok: false, error: "Acceso cancelado" });
   return new Promise((resolve) => {
     const frame = document.createElement("iframe");
@@ -64,7 +86,7 @@ export function executeDeviceTool(tool, params, signal) {
     };
     const abort = () => finish({ ok: false, error: "Acceso al dispositivo cancelado" });
     const startupTimer = setTimeout(() => finish({ ok: false, error: "No se pudo iniciar la herramienta aislada en este navegador. Actualiza Safari y vuelve a intentar." }), STARTUP_TIMEOUT_MS);
-    const timer = setTimeout(() => finish({ ok: false, error: cards.size ? "Falta autorizar el acceso al dispositivo. Toca Permitir una vez y vuelve a intentar." : "La herramienta del dispositivo no terminó. Vuelve a intentarlo." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
+    const timer = setTimeout(() => finish({ ok: false, error: cards.size ? "Falta autorizar el acceso al dispositivo. Autoriza el acceso y vuelve a intentar." : "La herramienta del dispositivo no terminó. Vuelve a intentarlo." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
     executions.add(abort);
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener("abort", abort, { once: true });
@@ -154,7 +176,13 @@ export function executeDeviceTool(tool, params, signal) {
           try { done(encode(value, entry.feature)); } catch (error) { fail(error); }
         };
         const reject = error => fail(new Error(String(error?.message || error?.name || error || "Permiso denegado")));
+        if (entry.feature.name === "storage" && message.kind !== "get" && !SAFE_METHODS.storage.has(message.path.split(".").pop())) throw new Error("Solo se permite consultar el espacio de almacenamiento");
         const args = decode(message.args, respond, reject);
+        if (message.kind === "capture") {
+          if (!(entry.value instanceof MediaStream)) throw new Error("device.capture necesita la referencia de un MediaStream de esta ejecución");
+          captureFrame(entry.value, args[0]).then(respond, reject);
+          return;
+        }
         if (message.kind === "get") { respond(entry.value); return; }
         if (message.kind === "listen") {
           const event = args[0];
@@ -176,12 +204,98 @@ export function executeDeviceTool(tool, params, signal) {
       });
     }
 
+    async function captureFrame(stream, options = {}) {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.setAttribute("aria-hidden", "true");
+      video.style.cssText = "position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;bottom:0;left:0";
+      let frameTimer;
+      let failFrame;
+      const cleanup = () => {
+        clearTimeout(frameTimer);
+        video.pause();
+        video.srcObject = null;
+        video.remove();
+        stream.getTracks().forEach(track => track.stop());
+        failFrame?.(new Error("Captura cancelada"));
+      };
+      cleanups.add(cleanup);
+      try {
+        if (!stream.getVideoTracks().some(track => track.readyState === "live")) throw new Error("El flujo no contiene una cámara activa");
+        video.srcObject = stream;
+        document.body.append(video);
+        await new Promise((resolve, reject) => {
+          failFrame = reject;
+          frameTimer = setTimeout(() => reject(new Error("La cámara no entregó una imagen")), FRAME_TIMEOUT_MS);
+          video.onloadeddata = () => { if (video.videoWidth && video.videoHeight) resolve(); };
+          video.onerror = () => reject(new Error("No se pudo leer la imagen de la cámara"));
+          video.play().catch(reject);
+        });
+        clearTimeout(frameTimer);
+        if (settled) throw new Error("Captura cancelada");
+        const requested = Number(options?.maxDimension);
+        const maximum = Number.isFinite(requested) && requested > 0 ? Math.min(MAX_PHOTO_DIMENSION, requested) : MAX_PHOTO_DIMENSION;
+        const scale = Math.min(1, maximum / Math.max(video.videoWidth, video.videoHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("No se pudo preparar la foto");
+        let dataUrl;
+        do {
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          dataUrl = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
+          if (dataUrl.length <= MAX_PHOTO_BYTES) break;
+          canvas.width = Math.max(1, Math.floor(canvas.width * PHOTO_SCALE));
+          canvas.height = Math.max(1, Math.floor(canvas.height * PHOTO_SCALE));
+        } while (canvas.width > 1 && canvas.height > 1);
+        if (!dataUrl.startsWith("data:image/jpeg;base64,") || dataUrl.length > MAX_PHOTO_BYTES) throw new Error("No se pudo comprimir la foto");
+        return { dataUrl, mimeType: "image/jpeg", width: canvas.width, height: canvas.height };
+      } finally {
+        cleanups.delete(cleanup);
+        cleanup();
+      }
+    }
+
+    function canRemember(message) {
+      const entry = locate(message.path);
+      const method = message.path.split(".").pop();
+      if (message.kind === "capture") return entry.value instanceof MediaStream;
+      if (message.kind === "get") return true;
+      if (message.kind === "listen") return !["nfc", "clipboard"].includes(entry.feature.name);
+      if (method === "requestPermission") return false;
+      if (SENSOR_FEATURES.has(entry.feature.name)) return message.kind === "construct" || ["start", "stop"].includes(method);
+      return Boolean(SAFE_METHODS[entry.feature.name]?.has(method));
+    }
+
     function requestAccess(message) {
+      const remember = canRemember(message);
+      if (remember && hasDeviceGrant(identity)) {
+        let cancelled = false;
+        const timeout = setTimeout(() => {
+          cancelled = true;
+          finish({ ok: false, error: "El navegador no respondió al acceso. Revisa sus permisos y vuelve a intentar." });
+        }, BROWSER_RESPONSE_TIMEOUT_MS);
+        const cleanup = () => clearTimeout(timeout);
+        cleanups.add(cleanup);
+        invoke(message, () => cancelled).then(result => {
+          if (bytes(result) > MAX_BYTES) throw new Error("Resultado mayor de 128 KiB");
+          if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, result });
+        }).catch(error => {
+          if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, error: String(error.message || error) });
+        }).finally(() => { cleanup(); cleanups.delete(cleanup); });
+        return;
+      }
+
       const card = document.createElement("div");
       card.className = "deviceRequest message assistant";
       card.dataset.deviceRequest = "true";
       const text = document.createElement("p");
-      text.textContent = tool.name + " quiere acceder a " + message.path;
+      text.textContent = tool.name + (message.kind === "capture" ? " quiere capturar una foto" : " quiere acceder a " + message.path);
+      const explanation = document.createElement("small");
+      explanation.textContent = remember ? "Permitir siempre se aplica a esta herramienta en este dispositivo hasta que cambie su código. Puedes revocarlo en Ajustes. El navegador conserva sus propios permisos." : "El navegador exige un toque para esta operación o no garantiza acceso automático. Debes permitirla cada vez.";
       const details = document.createElement("details");
       const summary = document.createElement("summary");
       summary.textContent = "Ver parámetros";
@@ -191,6 +305,10 @@ export function executeDeviceTool(tool, params, signal) {
       const allow = document.createElement("button");
       allow.type = "button";
       allow.textContent = "Permitir una vez";
+      const always = document.createElement("button");
+      always.type = "button";
+      always.textContent = "Permitir siempre";
+      always.className = "primary";
       const cancel = document.createElement("button");
       cancel.type = "button";
       cancel.textContent = "Cancelar";
@@ -213,9 +331,14 @@ export function executeDeviceTool(tool, params, signal) {
         if (!panel.children.length && panel.open) panel.close();
         if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, ...result });
       };
-      allow.onclick = () => {
+      const run = persistent => {
         if (settled || allow.disabled) return;
+        if (persistent) {
+          try { allowDeviceGrant(identity); }
+          catch { reply({ error: "No se pudo guardar el permiso. Usa Permitir una vez o libera almacenamiento." }); return; }
+        }
         allow.disabled = true;
+        always.disabled = true;
         allow.textContent = "Esperando al navegador…";
         browserTimer = setTimeout(() => {
           cancelled = true;
@@ -231,8 +354,12 @@ export function executeDeviceTool(tool, params, signal) {
           reply({ error: String(error.message || error) + (blocked.length ? ". La página contenedora bloquea: " + [...new Set(blocked)].join(", ") + ". Abre Eco directamente o solicita ajustar allow en el iframe." : "") });
         });
       };
+      allow.onclick = () => run(false);
+      always.onclick = () => run(true);
       cancel.onclick = () => { cancelled = true; reply({ error: "Acceso cancelado por la persona" }); };
-      card.append(text, details, allow, cancel);
+      card.append(text, explanation, details);
+      if (remember) card.append(always);
+      card.append(allow, cancel);
       cards.add(card);
       panel.append(card);
       if (!panel.open) panel.showModal();
@@ -244,7 +371,7 @@ export function executeDeviceTool(tool, params, signal) {
         if (bytes(data) > MAX_BYTES) throw new Error("Mensaje demasiado grande");
         if (data.kind === "ready") { if (started) throw new Error("Inicio duplicado"); started = true; clearTimeout(startupTimer); channel.port1.postMessage({ kind: "run", code: tool.code, params }); return; }
         if (data.kind === "done") { finish(data.error ? { ok: false, error: data.error } : { ok: true, data: data.result }); return; }
-        if (!["call", "get", "construct", "listen"].includes(data.kind)) throw new Error("kind debe ser call, get, construct o listen. " + CALL_SIGNATURE);
+        if (!["call", "get", "construct", "listen", "capture"].includes(data.kind)) throw new Error("kind debe ser call, get, construct, listen o capture. " + CALL_SIGNATURE);
         if (!Number.isInteger(data.id) || data.id < 1) throw new Error("id debe ser un entero positivo. " + CALL_SIGNATURE);
         data.args = normalizeArgs(data.args);
         if (requestIds.has(data.id)) throw new Error("id repetido: cada solicitud necesita un id único");

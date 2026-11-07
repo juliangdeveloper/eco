@@ -15,6 +15,7 @@ const device = Object.freeze({
   get: path => request("get", path),
   construct: (path, args) => request("construct", path, args),
   listen: (path, event) => request("listen", path, [event]),
+  capture: (stream, options) => request("capture", "handles." + stream?.$handle, [options || {}]),
   callback: kind => ({ $callback: kind })
 });
 onmessage = async ({ data }) => {

@@ -1,3 +1,4 @@
+import { listDeviceGrants, revokeDeviceGrant } from "./device-grants.js";
 import { configureSecurity, eraseWithWord, isWiping, securityState } from "./security.js";
 import { DEFAULT_MODEL } from "./config.js";
 import { setting } from "./storage.js";
@@ -24,12 +25,15 @@ export function bindSettings() {
   byId("settingsButton").onclick = async () => {
     await Promise.all([renderConnectors(), renderRoutines()]);
     renderSecurity();
+    renderDeviceGrants();
     byId("settings").showModal();
   };
   onRoutinesChange(() => renderRoutines());
   document.querySelectorAll("[data-open-settings]").forEach((button) => {
     button.onclick = () => byId("settings").showModal();
   });
+  window.addEventListener("eco-device-grants", renderDeviceGrants);
+  renderDeviceGrants();
   bindSecurity();
   updateNotice();
 }
@@ -183,4 +187,23 @@ function bindSecurity() {
   byId("settings").addEventListener("close", () => {
     for (const id of ["securityCurrent", "securityNew", "securityRepeat"]) byId(id).value = "";
   });
+}
+
+function renderDeviceGrants() {
+  const list = byId("deviceGrantList");
+  const rows = listDeviceGrants();
+  list.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement("small");
+    empty.textContent = "No hay herramientas con acceso permanente.";
+    list.append(empty);
+  }
+  for (const grant of rows) {
+    const row = document.createElement("div");
+    row.className = "connectorRow";
+    const name = document.createElement("strong");
+    name.textContent = grant.name;
+    row.append(name, button("Revocar", "", () => revokeDeviceGrant(grant.id)));
+    list.append(row);
+  }
 }

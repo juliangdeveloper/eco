@@ -993,3 +993,8 @@ dialog small {
 #securityNotice { padding: 6px 18px; }
 .checkLabel { display: flex; align-items: flex-start; gap: 10px; }
 .checkLabel input { width: auto; flex: 0 0 auto; margin-top: 4px; }
+
+.deviceGrantSettings { margin-top: 16px; }
+.deviceGrantSettings summary { cursor: pointer; font-weight: 600; }
+#deviceRequests .deviceRequest .primary { display: block; width: 100%; margin-right: 0; background: var(--blue); color: white; }
+#deviceRequests .deviceRequest .primary ~ button { background: var(--surface-muted); color: var(--text); }
