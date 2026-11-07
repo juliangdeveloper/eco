@@ -328,7 +328,7 @@ function apiMessage(data) {
   return text.slice(0, MAX_ERROR_CHARS);
 }
 
-export async function connectorFetch(id, method, path, query, body) {
+export async function connectorFetch(id, method, path, query, body, complete = false) {
   const connector = await getConnector(id);
   if (!connector) {
     return { ok: false, error: "Conector no encontrado" };
@@ -369,7 +369,7 @@ export async function connectorFetch(id, method, path, query, body) {
     const message = apiMessage(data);
     return { ok: false, status: 401, error: NOT_CONNECTED, reason: AUTH_REJECTED, api_message: secretText.includes(message) ? "" : message };
   }
-  if (typeof data !== "string" && JSON.stringify(data).length > MAX_RESPONSE_CHARS) {
+  if (!complete && typeof data !== "string" && JSON.stringify(data).length > MAX_RESPONSE_CHARS) {
     data = JSON.stringify(data).slice(0, MAX_RESPONSE_CHARS);
   }
   return { ok: response.ok, status: response.status, data };

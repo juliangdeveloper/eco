@@ -9,6 +9,7 @@ const FILES = [
   "compression.py",
   "connectors.py",
   "results.py",
+  "passive_skills.py",
   "agent.py"
 ];
 

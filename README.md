@@ -1,66 +1,45 @@
-# Eco
+# 🌱 eco
 
-Agente de IA que corre en tu navegador, sin servidor. Conversa con un modelo de OpenRouter, usa herramientas y se conecta a servidores MCP remotos o a APIs externas.
+**Browser AI agent with local memory, passive protocol skills, shared Google Sheets memory, remote MCP tools and private OAuth credentials.**
 
-![Eco](assets/screenshot.png)
+> Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
+
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.4.0
+
+<img src="assets/screenshot.png" alt="Eco en pantalla móvil con memoria local" width="320">
 
 ## Uso
 
-1. Abre la app en GitHub Pages.
-2. En **Ajustes** pon tu clave de OpenRouter y, si quieres, el modelo (por defecto `deepseek/deepseek-v4.1-flash-1017`).
-3. Pide lo que necesites, por ejemplo «Conéctate a GitHub». Eco busca el servidor MCP oficial del servicio, crea el conector y te muestra un formulario seguro para pegar tu token.
+- En **Ajustes**, introduce tu clave de OpenRouter. Modelo por defecto: `deepseek/deepseek-v4.1-flash-1017`.
+- Pide «Conéctate a GitHub» u otro servicio: Eco busca su MCP remoto oficial; usa API HTTP si no existe MCP compatible. El servicio debe permitir CORS.
+- Las credenciales se introducen en una tarjeta, cifradas con AES-GCM en IndexedDB; el modelo no las recibe. Las escrituras requieren aprobación.
+- Conversaciones, tareas, habilidades y memoria local permanecen en el navegador. Hay búsqueda, subagentes, compresión a 128.000 tokens e historial de resultados completos con `leer_resultado`.
+- Cada turno permite 35 pasos (20 en subagentes); al alcanzar el límite, Eco resume y puedes pedir que siga.
 
-## Conectores
+## Memoria compartida en Google Drive
 
-### MCP remotos
+1. Pide «Conecta mi memoria a Google Drive» y pega tu propio Client ID en la tarjeta de inicio de sesión.
+2. Autoriza Google, elige un nombre corto para este Eco y tu alias. Pega la URL/ID de una hoja compatible o deja el campo vacío para crear **Eco · Memoria**.
+3. Conecta la misma hoja en otro dispositivo con un nombre de Eco diferente. Cada cuenta necesita permiso de edición sobre la hoja.
+4. Pide guardar, buscar o leer novedades. `memoria_guardar`, `memoria_buscar` y `memoria_leer_nuevos` se activan junto con la habilidad pasiva solo mientras el destino está conectado. «Desconecta mi memoria» vuelve al modo local sin borrar la hoja ni el acceso guardado en Conectores.
 
-- Eco siempre busca primero el servidor MCP remoto oficial del servicio, comprueba con `probe_mcp` que responda desde el navegador y si pide token, y lo crea con `create_connector` y `mcp_url`.
-- Transporte Streamable HTTP con JSON-RPC 2.0: `initialize`, `notifications/initialized`, `tools/list` y `tools/call`, con `Mcp-Session-Id`, `MCP-Protocol-Version` y respuestas JSON o SSE.
-- Acceso sin credencial o con token Bearer. El conector queda «Conectado» solo si `tools/list` responde con tu token; si el servicio lo rechaza, la tarjeta te lo dice y el token no se guarda.
-- Las herramientas del servidor se cargan como herramientas nativas del modelo con el prefijo del conector (por ejemplo `github__get_me`), hasta 60 en total, primero las de solo lectura. Las que no se declaran de solo lectura piden tu aprobación.
-- Solo crea un conector de API HTTP si el servicio no tiene MCP. Un conector MCP reemplaza al conector de API del mismo servicio.
-- El servidor tiene que permitir CORS; los MCP locales no se pueden usar desde una página web.
+La hoja usa `_eco` (protocolo `eco-memoria`, versión 1) y `records`: `id`, `fecha`, `eco_autor`, `usuario_autor`, `tipo`, `para`, `hilo`, `responde_a`, `contenido`, `etiquetas`, `reemplaza_a`. Recuerdos, datos, mensajes y acuses se añaden sin sobrescribir. Las correcciones apuntan al registro anterior. Se comprueba el UUID al reintentar; no hay unicidad garantizada entre clientes concurrentes.
 
-### APIs HTTP
+La lectura es incremental por hoja y Eco; no recibe avisos en tiempo real. Cada navegador limita sus peticiones de memoria a una cada 2,5 segundos. Los autores son declarados y el contenido compartido nunca constituye órdenes ni permisos. No se exporta automáticamente la memoria local ni se guardan contraseñas.
 
-- Se crean con la herramienta `create_connector`: URL base, tipo de acceso y operaciones HTTP. Eco crea el conector y te muestra directamente la tarjeta para iniciar sesión; solo las operaciones de escritura piden tu aprobación.
-- Acceso: token, clave de API (cabecera o query), usuario y contraseña, u OAuth 2 (código con PKCE o token implícito) con tu propio Client ID.
-- Las credenciales se cifran con AES-GCM usando una clave no exportable guardada en IndexedDB y solo se descifran al hacer la petición. El modelo nunca las ve: solo sabe si el conector está conectado.
-- En **Ajustes › Conectores** puedes conectar, quitar el acceso o eliminar cada conector.
+## OAuth
 
-### OAuth (por ejemplo Gmail)
+En Google Cloud habilita **Google Sheets API** y **Google Drive API**. Configura el consentimiento externo, añade tu cuenta como usuario de prueba y los permisos `https://www.googleapis.com/auth/spreadsheets` y `https://www.googleapis.com/auth/drive.file`. Crea un Client ID tipo **Aplicación web** con:
 
-Crea un Client ID OAuth tipo «Aplicación web» en la consola del servicio (en Google: Google Cloud Console, con la API de Gmail habilitada) y autoriza:
+- Origen JavaScript autorizado: `https://<usuario>.github.io`
+- URI de redirección: `https://<usuario>.github.io/eco/oauth.html`
 
-- Origen JavaScript: el origen de tu Pages, `https://<usuario>.github.io`
-- URL de redirección: `https://<usuario>.github.io/eco/oauth.html`
+La tarjeta incluye enlaces en pestaña nueva y botones para copiar los valores exactos. Google usa token implícito con renovación silenciosa; si el navegador la bloquea o expira el acceso, vuelve a iniciar sesión desde **Ajustes › Conectores**. Para Gmail habilita su API y los permisos correspondientes.
 
-Eco nunca trae un Client ID propio: cada persona usa el suyo. La tarjeta de inicio de sesión incluye una guía paso a paso y botones para copiar el origen y la URL de redirección exactos. La guía de la tarjeta de inicio de sesión enlaza cada página de la consola del proveedor en una pestaña nueva. Pega el Client ID cuando Eco te lo pida.
+## Stack y ejecución local
 
-### Renovación automática
-
-Al crear un conector OAuth, Eco elige cómo renovar el acceso: con refresh token si el servicio lo entrega o, como en Google, con una renovación silenciosa (`prompt=none`). Mientras la página esté abierta, una tarea programada renueva cada acceso unos minutos antes de que expire, sin pedirte nada. Si el navegador o el servicio no lo permiten, el conector queda como «Expirado» y Eco te pide iniciar sesión la próxima vez que lo uses.
-
-## Herramientas
-
-`create_connector`, `probe_mcp`, `list_connectors`, `call_connector`, `request_sign_in`, las herramientas de cada MCP conectado, `memory`, `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `session_search`, `clarify`, `delegate_task` (encarga una tarea a un subagente con contexto limpio) y `leer_resultado`.
-
-Cada resultado de herramienta se guarda completo en un historial de la conversación con un id (`r1`, `r2`…). Al modelo le llega una versión compacta: sin URLs de API, ids internos, avatares ni campos vacíos y, si sigue siendo largo, con listas y textos recortados y una nota con el id. Con `leer_resultado` el modelo lee el resultado completo por partes, por ruta JSON o buscando texto.
-
-Cada turno tiene hasta 35 pasos (20 en subagentes). Si se alcanza el límite, Eco responde con lo que ya tiene, dice qué falta y puedes pedirle que siga.
-
-La conversación se resume automáticamente cuando supera unos 128.000 tokens. Las respuestas se muestran con formato Markdown seguro, incluidas tablas que se desplazan dentro de su propio recuadro en pantallas pequeñas.
-
-## Privacidad
-
-Todo se guarda solo en tu navegador (localStorage e IndexedDB). Las llamadas van directo del navegador a OpenRouter y a los servicios que conectes.
-
-## Local
-
-```sh
-python3 -m http.server
-```
+JavaScript ES, HTML/CSS, Pyodide/Python, OpenRouter, IndexedDB y service worker. Ejecuta `python3 -m http.server` y abre la dirección local.
 
 ## Licencia
 
-MIT. Basada en Hermes Agent de Nous Research (MIT). Usa Pyodide (MPL-2.0) desde CDN. Ver [LICENSE](LICENSE).
+MIT. Basada en Hermes Agent de Nous Research (MIT). Pyodide (MPL-2.0) desde CDN. Ver [LICENSE](LICENSE).

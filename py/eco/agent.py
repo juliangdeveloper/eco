@@ -2,7 +2,7 @@ import json
 from datetime import date
 from js import ecoBridge
 from .registry import Registry, js_value
-from . import tools_memory, tools_todo, tools_extra, connectors, results
+from . import tools_memory, tools_todo, tools_extra, connectors, results, passive_skills
 from .compression import compact
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -45,6 +45,7 @@ def registry(config, child=False):
     tools_extra.register(result, child)
     connectors.register(result)
     results.register(result)
+    passive_skills.register(result)
     return result
 
 
@@ -96,6 +97,7 @@ async def run_loop(messages, config, child=False):
     tools = registry(config, child)
     maximum = MAX_ITERACIONES_SUBAGENTE if child else MAX_ITERACIONES
     compressed = False
+    base_system = messages[0]["content"]
 
     async def summarize(items, unused):
         reply = await complete(config, items, [])
@@ -104,6 +106,8 @@ async def run_loop(messages, config, child=False):
     for _ in range(maximum):
         messages, did_compact = await compact(messages, CONTEXT_TOKEN_LIMIT, summarize)
         compressed = compressed or did_compact
+        active_skill = await passive_skills.refresh(tools)
+        messages[0] = {"role": "system", "content": base_system + ("\n\n" + active_skill if active_skill else "")}
         await connectors.register_mcp(tools)
         message = clean_message(await complete(config, messages, tools.tools()))
         messages.append(message)

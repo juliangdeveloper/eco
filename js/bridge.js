@@ -1,3 +1,4 @@
+import { passiveMemory, memoryCall, configureMemory } from "./passive-skills.js";
 import { DEFAULT_MODEL } from "./config.js";
 import { all, remove, setting, store } from "./storage.js";
 import { connectorFetch, deleteConnector, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
@@ -155,6 +156,17 @@ window.ecoBridge = {
     const result = await callMcpTool(String(id), String(name), args);
     stateApi?.refreshConnectors();
     return JSON.stringify(result);
+  },
+  async passiveSkills() {
+    return JSON.stringify(await passiveMemory());
+  },
+  async configureMemory(action) {
+    const result = await configureMemory(String(action));
+    stateApi?.refreshConnectors();
+    return JSON.stringify(result);
+  },
+  async memoryCall(action, argsJson) {
+    return JSON.stringify(await memoryCall(String(action), parsed(argsJson)));
   },
   async skills() {
     return JSON.stringify(await all("skills"));

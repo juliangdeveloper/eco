@@ -124,6 +124,11 @@ function guide(connector) {
     }
     list.append(item);
   }
+  if (connector.id === "eco-memory-drive") {
+    const extra = create("li", "Habilita también la ");
+    extra.append(link("Google Drive API", GOOGLE_CONSOLE + "/apis/library/drive.googleapis.com"), ". En Acceso a datos añade los permisos spreadsheets y drive.file; Sheets permite abrir tu hoja compartida por URL.");
+    list.append(extra);
+  }
   details.append(list, copyRow("Origen de JavaScript autorizado", location.origin), copyRow("URI de redireccionamiento", redirectUri()));
   return details;
 }
