@@ -2,12 +2,24 @@ const KEY = "eco.security";
 const SIGNAL_KEY = "eco.securitySignal";
 const CHANNEL_KEY = "eco.securityChannel";
 const ACTIVITY_KEY = "eco.lastActivityAt";
-const ACTIVITY_INTERVAL_MS = 60000;
-const MAX_INACTIVE_MS = 15 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const OFFLINE_KEY = "eco.memoryOfflineMs";
-const MAX_OFFLINE_MS = 5 * 24 * 60 * 60 * 1000;
-const WARN_OFFLINE_MS = 3 * 24 * 60 * 60 * 1000;
+export const WIPE_LIMITS = Object.freeze({
+  wipeClosedDays: Object.freeze({ default: 15, min: 1, max: 365, step: 1 }),
+  wipeOfflineDays: Object.freeze({ default: 5, min: 1, max: 365, step: 1 }),
+  wipeWarningDays: Object.freeze({ default: 3, min: 0.5, max: 364.5, step: 0.5 }),
+  wipeIntervalSeconds: Object.freeze({ default: 60, min: 15, max: 600, step: 1 })
+});
+const validLimit = (value, bounds) => Number.isFinite(value) && value >= bounds.min && value <= bounds.max && Number.isInteger(value / bounds.step);
+export function wipeLimits() {
+  const read = name => { let raw = null; try { raw = localStorage.getItem("eco." + name); } catch {} const value = raw === null || raw === "" ? NaN : Number(raw); return validLimit(value, WIPE_LIMITS[name]) ? value : WIPE_LIMITS[name].default; };
+  const limits = Object.fromEntries(Object.keys(WIPE_LIMITS).map(name => [name, read(name)]));
+  if (limits.wipeWarningDays >= limits.wipeOfflineDays) limits.wipeWarningDays = Math.min(WIPE_LIMITS.wipeWarningDays.default, limits.wipeOfflineDays - WIPE_LIMITS.wipeWarningDays.step);
+  return limits;
+}
+const limitsMs = () => { const limits = wipeLimits(); return { closed: limits.wipeClosedDays * DAY_MS, offline: limits.wipeOfflineDays * DAY_MS, warning: limits.wipeWarningDays * DAY_MS, interval: limits.wipeIntervalSeconds * 1000 }; };
 let activityTimer;
+let activityInterval = 0;
 let memoryHealth = async () => null;
 let memoryFailing = false;
 let offlineMark = null;
@@ -49,7 +61,7 @@ export function checkLocalActivity() {
     let previous = null;
     try { previous = localStorage.getItem(ACTIVITY_KEY); } catch {}
     const timestamp = Number(previous);
-    if (previous !== null && Number.isFinite(timestamp) && timestamp > 0 && now - timestamp > MAX_INACTIVE_MS) { await erase(); return true; }
+    if (previous !== null && Number.isFinite(timestamp) && timestamp > 0 && now - timestamp > limitsMs().closed) { await erase(); return true; }
     try { localStorage.setItem(ACTIVITY_KEY, String(now)); } catch {}
     return trackOffline();
   });
@@ -70,10 +82,11 @@ function offlineText(remaining) {
 function renderOffline(total = offlineTotal()) {
   const node = document.getElementById("offlineCountdown");
   if (!node) return;
-  const visible = !wiping && total >= WARN_OFFLINE_MS && total < MAX_OFFLINE_MS;
+  const limits = limitsMs();
+  const visible = !wiping && total >= limits.warning && total < limits.offline;
   node.hidden = !visible;
   if (!visible) return;
-  const text = offlineText(MAX_OFFLINE_MS - total);
+  const text = offlineText(limits.offline - total);
   node.querySelector("span").textContent = text;
   node.setAttribute("aria-label", "Borrado sin memoria compartida en " + text);
   node.title = "Eco se borrará en " + text + " si no recupera la memoria compartida";
@@ -87,7 +100,7 @@ async function trackOffline() {
   if (failing && offlineLeader) {
     if (offlineMark !== null && now > offlineMark) total += now - offlineMark;
     offlineMark = now;
-    if (total >= MAX_OFFLINE_MS) { await erase(); return true; }
+    if (total >= limitsMs().offline) { await erase(); return true; }
     try { localStorage.setItem(OFFLINE_KEY, String(Math.round(total))); } catch {}
   } else offlineMark = null;
   renderOffline(total);
@@ -110,13 +123,24 @@ export async function startLocalActivityWatch() {
   stopLocalActivityWatch();
   if (!offlineLeader && !offlineLocking) offlineLocking = navigator.locks.request("eco-memory-offline", () => { offlineLeader = true; return new Promise(() => {}); }).catch(() => {});
   if (await checkLocalActivity()) return true;
-  activityTimer = setInterval(activityWake, ACTIVITY_INTERVAL_MS);
+  activityInterval = limitsMs().interval;
+  activityTimer = setInterval(activityWake, activityInterval);
   window.addEventListener("focus", activityWake);
   window.addEventListener("pageshow", activityWake);
   document.addEventListener("visibilitychange", activityWake);
   return false;
 }
+export function applyWipeLimits() {
+  if (wiping) return;
+  renderOffline();
+  const interval = limitsMs().interval;
+  if (!activityInterval || interval === activityInterval) return;
+  clearInterval(activityTimer);
+  activityInterval = interval;
+  activityTimer = setInterval(activityWake, interval);
+}
 export function stopLocalActivityWatch() {
+  activityInterval = 0;
   clearInterval(activityTimer);
   window.removeEventListener("focus", activityWake);
   window.removeEventListener("pageshow", activityWake);
@@ -253,6 +277,7 @@ function receiveSignal(value) {
 channel?.addEventListener("message", event => receiveSignal(event.data));
 window.addEventListener("storage", event => {
   if (event.key === OFFLINE_KEY) renderOffline();
+  if (event.key?.startsWith("eco.") && Object.hasOwn(WIPE_LIMITS, event.key.slice(4))) applyWipeLimits();
   if (event.key === KEY && event.newValue) nonce = readRecord()?.nonce || nonce;
   if (event.key === CHANNEL_KEY && event.newValue) nonce = readRecord()?.nonce || event.newValue;
   if (event.key === SIGNAL_KEY && event.newValue) {

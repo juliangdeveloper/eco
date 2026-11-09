@@ -1,5 +1,5 @@
 import { bindStepLimits } from "./step-limits.js";
-import { configureSecurity, eraseWithWord, isWiping, securityState } from "./security.js";
+import { applyWipeLimits, configureSecurity, eraseWithWord, isWiping, securityState, WIPE_LIMITS, wipeLimits } from "./security.js";
 import { DEFAULT_MODEL } from "./config.js";
 import { setting } from "./storage.js";
 import { byId } from "./ui.js";
@@ -26,6 +26,7 @@ export function bindSettings() {
   byId("settingsButton").onclick = async () => {
     await Promise.all([renderConnectors(), renderRoutines()]);
     renderSecurity();
+    renderWipeLimits();
     byId("settings").showModal();
   };
   onRoutinesChange(() => renderRoutines());
@@ -143,8 +144,33 @@ function renderSecurity() {
   byId("securityStatus").textContent = state.enabled ? "Protección activada. El borrado solo afecta a Eco en este dispositivo." : "Configura una palabra de 8 a 128 caracteres para habilitar el borrado.";
 }
 
+function renderWipeLimits() {
+  const limits = wipeLimits();
+  for (const [name, bounds] of Object.entries(WIPE_LIMITS)) {
+    const field = byId(name);
+    field.min = bounds.min;
+    field.max = name === "wipeWarningDays" ? Math.min(bounds.max, limits.wipeOfflineDays - bounds.step) : bounds.max;
+    field.step = bounds.step;
+    if (document.activeElement !== field) field.value = limits[name];
+  }
+}
+
+function bindWipeLimits() {
+  renderWipeLimits();
+  for (const name of Object.keys(WIPE_LIMITS)) {
+    const field = byId(name);
+    field.onchange = () => {
+      const valid = field.value && field.checkValidity() && (name !== "wipeWarningDays" || Number(field.value) < wipeLimits().wipeOfflineDays);
+      if (valid) { setting(name, field.value); applyWipeLimits(); }
+      field.value = wipeLimits()[name];
+      renderWipeLimits();
+    };
+  }
+}
+
 function bindSecurity() {
   renderSecurity();
+  bindWipeLimits();
   byId("securityForm").onsubmit = async event => {
     event.preventDefault();
     const current = byId("securityCurrent").value;

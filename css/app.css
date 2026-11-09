@@ -1020,4 +1020,5 @@ dialog small {
 #deviceRequests .deviceRequest .primary ~ button { background: var(--surface-muted); color: var(--text); }
 
 .stepLimits { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wipeLimits { align-items: end; }
 #settings .securitySection { margin-top: 14px; padding-top: 12px; }

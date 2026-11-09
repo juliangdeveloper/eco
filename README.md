@@ -2,9 +2,9 @@
 
 Agente SI en el navegador que conversa, crea herramientas y adapta su memoria al stack del usuario.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.17.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.17.1
 
-<img src="assets/screenshot.png?v=0.17.0" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.17.1" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -38,7 +38,7 @@ RLS permanece activado sin acceso anónimo abierto. Una clave que elude RLS solo
 
 ## Dispositivo y seguridad
 
-Las herramientas del dispositivo respetan los permisos del navegador. En **Ajustes › Borrado seguro**, la palabra se guarda como hash PBKDF2 con sal, nunca en claro. El borrado también acepta una orden verificada en el chat o en la memoria conectada mientras Eco esté abierto. Elimina los datos locales de Eco, pero no revoca accesos ni elimina datos remotos. Si tiene memoria compartida configurada y permanece cerrado más de 15 días, borra automáticamente sus datos locales al volver a abrirlo, sin preguntar; sin memoria compartida configurada esta regla no se aplica. Si tiene memoria compartida configurada y la conexión falla, Eco suma solo el tiempo que pasa abierto sin conectar; el contador vuelve a cero al reconectarse, no depende del reloj del sistema y al llegar a 5 días borra los datos locales sin preguntar. A partir de 3 días muestra junto al nombre una calavera con el tiempo restante. Es un borrado de mejor esfuerzo, no forense.
+Las herramientas del dispositivo respetan los permisos del navegador. En **Ajustes › Borrado seguro**, la palabra se guarda como hash PBKDF2 con sal, nunca en claro. El borrado también acepta una orden verificada en el chat o en la memoria conectada mientras Eco esté abierto. Elimina los datos locales de Eco, pero no revoca accesos ni elimina datos remotos. Si tiene memoria compartida configurada y permanece cerrado más de 15 días, borra automáticamente sus datos locales al volver a abrirlo, sin preguntar; sin memoria compartida configurada esta regla no se aplica. Si tiene memoria compartida configurada y la conexión falla, Eco suma solo el tiempo que pasa abierto sin conectar; el contador vuelve a cero al reconectarse, no depende del reloj del sistema y al llegar a 5 días borra los datos locales sin preguntar. A partir de 3 días muestra junto al nombre una calavera con el tiempo restante. En **Ajustes › Borrado seguro** puedes cambiar los días cerrado (15 por defecto, de 1 a 365), los días sin memoria compartida (5, de 1 a 365), los días para mostrar la calavera (3, en pasos de medio día y siempre menos que los días sin memoria) y el intervalo de revisión (60 s, de 15 a 600). Los valores no válidos vuelven al predeterminado y Eco no puede modificarlos. Es un borrado de mejor esfuerzo, no forense.
 
 ## Ejecución local
 
