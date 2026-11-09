@@ -1,4 +1,5 @@
 import { timedFetch } from "./network.js";
+import { json } from "./storage.js";
 
 export const IP_ENDPOINTS = Object.freeze(["https://api.ipify.org?format=json", "https://api64.ipify.org?format=json", "https://icanhazip.com"]);
 const LOOKUP_TIMEOUT_MS = 4000;
@@ -20,6 +21,17 @@ async function lookup(url) {
   return value;
 }
 
+const STORED_KEY = "publicIp";
+
+export function lastKnownIp() {
+  const value = json(STORED_KEY);
+  return value && validIp(value.ip) && typeof value.at === "string" && !Number.isNaN(Date.parse(value.at)) ? { ip: value.ip, at: value.at } : null;
+}
+
+function remember(ip) {
+  try { json(STORED_KEY, { ip, at: new Date().toISOString() }); } catch {}
+}
+
 export async function publicIp(force = false) {
   if (!force && cached && Date.now() - cached.at < CACHE_MS) return { ip: cached.ip, source: cached.source };
   if (pending) return pending;
@@ -29,6 +41,7 @@ export async function publicIp(force = false) {
         const ip = await lookup(url);
         const source = new URL(url).host;
         cached = { ip, source, at: Date.now() };
+        remember(ip);
         return { ip, source };
       } catch {}
     }

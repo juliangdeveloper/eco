@@ -1,14 +1,14 @@
 {
   "name": "Eco",
   "short_name": "Eco",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f5f5f7",
   "theme_color": "#f5f5f7",
   "icons": [
     {
-      "src": "assets/icon.svg?v=0.20.0",
+      "src": "assets/icon.svg?v=0.20.1",
       "sizes": "any",
       "type": "image/svg+xml"
     }

@@ -62,7 +62,7 @@ export async function discoverEnvironment() {
   };
 }
 
-const safeNames = new Set(["memory", "user", "model", "stats", "lastSession", "persistentMemory", "deviceId"]);
+const safeNames = new Set(["memory", "user", "model", "stats", "lastSession", "persistentMemory", "deviceId", "publicIp"]);
 const secretNames = /key|token|secret|credential|password|authorization|cookie|vault|client.?id/i;
 
 function redact(value, name = "") {
@@ -86,7 +86,8 @@ export function readEnvironmentStorage() {
     if (["memory", "user"].includes(name)) value = { content: "[hidden: free text]", characters: localStorage.getItem(key).length };
     if (name === "stats") value = Object.fromEntries(Object.entries(value || {}).filter(([key, item]) => ["mensajes_enviados", "herramientas_usadas"].includes(key) && typeof item === "number"));
     if (name === "persistentMemory") value = Object.fromEntries(Object.entries(value || {}).filter(([key, item]) => ["backend", "sheet", "folder", "eco", "usuario"].includes(key) && typeof item === "string"));
+    if (name === "publicIp") value = value && typeof value === "object" && typeof value.ip === "string" && /^[0-9a-f:.]{2,45}$/i.test(value.ip) ? { ip: value.ip, at: String(value.at || "") } : null;
     entries.push({ key, value: redact(value) });
   }
-  return { untrusted: true, entries, omitted, note: "Only known settings and local memory. Free text from memory/profile is hidden; the normal memory tools remain available. Secrets, session logs, connector data and encrypted IndexedDB material are not read." };
+  return { untrusted: true, entries, omitted, note: "Only known settings, local memory and the last known public IP (eco.publicIp, saved by automatic lookups). Free text from memory/profile is hidden; the normal memory tools remain available. Secrets, session logs, connector data and encrypted IndexedDB material are not read." };
 }

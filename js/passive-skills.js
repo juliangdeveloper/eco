@@ -7,7 +7,7 @@ import { showCredentialCard } from "./credentials.js";
 import { sheetId } from "./memory-drive.js";
 import { MEMORY_BACKENDS, OBSIDIAN_ACTIONS, memoryDependencies } from "./memory-backends.js";
 import { MemorySet } from "./memory-set.js";
-import { publicIp } from "./public-ip.js";
+import { publicIp, lastKnownIp } from "./public-ip.js";
 
 const PRESENCE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const PROBE_STALE_MS = 5 * 60 * 1000;
@@ -470,7 +470,9 @@ async function presenceIdentityWithIp() {
 
 export async function devicePublicIp() {
   const result = await publicIp(true).catch(() => ({ ip: "", source: "" }));
-  return result.ip ? { ip: result.ip, source: result.source, contenido_no_confiable: true } : { error: "Could not get the public IP. Check the connection and try again." };
+  if (result.ip) return { ip: result.ip, source: result.source, contenido_no_confiable: true };
+  const stored = lastKnownIp();
+  return stored ? { ip: stored.ip, at: stored.at, source: "last known", stale: true, error: "Could not get the current public IP; returning the last known one.", contenido_no_confiable: true } : { error: "Could not get the public IP. Check the connection and try again." };
 }
 
 function agentIdentity() {
