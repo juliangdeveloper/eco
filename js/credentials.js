@@ -2,36 +2,36 @@ import { connectorStatus, getConnector, listConnectors, openOAuthWindow, redirec
 import { verifyMcp } from "./mcp.js";
 import { deleteSecret } from "./vault.js";
 
-const ERROR_TEXT = "No se pudo conectar. Inténtalo de nuevo.";
-const CONNECTED_TEXT = "Conectado";
-const REJECTED_TEXT = "El servicio rechazó el token. Revisa que sea válido y tenga permisos.";
+const ERROR_TEXT = "Could not connect. Try again.";
+const CONNECTED_TEXT = "Connected";
+const REJECTED_TEXT = "The service rejected the token. Check that it is valid and has permissions.";
 const MCP_KIND = "mcp";
-const SKIPPED_TEXT = "Sin conectar";
-const EXPIRED_TEXT = "Tu acceso expiró y no se pudo renovar solo. Inicia sesión para seguir.";
+const SKIPPED_TEXT = "Not connected";
+const EXPIRED_TEXT = "Your access expired and could not renew itself. Sign in to continue.";
 const GOOGLE_HOST = "accounts.google.com";
 const COPY_DONE_MS = 1500;
-const GUIDE_TITLE = "¿Cómo obtengo un Client ID?";
+const GUIDE_TITLE = "How do I get a Client ID?";
 const GOOGLE_CONSOLE = "https://console.cloud.google.com";
 const GOOGLE_API_HOST_SUFFIX = ".googleapis.com";
 const GOOGLE_STEPS = [
-  ["Crea un ", ["proyecto nuevo", GOOGLE_CONSOLE + "/projectcreate"], " en Google Cloud."],
-  ["Habilita la ", ["API del servicio", "API"], " en la biblioteca de APIs."],
-  ["Configura la ", ["Plataforma de autenticación de Google", GOOGLE_CONSOLE + "/auth/overview"], " y elige Externo."],
-  ["En ", ["Público", GOOGLE_CONSOLE + "/auth/audience"], ", agrégate como usuario de prueba."],
-  ["En ", ["Clientes", GOOGLE_CONSOLE + "/auth/clients"], ", crea un cliente de tipo «Aplicación web»."],
-  ["Agrega estos dos valores y copia el Client ID que te entrega:"]
+  ["Create a ", ["new project", GOOGLE_CONSOLE + "/projectcreate"], " in Google Cloud."],
+  ["Enable the ", ["service's API", "API"], " in the API library."],
+  ["Set up the ", ["Google Auth Platform", GOOGLE_CONSOLE + "/auth/overview"], " and choose External."],
+  ["In ", ["Audience", GOOGLE_CONSOLE + "/auth/audience"], ", add yourself as a test user."],
+  ["In ", ["Clients", GOOGLE_CONSOLE + "/auth/clients"], ", create a client of type “Web application”."],
+  ["Add these two values and copy the Client ID it gives you:"]
 ];
 const GENERIC_STEPS = [
-  ["Entra a la ", ["consola de desarrolladores del servicio", "DEVELOPER"], " y crea una aplicación OAuth."],
-  ["Elige el tipo «aplicación web» o «cliente público»."],
-  ["Agrega estos dos valores y copia el Client ID que te entrega:"]
+  ["Go to the ", ["service's developer console", "DEVELOPER"], " and create an OAuth application."],
+  ["Choose the “web application” or “public client” type."],
+  ["Add these two values and copy the Client ID it gives you:"]
 ];
 const FIELDS = {
   bearer: [{ name: "token", label: "Token", secret: true }],
-  api_key: [{ name: "key", label: "Clave de API", secret: true }],
+  api_key: [{ name: "key", label: "API key", secret: true }],
   basic: [
-    { name: "username", label: "Usuario", secret: false },
-    { name: "password", label: "Contraseña", secret: true }
+    { name: "username", label: "Username", secret: false },
+    { name: "password", label: "Password", secret: true }
   ]
 };
 
@@ -59,17 +59,17 @@ function copyRow(label, value) {
   const row = create("div", "", "copyRow");
   const text = create("div", "");
   text.append(create("small", label), create("code", value));
-  const copy = create("button", "Copiar");
+  const copy = create("button", "Copy");
   copy.type = "button";
   copy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      copy.textContent = "Copiado";
+      copy.textContent = "Copied";
     } catch {
-      copy.textContent = "Selecciona y copia";
+      copy.textContent = "Select and copy";
     }
     setTimeout(() => {
-      copy.textContent = "Copiar";
+      copy.textContent = "Copy";
     }, COPY_DONE_MS);
   };
   row.append(text, copy);
@@ -125,11 +125,11 @@ function guide(connector) {
     list.append(item);
   }
   if (connector.id === "eco-memory-drive") {
-    const extra = create("li", "Habilita también la ");
-    extra.append(link("Google Drive API", GOOGLE_CONSOLE + "/apis/library/drive.googleapis.com"), ". En Acceso a datos añade los permisos spreadsheets y drive; dan acceso a tus hojas y a todo tu Drive.");
+    const extra = create("li", "Also enable the ");
+    extra.append(link("Google Drive API", GOOGLE_CONSOLE + "/apis/library/drive.googleapis.com"), ". In Data Access add the spreadsheets and drive scopes; they give access to your sheets and your whole Drive.");
     list.append(extra);
   }
-  details.append(list, copyRow("Origen de JavaScript autorizado", location.origin), copyRow("URI de redireccionamiento", redirectUri()));
+  details.append(list, copyRow("Authorized JavaScript origin", location.origin), copyRow("Redirect URI", redirectUri()));
   return details;
 }
 
@@ -143,8 +143,8 @@ function renderCredentialCard(connector, options = {}) {
   const card = create("div", "", "credentialCard");
   card.dataset.connector = connector.id;
   const form = document.createElement("form");
-  const title = create("strong", "Iniciar sesión en " + connector.name);
-  const note = create("small", options.expired ? EXPIRED_TEXT : "Tus datos se guardan cifrados en este navegador.");
+  const title = create("strong", "Sign in to " + connector.name);
+  const note = create("small", options.expired ? EXPIRED_TEXT : "Your data is stored encrypted in this browser.");
   const error = create("p", "", "credentialError");
   error.hidden = true;
   const inputs = [];
@@ -152,9 +152,9 @@ function renderCredentialCard(connector, options = {}) {
   const type = connector.auth.type;
   if (type === "oauth2") {
     if (!connector.auth.client_id) {
-      const client = field({ name: "client_id", label: "Client ID de OAuth", secret: false });
+      const client = field({ name: "client_id", label: "OAuth Client ID", secret: false });
       inputs.push(client.input);
-      const hint = create("small", "Usa el Client ID de tu propia app OAuth.");
+      const hint = create("small", "Use the Client ID of your own OAuth app.");
       form.append(client.label, hint, guide(connector));
     }
   } else {
@@ -165,9 +165,9 @@ function renderCredentialCard(connector, options = {}) {
     }
   }
   const actions = create("div", "", "actions");
-  const skip = create("button", "Ahora no");
+  const skip = create("button", "Not now");
   skip.type = "button";
-  const submit = create("button", type === "oauth2" ? "Iniciar sesión" : "Guardar", "primary");
+  const submit = create("button", type === "oauth2" ? "Sign in" : "Save", "primary");
   submit.type = "submit";
   actions.append(skip, submit);
   form.append(error, actions);
@@ -250,9 +250,9 @@ export async function renderReconnectNotice() {
   }
   notice.hidden = !expired;
   if (!expired) return;
-  text.textContent = expired.id === "eco-memory-drive" ? "Drive sin conexión · memoria local" : expired.name + " sin conexión";
+  text.textContent = expired.id === "eco-memory-drive" ? "Drive offline · local memory" : expired.name + " offline";
   button.disabled = false;
-  button.textContent = "Reconectar";
+  button.textContent = "Reconnect";
   button.onclick = async () => {
     const popup = openOAuthWindow();
     reconnecting = true;
@@ -260,9 +260,9 @@ export async function renderReconnectNotice() {
     try {
       const ok = await startOAuth(expired.id, expired.auth.client_id, popup);
       if (ok) notice.hidden = true;
-      else text.textContent = "No se pudo reconectar. Puedes seguir usando Eco y volver a intentar.";
+      else text.textContent = "Could not reconnect. You can keep using Eco and try again.";
     } catch {
-      text.textContent = "No se pudo guardar el acceso. Cierra otras pestañas de Eco y vuelve a intentar.";
+      text.textContent = "Could not save the access. Close other Eco tabs and try again.";
     } finally {
       reconnecting = false;
       button.disabled = false;

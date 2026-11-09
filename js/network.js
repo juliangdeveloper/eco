@@ -8,7 +8,7 @@ export function abortNetwork() {
 }
 
 export async function timedFetch(url, init = {}) {
-  if (isWiping()) throw new Error("Conexión cancelada");
+  if (isWiping()) throw new Error("Connection cancelled");
   const controller = new AbortController();
   controllers.add(controller);
   const abort = () => controller.abort();

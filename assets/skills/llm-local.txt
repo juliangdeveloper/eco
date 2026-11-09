@@ -1,7 +1,7 @@
-LLM local
+Local LLM
 
-Cuándo aplica: la persona quiere usar un modelo local o sin nube, WebGPU, WebLLM, Ollama, LM Studio u otro servidor compatible con la API de OpenAI.
+When it applies: the person wants to use a local or cloud-free model, WebGPU, WebLLM, Ollama, LM Studio or another server compatible with the OpenAI API.
 
-Qué puedes hacer hoy: tú sigues razonando con el proveedor configurado en Ajustes (por ahora OpenRouter). Si la persona tiene un servidor local compatible con OpenAI, puedes crear un conector a él con create_connector para usarlo como herramienta; los conectores exigen HTTPS, así que el servidor debe servirse con un certificado que este navegador acepte, y puede pedir permiso de acceso a la red local. También puedes comprobar navigator.gpu con entorno_descubrir y la documentación oficial antes de proponer un modelo en el navegador con WebGPU o WebLLM; avisa de que descarga varios GB y exige un equipo potente.
+What you can do today: you keep reasoning with the provider configured in Settings (OpenRouter for now). If the person has a local OpenAI-compatible server, you can create a connector to it with create_connector to use it as a tool; connectors require HTTPS, so the server must be served with a certificate this browser accepts, and it may ask for permission to access the local network. You can also check navigator.gpu with entorno_descubrir and the official documentation before proposing an in-browser model with WebGPU or WebLLM; warn that it downloads several GB and needs a powerful machine.
 
-Qué falta: Eco no puede cambiar su propio modelo a uno local, Ajustes no ofrece un proveedor local y no hay un modelo integrado en la app. La función está en diseño. No digas que existe.
+What's missing: Eco can't switch its own model to a local one, Settings doesn't offer a local provider and there is no model built into the app. The feature is in design. Don't say it exists.

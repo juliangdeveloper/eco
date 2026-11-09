@@ -12,7 +12,7 @@ async def skill_view(args):
     found = next((skill for skill in skills if skill.get("id") == args.get("name")), None)
     if found:
         return found
-    return json.loads(await ecoBridge.passiveTopic(str(args.get("name", "")))) or {"error": "Habilidad no encontrada"}
+    return json.loads(await ecoBridge.passiveTopic(str(args.get("name", "")))) or {"error": "Skill not found"}
 
 
 async def skill_manage(args):
@@ -24,14 +24,14 @@ async def session_search(args):
 
 
 async def clarify(args):
-    result = await ecoBridge.clarify(args.get("question", "¿Cómo seguimos?"), json.dumps(args.get("options", [])))
+    result = await ecoBridge.clarify(args.get("question", "How should we continue?"), json.dumps(args.get("options", [])))
     return {"answer": str(result)}
 
 
 def register(registry, child=False):
-    registry.add("skills_list", schema("Lista habilidades.", {}), skills_list)
-    registry.add("skill_view", schema("Muestra una habilidad.", {"name": {"type": "string"}}, ["name"]), skill_view)
-    registry.add("skill_manage", schema("Crea, edita o borra una habilidad.", {"action": {"type": "string", "enum": ["create", "edit", "delete"]}, "name": {"type": "string"}, "description": {"type": "string"}, "content": {"type": "string"}}, ["action", "name"]), skill_manage)
-    registry.add("session_search", schema("Busca sesiones anteriores.", {"query": {"type": "string"}, "limit": {"type": "integer"}}, ["query"]), session_search)
+    registry.add("skills_list", schema("Lists skills.", {}), skills_list)
+    registry.add("skill_view", schema("Shows a skill.", {"name": {"type": "string"}}, ["name"]), skill_view)
+    registry.add("skill_manage", schema("Creates, edits or deletes a skill.", {"action": {"type": "string", "enum": ["create", "edit", "delete"]}, "name": {"type": "string"}, "description": {"type": "string"}, "content": {"type": "string"}}, ["action", "name"]), skill_manage)
+    registry.add("session_search", schema("Searches previous sessions.", {"query": {"type": "string"}, "limit": {"type": "integer"}}, ["query"]), session_search)
     if not child:
-        registry.add("clarify", schema("Pide una aclaración.", {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}}, ["question"]), clarify)
+        registry.add("clarify", schema("Asks for a clarification.", {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}}, ["question"]), clarify)

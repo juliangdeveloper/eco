@@ -16,11 +16,11 @@ const ACTIVATION_FEATURES = new Set(["nfc"]);
 const STORAGE_READ_METHODS = new Set(["estimate", "persisted"]);
 const executions = new Set();
 const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
-const CALL_SIGNATURE = "Usa device.call(ruta, [args])";
+const CALL_SIGNATURE = "Use device.call(path, [args])";
 const BLOCKED_ERRORS = new Set(["NotAllowedError", "SecurityError"]);
-const DENIED_MESSAGE = "El navegador tiene bloqueado el acceso a: ";
-const DENIED_HELP = ". Actívalo para este sitio en Ajustes > Safari > Cámara o Micrófono (o en el ícono aA de la barra de dirección) y vuelve a intentar.";
-const PERMISSION_LABELS = { camera: "cámara", microphone: "micrófono", geolocation: "ubicación" };
+const DENIED_MESSAGE = "The browser is blocking access to: ";
+const DENIED_HELP = ". Allow it for this site in Settings > Safari > Camera or Microphone (or from the aA icon in the address bar) and try again.";
+const PERMISSION_LABELS = { camera: "camera", microphone: "microphone", geolocation: "location" };
 
 export function stopDeviceTools() {
   for (const stop of executions) { try { stop(); } catch {} }
@@ -31,8 +31,8 @@ const bytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
 const validPart = value => /^[A-Za-z][A-Za-z0-9]*$/.test(value) && !forbidden.has(value);
 
 export async function executeDeviceTool(tool, params, signal) {
-  if (isWiping()) return { ok: false, error: "Acceso cancelado" };
-  if (isWiping()) return Promise.resolve({ ok: false, error: "Acceso cancelado" });
+  if (isWiping()) return { ok: false, error: "Access cancelled" };
+  if (isWiping()) return Promise.resolve({ ok: false, error: "Access cancelled" });
   return new Promise((resolve) => {
     const frame = document.createElement("iframe");
     frame.hidden = true;
@@ -76,9 +76,9 @@ export async function executeDeviceTool(tool, params, signal) {
       frame.remove();
       resolve({ untrusted: true, ...result });
     };
-    const abort = () => finish({ ok: false, error: "Acceso al dispositivo cancelado" });
-    const startupTimer = setTimeout(() => finish({ ok: false, error: "No se pudo iniciar la herramienta aislada en este navegador. Actualiza Safari y vuelve a intentar." }), STARTUP_TIMEOUT_MS);
-    const timer = setTimeout(() => finish({ ok: false, error: cards.size ? "Falta autorizar el acceso al dispositivo. Autoriza el acceso y vuelve a intentar." : "La herramienta del dispositivo no terminó. Vuelve a intentarlo." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
+    const abort = () => finish({ ok: false, error: "Device access cancelled" });
+    const startupTimer = setTimeout(() => finish({ ok: false, error: "The isolated tool could not start in this browser. Update Safari and try again." }), STARTUP_TIMEOUT_MS);
+    const timer = setTimeout(() => finish({ ok: false, error: cards.size ? "Device access has not been authorized yet. Authorize it and try again." : "The device tool did not finish. Try again." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
     executions.add(abort);
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener("abort", abort, { once: true });
@@ -86,8 +86,8 @@ export async function executeDeviceTool(tool, params, signal) {
     function encode(value, feature, depth = 0, seen = new Set()) {
       if (value === null || value === undefined) return null;
       if (["string", "number", "boolean"].includes(typeof value)) return value;
-      if (value === window || value === document || value === navigator || value === localStorage || value === indexedDB || value === crypto || value instanceof Node || value instanceof Window || value instanceof Storage || typeof CryptoKey !== "undefined" && value instanceof CryptoKey) throw new Error("Objeto fuera de las capacidades permitidas");
-      if (typeof value !== "object" || depth > 8) throw new Error("Resultado no serializable");
+      if (value === window || value === document || value === navigator || value === localStorage || value === indexedDB || value === crypto || value instanceof Node || value instanceof Window || value instanceof Storage || typeof CryptoKey !== "undefined" && value instanceof CryptoKey) throw new Error("Object outside the allowed capabilities");
+      if (typeof value !== "object" || depth > 8) throw new Error("Result is not serializable");
       if (seen.has(value)) return null;
       seen.add(value);
       if (ArrayBuffer.isView(value)) return { $bytes: Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)) };
@@ -115,45 +115,45 @@ export async function executeDeviceTool(tool, params, signal) {
     }
 
     function decode(value, done, fail, depth = 0) {
-      if (depth > 10) throw new Error("Parámetros demasiado profundos");
+      if (depth > 10) throw new Error("Parameters nested too deeply");
       if (!value || typeof value !== "object") return value;
       if (value.$handle) {
-        if (!handles.has(value.$handle)) throw new Error("Referencia no disponible");
+        if (!handles.has(value.$handle)) throw new Error("Reference not available");
         return handles.get(value.$handle).value;
       }
       if (value.$callback) {
-        if (!["resolve", "reject"].includes(value.$callback)) throw new Error("Callback inválido");
+        if (!["resolve", "reject"].includes(value.$callback)) throw new Error("Invalid callback");
         return value.$callback === "resolve" ? done : fail;
       }
       if (value.$bytes) return new Uint8Array(value.$bytes);
       if (Array.isArray(value)) return value.map(item => decode(item, done, fail, depth + 1));
       return Object.fromEntries(Object.entries(value).map(([key, item]) => {
-        if (["__proto__", "constructor", "prototype"].includes(key)) throw new Error("Parámetro no permitido");
+        if (["__proto__", "constructor", "prototype"].includes(key)) throw new Error("Parameter not allowed");
         return [key, decode(item, done, fail, depth + 1)];
       }));
     }
 
     function locate(path) {
-      if (typeof path !== "string" || path.length > 200) throw new Error("ruta debe ser texto de hasta 200 caracteres. " + CALL_SIGNATURE);
+      if (typeof path !== "string" || path.length > 200) throw new Error("path must be text of up to 200 characters. " + CALL_SIGNATURE);
       const parts = path.split(".");
       let feature, value, remaining;
       if (parts[0] === "handles") {
         const entry = handles.get(parts[1]);
-        if (!entry) throw new Error("Referencia no disponible en esta ejecución");
+        if (!entry) throw new Error("Reference not available in this run");
         ({ value, feature } = entry);
         remaining = parts.slice(2);
       } else {
         feature = features.find(entry => path === entry.path || path.startsWith(entry.path + "."));
-        if (!feature) throw new Error("Ruta fuera de las capacidades permitidas");
+        if (!feature) throw new Error("Path outside the allowed capabilities");
         value = featureValue(feature.path);
         remaining = parts.slice(feature.path.split(".").length);
       }
-      if (value === undefined || value === null) throw new Error("Esta API no está disponible en este navegador");
+      if (value === undefined || value === null) throw new Error("This API is not available in this browser");
       let owner = window;
       if (!remaining.length && feature.path.startsWith("navigator.")) owner = navigator;
       for (const part of remaining) {
-        if (!validPart(part)) throw new Error("Miembro no permitido");
-        if (typeof value === "function" && value !== featureValue(feature.path)) throw new Error("No se pueden recorrer funciones");
+        if (!validPart(part)) throw new Error("Member not allowed");
+        if (typeof value === "function" && value !== featureValue(feature.path)) throw new Error("Functions cannot be traversed");
         owner = value;
         value = value[part];
       }
@@ -168,31 +168,31 @@ export async function executeDeviceTool(tool, params, signal) {
           try { done(encode(value, entry.feature)); } catch (error) { fail(error); }
         };
         const reject = error => {
-          const wrapped = new Error(String(error?.message || error?.name || error || "Permiso denegado"));
+          const wrapped = new Error(String(error?.message || error?.name || error || "Permission denied"));
           if (error?.name) wrapped.name = error.name;
           fail(wrapped);
         };
-        if (entry.feature.name === "storage" && message.kind !== "get" && !STORAGE_READ_METHODS.has(message.path.split(".").pop())) throw new Error("Solo se permite consultar el espacio de almacenamiento");
+        if (entry.feature.name === "storage" && message.kind !== "get" && !STORAGE_READ_METHODS.has(message.path.split(".").pop())) throw new Error("Only querying storage space is allowed");
         const args = decode(message.args, respond, reject);
         if (message.kind === "capture") {
-          if (!(entry.value instanceof MediaStream)) throw new Error("device.capture necesita la referencia de un MediaStream de esta ejecución");
+          if (!(entry.value instanceof MediaStream)) throw new Error("device.capture needs a reference to a MediaStream from this run");
           captureFrame(entry.value, args[0]).then(respond, reject);
           return;
         }
         if (message.kind === "get") { respond(entry.value); return; }
         if (message.kind === "listen") {
           const event = args[0];
-          if (!entry.feature.events.includes(event)) throw new Error("Evento no permitido para esta capacidad");
+          if (!entry.feature.events.includes(event)) throw new Error("Event not allowed for this capability");
           const target = entry.feature.eventTarget === "window" ? window : entry.value;
-          if (!target?.addEventListener) throw new Error("Esta capacidad no admite eventos");
+          if (!target?.addEventListener) throw new Error("This capability does not support events");
           const listener = value => { cleanup(); respond(value); };
           const cleanup = () => { target.removeEventListener(event, listener); cleanups.delete(cleanup); };
           cleanups.add(cleanup);
           target.addEventListener(event, listener, { once: true });
           return;
         }
-        if (typeof entry.value !== "function") throw new Error("El método no existe en este navegador");
-        if (message.kind === "construct" && message.path !== entry.feature.path) throw new Error("Constructor no permitido");
+        if (typeof entry.value !== "function") throw new Error("The method does not exist in this browser");
+        if (message.kind === "construct" && message.path !== entry.feature.path) throw new Error("Constructor not allowed");
         const result = message.kind === "construct" ? Reflect.construct(entry.value, args) : Reflect.apply(entry.value, entry.owner, args);
         const callbacks = JSON.stringify(message.args).includes('"$callback"');
         if (result?.then) result.then(respond, reject);
@@ -215,19 +215,19 @@ export async function executeDeviceTool(tool, params, signal) {
         video.srcObject = null;
         video.remove();
         stream.getTracks().forEach(track => track.stop());
-        failFrame?.(new Error("Captura cancelada"));
+        failFrame?.(new Error("Capture cancelled"));
       };
       cleanups.add(cleanup);
       try {
-        if (!stream.getVideoTracks().some(track => track.readyState === "live")) throw new Error("El flujo no contiene una cámara activa");
+        if (!stream.getVideoTracks().some(track => track.readyState === "live")) throw new Error("The stream has no active camera");
         video.srcObject = stream;
         document.body.append(video);
         video.setAttribute("playsinline", "");
         video.setAttribute("muted", "");
         await new Promise((resolve, reject) => {
           failFrame = reject;
-          frameTimer = setTimeout(() => reject(new Error("La cámara no entregó una imagen")), FRAME_TIMEOUT_MS);
-          video.onerror = () => reject(new Error("No se pudo leer la imagen de la cámara"));
+          frameTimer = setTimeout(() => reject(new Error("The camera did not deliver an image")), FRAME_TIMEOUT_MS);
+          video.onerror = () => reject(new Error("Could not read the camera image"));
           const ready = () => {
             if (!video.videoWidth || !video.videoHeight) return;
             if (typeof video.requestVideoFrameCallback === "function") video.requestVideoFrameCallback(() => resolve());
@@ -238,7 +238,7 @@ export async function executeDeviceTool(tool, params, signal) {
           else video.onloadedmetadata = start;
         });
         clearTimeout(frameTimer);
-        if (settled) throw new Error("Captura cancelada");
+        if (settled) throw new Error("Capture cancelled");
         const requested = Number(options?.maxDimension);
         const maximum = Number.isFinite(requested) && requested > 0 ? Math.min(MAX_PHOTO_DIMENSION, requested) : MAX_PHOTO_DIMENSION;
         const scale = Math.min(1, maximum / Math.max(video.videoWidth, video.videoHeight));
@@ -246,7 +246,7 @@ export async function executeDeviceTool(tool, params, signal) {
         canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
         canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
         const context = canvas.getContext("2d");
-        if (!context) throw new Error("No se pudo preparar la foto");
+        if (!context) throw new Error("Could not prepare the photo");
         let dataUrl;
         do {
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -255,7 +255,7 @@ export async function executeDeviceTool(tool, params, signal) {
           canvas.width = Math.max(1, Math.floor(canvas.width * PHOTO_SCALE));
           canvas.height = Math.max(1, Math.floor(canvas.height * PHOTO_SCALE));
         } while (canvas.width > 1 && canvas.height > 1);
-        if (!dataUrl.startsWith("data:image/jpeg;base64,") || dataUrl.length > MAX_PHOTO_BYTES) throw new Error("No se pudo comprimir la foto");
+        if (!dataUrl.startsWith("data:image/jpeg;base64,") || dataUrl.length > MAX_PHOTO_BYTES) throw new Error("Could not compress the photo");
         return { dataUrl, mimeType: "image/jpeg", width: canvas.width, height: canvas.height };
       } finally {
         cleanups.delete(cleanup);
@@ -300,14 +300,14 @@ export async function executeDeviceTool(tool, params, signal) {
         let cancelled = false;
         const timeout = setTimeout(() => {
           cancelled = true;
-          finish({ ok: false, error: "El navegador no respondió al acceso. Revisa sus permisos y vuelve a intentar." });
+          finish({ ok: false, error: "The browser did not respond to the access request. Check its permissions and try again." });
         }, BROWSER_RESPONSE_TIMEOUT_MS);
         const cleanup = () => clearTimeout(timeout);
         cleanups.add(cleanup);
         let task;
         try { task = invoke(message, () => cancelled); } catch (error) { task = Promise.reject(error); }
         task.then(result => {
-          if (bytes(result) > MAX_BYTES) throw new Error("Resultado mayor de 128 KiB");
+          if (bytes(result) > MAX_BYTES) throw new Error("Result larger than 128 KiB");
           if (!settled) channel.port1.postMessage({ kind: "response", id: message.id, result });
         }).catch(async error => {
           cleanup(); cleanups.delete(cleanup);
@@ -331,10 +331,10 @@ export async function executeDeviceTool(tool, params, signal) {
       card.className = "deviceRequest message assistant";
       card.dataset.deviceRequest = "true";
       const text = document.createElement("p");
-      text.textContent = tool.name + (message.kind === "capture" ? " quiere capturar una foto" : " quiere acceder a " + message.path);
+      text.textContent = tool.name + (message.kind === "capture" ? " wants to take a photo" : " wants to access " + message.path);
       const allow = document.createElement("button");
       allow.type = "button";
-      allow.textContent = "Continuar";
+      allow.textContent = "Continue";
       allow.className = "primary";
       let cancelled = false;
       let replied = false;
@@ -358,21 +358,21 @@ export async function executeDeviceTool(tool, params, signal) {
       const run = () => {
         if (settled || allow.disabled) return;
         allow.disabled = true;
-        allow.textContent = "Esperando al navegador…";
+        allow.textContent = "Waiting for the browser…";
         browserTimer = setTimeout(() => {
           cancelled = true;
-          reply({ error: "El navegador no respondió al permiso. Revisa el permiso de cámara o micrófono de Safari y vuelve a intentar. Si Eco está dentro de otra página, ábrelo directamente." });
+          reply({ error: "The browser did not respond to the permission request. Check Safari's camera or microphone permission and try again. If Eco is inside another page, open it directly." });
         }, BROWSER_RESPONSE_TIMEOUT_MS);
         let task;
         try { task = invoke(message, () => cancelled); } catch (error) { task = Promise.reject(error); }
         task.then(result => {
-          if (bytes(result) > MAX_BYTES) throw new Error("Resultado mayor de 128 KiB");
+          if (bytes(result) > MAX_BYTES) throw new Error("Result larger than 128 KiB");
           reply({ result });
         }).catch(async error => {
           const denied = BLOCKED_ERRORS.has(error?.name) ? await deniedError(needs) : "";
           if (denied) { reply({ error: denied }); return; }
           const blocked = features.flatMap(entry => entry.policies).filter(name => policyState(name) === "blocked");
-          reply({ error: String(error.message || error) + (blocked.length ? ". La página contenedora bloquea: " + [...new Set(blocked)].join(", ") + ". Abre Eco directamente o solicita ajustar allow en el iframe." : "") });
+          reply({ error: String(error.message || error) + (blocked.length ? ". The embedding page blocks: " + [...new Set(blocked)].join(", ") + ". Open Eco directly or ask for the iframe's allow attribute to be adjusted." : "") });
         });
       };
       allow.onclick = run;
@@ -385,15 +385,15 @@ export async function executeDeviceTool(tool, params, signal) {
     channel.port1.onmessage = ({ data }) => {
       if (settled) return;
       try {
-        if (bytes(data) > MAX_BYTES) throw new Error("Mensaje demasiado grande");
-        if (data.kind === "ready") { if (started) throw new Error("Inicio duplicado"); started = true; clearTimeout(startupTimer); channel.port1.postMessage({ kind: "run", code: tool.code, params }); return; }
+        if (bytes(data) > MAX_BYTES) throw new Error("Message too large");
+        if (data.kind === "ready") { if (started) throw new Error("Duplicate start"); started = true; clearTimeout(startupTimer); channel.port1.postMessage({ kind: "run", code: tool.code, params }); return; }
         if (data.kind === "done") { finish(data.error ? { ok: false, error: data.error } : { ok: true, data: data.result }); return; }
-        if (!["call", "get", "construct", "listen", "capture"].includes(data.kind)) throw new Error("kind debe ser call, get, construct, listen o capture. " + CALL_SIGNATURE);
-        if (!Number.isInteger(data.id) || data.id < 1) throw new Error("id debe ser un entero positivo. " + CALL_SIGNATURE);
+        if (!["call", "get", "construct", "listen", "capture"].includes(data.kind)) throw new Error("kind must be call, get, construct, listen or capture. " + CALL_SIGNATURE);
+        if (!Number.isInteger(data.id) || data.id < 1) throw new Error("id must be a positive integer. " + CALL_SIGNATURE);
         data.args = normalizeArgs(data.args);
-        if (requestIds.has(data.id)) throw new Error("id repetido: cada solicitud necesita un id único");
+        if (requestIds.has(data.id)) throw new Error("Repeated id: each request needs a unique id");
         requestIds.add(data.id);
-        if (++operations > 40 || cards.size >= 8) throw new Error("Demasiadas solicitudes del dispositivo");
+        if (++operations > 40 || cards.size >= 8) throw new Error("Too many device requests");
         locate(data.path);
         requestAccess(data).catch(error => finish({ ok: false, error: String(error.message || error) }));
       } catch (error) { finish({ ok: false, error: String(error.message || error) }); }

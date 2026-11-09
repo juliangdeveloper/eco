@@ -3,23 +3,23 @@ import { renderMarkdown } from "./markdown.js";
 export const MAX_TOOL_PREVIEW = 2400;
 
 export const TOOL_LABELS = {
-  memory: "Memoria",
-  todo_list: "Tareas",
-  subagente_crear: "Subagente",
-  subagente_listar: "Subagentes",
-  subagente_control: "Subagente",
-  clarify: "Pregunta",
-  session_search: "Buscar sesiones",
-  skills_list: "Habilidades",
-  skill_view: "Habilidades",
-  skill_manage: "Habilidades",
-  create_connector: "Crear conector",
-  list_connectors: "Conectores",
-  call_connector: "Conector",
-  request_sign_in: "Iniciar sesión"
+  memory: "Memory",
+  todo_list: "Tasks",
+  subagente_crear: "Subagent",
+  subagente_listar: "Subagents",
+  subagente_control: "Subagent",
+  clarify: "Question",
+  session_search: "Search sessions",
+  skills_list: "Skills",
+  skill_view: "Skills",
+  skill_manage: "Skills",
+  create_connector: "Create connector",
+  list_connectors: "Connectors",
+  call_connector: "Connector",
+  request_sign_in: "Sign in"
 };
 
-const CANCELLED_ERROR = "Acción cancelada";
+const CANCELLED_ERROR = "Action cancelled";
 const STATUS_CANCELLED = "cancelada";
 
 const URL_PATTERN = /https:\/\/[^\s<]+/g;
@@ -108,9 +108,9 @@ export function renderMessages(messages) {
 export function renderEmpty(send) {
   const empty = element("div", "", "empty");
   empty.id = "empty";
-  empty.append(element("div", "¿En qué te ayudo?"));
+  empty.append(element("div", "How can I help?"));
   const suggestions = element("div", "", "suggestions");
-  const texts = ["Conéctate a mi correo", "Conecta mis repositorios", "Organiza mis tareas"];
+  const texts = ["Connect to my email", "Connect my repositories", "Organize my tasks"];
   for (const text of texts) {
     const button = element("button", text);
     button.type = "button";
@@ -133,7 +133,7 @@ export function updateToolCard(name, status, value) {
     chat.append(card);
   }
   const shown = value && value.error === CANCELLED_ERROR ? STATUS_CANCELLED : status;
-  const title = name === "contexto" ? "Contexto resumido" : toolLabel(name) + " · " + shown;
+  const title = name === "contexto" ? "Context summarized" : toolLabel(name) + " · " + shown;
   card.dataset.status = status;
   card.open = false;
   card.replaceChildren(element("summary", title), element("pre", preview(value)));
@@ -166,7 +166,7 @@ const DIRECTION_THRESHOLD = 10;
 
 export function renderReply(reply) {
   byId("replyPreview").hidden = !reply;
-  const label = reply?.label?.startsWith("Subagente") ? "Subagente" : reply?.label;
+  const label = reply?.label?.startsWith("Subagent") ? "Subagent" : reply?.label;
   byId("replyPreviewText").textContent = reply ? (label ? label + ": " : "") + reply.text : "";
 }
 

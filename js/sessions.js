@@ -48,7 +48,7 @@ export function createSessions({ loadSession, newSession }) {
 
   function sessionRow(row) {
     const wrapper = element("div", "", "session");
-    const open = element("button", row.title || "Nueva conversación");
+    const open = element("button", row.title || "New conversation");
     open.type = "button";
     open.onclick = async () => {
       const rows = await all("sessions");

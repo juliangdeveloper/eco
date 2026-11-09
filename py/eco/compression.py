@@ -21,6 +21,6 @@ async def compact(messages, limit, ask):
     middle = messages[1:len(messages) - len(recent)]
     if not middle:
         return messages, False
-    prompt = "Resume el contexto. Conserva decisiones, resultados de herramientas con su id de historial (rN) y pendientes sin inventar datos."
+    prompt = "Summarize the context. Keep decisions, tool results with their history id (rN) and pending items without inventing data."
     summary = await ask([{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps(middle, ensure_ascii=False)}], [])
-    return [messages[0], {"role": "system", "content": "Contexto resumido:\n" + summary}] + recent, True
+    return [messages[0], {"role": "system", "content": "Summarized context:\n" + summary}] + recent, True

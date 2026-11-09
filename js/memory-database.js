@@ -66,17 +66,17 @@ export class DatabaseMemory extends MemoryBackend {
       schema = resolveSchema(tables, this.mapping);
       } catch { additionError = true; }
     }
-    this.structure = { ...schema, additions_needed: this.readOnlyDDL || additionError ? additions : [], catalog_available: discovered, ...(additionError ? { warning: "No se pudieron añadir campos o tablas ausentes; los datos existentes se conservan." } : {}) };
+    this.structure = { ...schema, additions_needed: this.readOnlyDDL || additionError ? additions : [], catalog_available: discovered, ...(additionError ? { warning: "Missing fields or tables could not be added; existing data is kept." } : {}) };
     const map = snapshotMap(schema), serialized = JSON.stringify(map);
     this.mapping = map; this.config.map = map;
     try { localStorage.setItem("eco.databaseSchema:" + this.config.connector, serialized); } catch {}
     const target = schema.tables._eco;
     this.structure.map_shared = Boolean(entry && entry[1] === serialized);
-    if (target.name && target.fields.key !== undefined && target.fields.value !== undefined && (!entry || entry[1] !== serialized)) { try { await this.transport("schema", { stage: "map", table: target.name, columns: Object.fromEntries(Object.entries(target.fields).map(([key, index]) => [key, target.headers[index]])), value: serialized, exists: Boolean(entry) }); this.structure.map_shared = true; } catch { this.structure.warning = "Mapa local: faltan permisos para guardar la fila map en _eco."; } }
+    if (target.name && target.fields.key !== undefined && target.fields.value !== undefined && (!entry || entry[1] !== serialized)) { try { await this.transport("schema", { stage: "map", table: target.name, columns: Object.fromEntries(Object.entries(target.fields).map(([key, index]) => [key, target.headers[index]])), value: serialized, exists: Boolean(entry) }); this.structure.map_shared = true; } catch { this.structure.warning = "Local map: missing permissions to save the map row in _eco."; } }
     return { protocol: "eco-memoria", version: PROTOCOL_VERSION, ...this.structure };
   }
   async schema(action = "ver", changes = {}) {
-    if (!["ver", "ajustar"].includes(action)) throw new Error("Acción de esquema inválida.");
+    if (!["ver", "ajustar"].includes(action)) throw new Error("Invalid schema action.");
     if (action === "ajustar") await this.validate(changes); else await this.ensure();
     return { mapa: snapshotMap(this.structure), ...this.structure, contenido_no_confiable: true };
   }
@@ -108,7 +108,7 @@ export class DatabaseMemory extends MemoryBackend {
       let cursor = null;
       while (!isWiping()) {
         const received = await this.execute("search", { table, filters, cursor, limit: PAGE });
-        if (!Array.isArray(received) || received.length > PAGE) throw new Error("La consulta debe devolver un lote de hasta 100 registros.");
+        if (!Array.isArray(received) || received.length > PAGE) throw new Error("The query must return a batch of up to 100 records.");
         const values = received.map(normalize);
         for (const row of values) {
           const record = await this.visible(row, table);
@@ -116,7 +116,7 @@ export class DatabaseMemory extends MemoryBackend {
         }
         if (values.length < PAGE) break;
         const next = { date: values.at(-1).date, id: values.at(-1).id };
-        if (!next.date || !UUID.test(next.id) || JSON.stringify(next) === JSON.stringify(cursor)) throw new Error("Cursor de base de datos inválido.");
+        if (!next.date || !UUID.test(next.id) || JSON.stringify(next) === JSON.stringify(cursor)) throw new Error("Invalid database cursor.");
         cursor = next;
       }
     }
@@ -132,13 +132,13 @@ export class DatabaseMemory extends MemoryBackend {
     let more = false;
     for (const table of tabs) {
       const received = await this.execute("new", { table, cursor: state.tabs[table] || null, limit: PAGE });
-      if (!Array.isArray(received) || received.length > PAGE) throw new Error("Lote de novedades inválido.");
+      if (!Array.isArray(received) || received.length > PAGE) throw new Error("Invalid batch of new records.");
       const values = received.map(normalize);
       let deferred = false;
       for (const row of values) {
         const security = securityState();
         if (table === "messages" && isSecurityCommand(row.content) && security.enabled && security.lockedUntil > Date.now()) { deferred = true; break; }
-        if (!row.date || !UUID.test(row.id)) throw new Error("Cursor de base de datos inválido.");
+        if (!row.date || !UUID.test(row.id)) throw new Error("Invalid database cursor.");
         const record = await this.visible(row, table);
         if (record) records.push(record);
         state.tabs[table] = { date: row.date, id: row.id };
@@ -156,19 +156,19 @@ export class DatabaseMemory extends MemoryBackend {
     return pending;
   }
   async append(args) {
-    if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
-    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
-    if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con reply_to.");
+    if (isSecurityCommand(args?.content)) throw new Error("Security commands are not saved through the agent.");
+    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Invalid type or content (up to 45000 characters).");
+    if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("The ack must link the original message's UUID with reply_to.");
     if (args.type === "ack") {
       const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"])).records[0];
-      if (!original && !args.copia) throw new Error("La confirmación debe apuntar a un mensaje existente en messages.");
+      if (!original && !args.copia) throw new Error("The ack must point to an existing message in messages.");
       args = { ...args, to: args.to || original?.eco_author || "", thread: args.thread || original?.thread || "" };
     }
     const id = args.id || crypto.randomUUID();
-    if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
+    if (!UUID.test(id)) throw new Error("The id must be a UUID.");
     const existing = (await this.search({ id })).records[0];
     if (existing) {
-      if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => (key === "tags" ? tags(existing[key]) !== tags(args[key]) : String(existing[key] || "") !== String(args[key] || "")))) throw new Error("El UUID ya pertenece a otro registro.");
+      if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => (key === "tags" ? tags(existing[key]) !== tags(args[key]) : String(existing[key] || "") !== String(args[key] || "")))) throw new Error("The UUID already belongs to another record.");
       if (existing.type === "fact" && UUID.test(args.replaces || "")) await this.execute("remove", { table: "memories", id: args.replaces }).catch(() => {});
       return { ok: true, id, duplicado: true };
     }
@@ -177,16 +177,16 @@ export class DatabaseMemory extends MemoryBackend {
     record.tags = tags(record.tags);
     Object.assign(record, { id, eco_author: this.config.eco, user_author: this.config.usuario });
     try { await this.execute("save", { table: TYPE_TABS[args.type], record }); }
-    catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id; no generes otro." }; }
+    catch (error) { return { error: error.message, id, reintentar: "Repeat memoria_guardar with this same id; don't generate another." }; }
     if (!replacing) return { ok: true, id };
     try { await this.execute("remove", { table: "memories", id: args.replaces }); return { ok: true, id, reemplazado: args.replaces }; }
-    catch { return { ok: true, id, aviso: "El fact anterior sigue en la base; queda sustituido por replaces." }; }
+    catch { return { ok: true, id, aviso: "The previous fact is still in the database; it is superseded through replaces." }; }
   }
   async agents(action = "listar", changes = {}, identity = {}) {
     await this.ensure();
     if (action === "listar") return { agentes: await this.execute("agents", { action }), contenido_no_confiable: true };
-    if (action !== "actualizar" || !NAME.test(this.config.eco || "")) throw new Error("Acción o nombre de agente inválido.");
-    for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("Solo puedes actualizar preferencias y stack propios (máximo 2000 caracteres por campo).");
+    if (action !== "actualizar" || !NAME.test(this.config.eco || "")) throw new Error("Invalid action or agent name.");
+    for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("You can only update your own preferences and stack (up to 2000 characters per field).");
     const pending = this.writing.then(async () => {
       const previous = (await this.execute("agents", { action: "listar", id: this.config.eco }))[0] || {};
       const record = Object.fromEntries(AGENT_COLUMNS.map(key => [key, String(previous[key] || "")]));
@@ -201,14 +201,14 @@ export class DatabaseMemory extends MemoryBackend {
     await this.ensure();
     if (action === "listar") {
       const values = await this.execute("routines", { action, agent_id: this.config.eco });
-      if (!Array.isArray(values)) throw new Error("Directorio de rutinas inválido.");
+      if (!Array.isArray(values)) throw new Error("Invalid routine directory.");
       return { rutinas: values.filter(row => row.agent_id === this.config.eco), contenido_no_confiable: true };
     }
-    if (action !== "actualizar") throw new Error("Acción de rutina inválida.");
+    if (action !== "actualizar") throw new Error("Invalid routine action.");
     const pending = this.writing.then(async () => {
-      routineRecord(this.config, { name: "Rutina", ...changes });
+      routineRecord(this.config, { name: "Routine", ...changes });
       const previous = await this.execute("routines", { action: "obtener", id: changes.id });
-      if (!Array.isArray(previous) || previous.length > 1) throw new Error("Id de rutina inválido o repetido.");
+      if (!Array.isArray(previous) || previous.length > 1) throw new Error("Invalid or repeated routine id.");
       const record = routineRecord(this.config, changes, previous[0] || {});
       await this.execute("routines", { action: "actualizar", record, agent_id: this.config.eco });
       return { ok: true, rutina: record };
@@ -227,9 +227,9 @@ export class SupabaseMemory extends DatabaseMemory {
     this.transport = (action, args) => this.query(action, args);
   }
   async call(method, table, query = {}, body = null, upsert = false) {
-    if (isWiping()) throw new Error("Memoria detenida");
+    if (isWiping()) throw new Error("Memory stopped");
     const result = await this.request(method, "/rest/v1/" + encodeURIComponent(table), query, body, upsert);
-    if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconecta las credenciales de la base de datos." : "No se pudo consultar la base. Revisa el mapa de memoria y los permisos de sus tablas.");
+    if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconnect the database credentials." : "Could not query the database. Check the memory map and its table permissions.");
     if (result.redactMemory && table === this.structure?.tables.messages?.name) { const mapped = this.structure.tables.messages; this.redactMemory = id => result.redactMemory(id, { id: mapped.headers[mapped.fields.id], content: mapped.headers[mapped.fields.content] }); }
     return result.data;
   }
@@ -238,12 +238,12 @@ export class SupabaseMemory extends DatabaseMemory {
     if (action === "schema") {
       if (args.stage === "inspect") {
         const data = await this.call("GET", "");
-        if (!data?.definitions && !data?.components?.schemas) throw new Error("El conector debe permitir descubrir las tablas de la base para adaptar memoria_esquema.");
+        if (!data?.definitions && !data?.components?.schemas) throw new Error("The connector must allow discovering the database tables to adapt memoria_esquema.");
         return { tables: Object.entries(data.definitions || data.components.schemas).filter(([, table]) => table.properties).map(([name, table]) => ({ name, headers: Object.keys(table.properties) })) };
       }
       if (args.stage === "protocol") return this.call("GET", args.table, { select: Object.values(args.columns).map(quote).join(",") });
       if (args.stage === "map") return args.exists ? this.call("PATCH", args.table, { [args.columns.key]: "eq.map" }, { [args.columns.value]: args.value }) : this.call("POST", args.table, {}, { [args.columns.key]: "map", [args.columns.value]: args.value });
-      throw new Error("PostgREST no ejecuta DDL. Usa una conexión SQL para añadir columnas o tablas ausentes; no renombres ni borres datos.");
+      throw new Error("PostgREST does not run DDL. Use a SQL connection to add missing columns or tables; don't rename or delete data.");
     }
     const columns = args.columns, field = key => columns[key], quoted = quote;
     if (action === "save") { const record = { ...args.record }; if (typeof record[field("tags")] === "string") record[field("tags")] = record[field("tags")].split(",").map(tag => tag.trim()).filter(Boolean); return this.call("POST", args.table, {}, record); }
@@ -257,10 +257,10 @@ export class SupabaseMemory extends DatabaseMemory {
         if (args.agent_id) query[field("agent_id")] = "eq." + args.agent_id;
         if (args.id) query[field("id")] = "eq." + args.id; else if (after) query[field("id")] = "gt." + after;
         const batch = await this.call("GET", args.table, query);
-        if (!Array.isArray(batch)) throw new Error("Directorio inválido.");
+        if (!Array.isArray(batch)) throw new Error("Invalid directory.");
         records.push(...batch);
         if (args.id || batch.length < PAGE) return records;
-        if (after === batch.at(-1)[field("id")]) throw new Error("Cursor de directorio inválido.");
+        if (after === batch.at(-1)[field("id")]) throw new Error("Invalid directory cursor.");
         after = batch.at(-1)[field("id")];
       }
     }
@@ -269,7 +269,7 @@ export class SupabaseMemory extends DatabaseMemory {
     if (filters.content) query[field("content")] = "ilike.*" + String(filters.content).replace(/[\\%_]/g, "\\$&") + "*";
     if (filters.tags) query[field("tags")] = "cs.{" + literal(filters.tags) + "}";
     if (args.cursor) {
-      if (!UUID.test(args.cursor.id) || !/^\d{4}-\d\d-\d\dT[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(args.cursor.date)) throw new Error("Cursor de base de datos inválido.");
+      if (!UUID.test(args.cursor.id) || !/^\d{4}-\d\d-\d\dT[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(args.cursor.date)) throw new Error("Invalid database cursor.");
       query.or = "(" + quoted(field("date")) + ".gt." + literal(args.cursor.date) + ",and(" + quoted(field("date")) + ".eq." + literal(args.cursor.date) + "," + quoted(field("id")) + ".gt." + args.cursor.id + "))";
     }
     return this.call("GET", args.table, query);

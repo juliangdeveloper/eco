@@ -5,7 +5,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const QUEUE_LIMIT = 2000;
 const FALLBACK_MARGIN_MS = 10 * 60 * 1000;
 const entryKey = entry => entry.op + ":" + (entry.op === "save" ? entry.args.id : entry.changes.id);
-const COPY_NOTICE = "Leído de una copia porque la memoria principal no responde.";
+const COPY_NOTICE = "Read from a copy because the main memory is not responding.";
 
 export class MemorySet {
   constructor({ members, status, queue, store }) {
@@ -23,7 +23,7 @@ export class MemorySet {
     return state.fail !== undefined && state.fail >= start && state.fail >= (state.ok ?? -Infinity);
   }
   async attempt(member, run) {
-    if (!member.connected) return { failed: true, error: new Error("Sin conexión con " + member.label + ".") };
+    if (!member.connected) return { failed: true, error: new Error("No connection to " + member.label + ".") };
     const start = performance.now();
     try {
       const value = await run(member.adapter);
@@ -46,14 +46,14 @@ export class MemorySet {
       first ||= outcome.error;
       if (isWiping()) break;
     }
-    throw first || new Error("La memoria sigue local. Conecta un destino o renueva sus credenciales.");
+    throw first || new Error("Memory is still local. Connect a destination or renew its credentials.");
   }
   ensure() { return this.read(adapter => adapter.ensure(), false); }
   connect() { return this.read(adapter => adapter.connect(), false); }
   search(filters = {}, tabs) { return this.read(adapter => tabs ? adapter.search(filters, tabs) : adapter.search(filters)); }
   schema(action, changes, key) {
     const member = key ? this.members.find(item => item.key === key) : this.primary;
-    if (!member) throw new Error("Esa memoria no está conectada.");
+    if (!member) throw new Error("That memory is not connected.");
     return member.adapter.schema(action, changes);
   }
   async readNew(tabs, cursors, scope = "") {
@@ -71,14 +71,14 @@ export class MemorySet {
       first ||= outcome.error;
       if (isWiping()) break;
     }
-    throw first || new Error("La memoria sigue local.");
+    throw first || new Error("Memory is still local.");
   }
   check(args) {
-    if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
-    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
-    if (!UUID.test(args.id)) throw new Error("El id debe ser un UUID.");
-    if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("El acuse necesita reply_to con el UUID original.");
-    if (args.type === "memory" && args.replaces) throw new Error("Los registros memory nunca se editan ni se borran; añade uno nuevo.");
+    if (isSecurityCommand(args?.content)) throw new Error("Security commands are not saved through the agent.");
+    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Invalid type or content (up to 45000 characters).");
+    if (!UUID.test(args.id)) throw new Error("The id must be a UUID.");
+    if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("The ack needs reply_to with the original UUID.");
+    if (args.type === "memory" && args.replaces) throw new Error("memory records are never edited or deleted; add a new one.");
   }
   enqueue(member, entry) {
     let list = this.queue.load(member.key);
@@ -86,7 +86,7 @@ export class MemorySet {
     if (previous) { entry = { ...entry, changes: { ...previous.changes, ...entry.changes } }; list = list.filter(item => item !== previous); }
     if (entry.op === "save" && list.some(item => entryKey(item) === entryKey(entry))) return;
     list.push(entry);
-    if (list.length > QUEUE_LIMIT) throw new Error("La cola local de copias está llena; reconecta las memorias.");
+    if (list.length > QUEUE_LIMIT) throw new Error("The local copy queue is full; reconnect the memories.");
     this.queue.save(member.key, list);
   }
   run(entry, adapter) {
@@ -112,8 +112,8 @@ export class MemorySet {
     const entry = { op: "save", args };
     const { main, copied, pending } = await this.replicate(entry, adapter => adapter.save(args));
     if (main.value) return pending ? { ...main.value, copias_pendientes: pending } : main.value;
-    if (copied) return { ok: true, id: args.id, aviso: "La memoria principal no responde; el registro quedó en una copia y se enviará a la principal con el mismo id." };
-    return { ok: true, id: args.id, en_cola: true, aviso: "Ninguna memoria responde; el registro quedó en cola en este dispositivo y se enviará con el mismo id." };
+    if (copied) return { ok: true, id: args.id, aviso: "The main memory is not responding; the record was kept in a copy and will be sent to the main one with the same id." };
+    return { ok: true, id: args.id, en_cola: true, aviso: "No memory is responding; the record was queued on this device and will be sent with the same id." };
   }
   async agents(action = "listar", changes = {}, identity = {}) {
     if (action === "listar") return this.read(adapter => adapter.agents(action, changes, identity));
@@ -126,7 +126,7 @@ export class MemorySet {
     if (action === "listar") return this.read(adapter => adapter.routines(action, changes));
     const { main, copied, pending } = await this.replicate({ op: "routine", changes }, adapter => adapter.routines(action, changes));
     if (main.value) return pending ? { ...main.value, copias_pendientes: pending } : main.value;
-    return { ok: true, en_cola: true, copias: copied, aviso: "La memoria principal no responde; la rutina se enviará cuando vuelva." };
+    return { ok: true, en_cola: true, copias: copied, aviso: "The main memory is not responding; the routine will be sent when it comes back." };
   }
   pending() { return Object.fromEntries(this.members.map(member => [member.key, this.queue.load(member.key).length])); }
   flush() {

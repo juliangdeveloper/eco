@@ -2,13 +2,13 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.18.1
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.19.0
 
-<img src="assets/screenshot.png?v=0.18.1" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.19.0" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
-Open Eco, connect a model provider in **Ajustes** (Settings; OpenRouter for now) and ask for what you need. If you ask it to connect to a service, Eco figures out how and asks for the key in a card. Your keys are stored encrypted in the browser and the model never sees them.
+Open Eco, connect a model provider in **Settings** (OpenRouter for now) and ask for what you need. If you ask it to connect to a service, Eco figures out how and asks for the key in a card. Your keys are stored encrypted in the browser and the model never sees them.
 
 Your conversations, tools and routines stay on your device. Routines only run while Eco is open.
 
@@ -18,7 +18,7 @@ If you want Eco to remember across devices and talk with other Ecos or with agen
 
 ## Secure wipe
 
-In **Ajustes › Borrado seguro** you choose a word that erases everything Eco stores on the device. If you use shared memory, Eco also erases itself if it stays closed or unable to connect for too long. Before erasing, it warns you with a skull and a countdown. You can change those times in the same place.
+In **Settings › Secure wipe** you choose a word that erases everything Eco stores on the device. If you use shared memory, Eco also erases itself if it stays closed or unable to connect for too long. Before erasing, it warns you with a skull and a countdown. You can change those times in the same place.
 
 ## Passive skills
 

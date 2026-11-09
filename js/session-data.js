@@ -25,7 +25,7 @@ export function pruneResults(results, emergency = false) {
     let entry = original;
     let size = encoder.encode(JSON.stringify(entry)).length;
     if (size > RESULT_LIMIT_BYTES) {
-      entry = [original[0], { tool: original[1]?.tool || "", content: JSON.stringify({ error: "El resultado excede los 8 MiB del historial. Solicita datos por partes en el origen.", total_bytes: size }) }];
+      entry = [original[0], { tool: original[1]?.tool || "", content: JSON.stringify({ error: "The result exceeds the 8 MiB history limit. Request the data in parts at the source.", total_bytes: size }) }];
       size = encoder.encode(JSON.stringify(entry)).length;
     }
     if (kept.length >= (emergency ? EMERGENCY_RESULT_COUNT : RESULT_LIMIT_COUNT) || bytes + size > RESULT_LIMIT_BYTES) continue;

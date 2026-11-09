@@ -2,10 +2,10 @@ import { all, remove, setting, store } from "./storage.js";
 import { byId, element } from "./ui.js";
 
 const TODO_STATUS_LABELS = {
-  pending: "Pendiente",
-  in_progress: "En curso",
-  completed: "Hecha",
-  cancelled: "Cancelada"
+  pending: "Pending",
+  in_progress: "In progress",
+  completed: "Done",
+  cancelled: "Cancelled"
 };
 
 export function createAgentPanel({ getTodos }) {
@@ -26,7 +26,7 @@ export function createAgentPanel({ getTodos }) {
   }
 
   function renderMemory(content) {
-    for (const [key, label] of [["memory", "Memoria"], ["user", "Perfil"]]) {
+    for (const [key, label] of [["memory", "Memory"], ["user", "Profile"]]) {
       const area = document.createElement("textarea");
       area.className = "memoryEditor";
       area.placeholder = label;
@@ -39,7 +39,7 @@ export function createAgentPanel({ getTodos }) {
   function renderTodos(content) {
     const todos = getTodos();
     if (!todos.length) {
-      content.append(element("p", "No hay tareas."));
+      content.append(element("p", "No tasks."));
       return;
     }
     for (const todo of todos) {
@@ -50,12 +50,12 @@ export function createAgentPanel({ getTodos }) {
   async function renderSkills(content) {
     const form = document.createElement("form");
     form.className = "skillForm";
-    const name = input("Nombre", "name");
-    const description = input("Descripción", "description");
+    const name = input("Name", "name");
+    const description = input("Description", "description");
     const body = document.createElement("textarea");
     body.name = "content";
-    body.placeholder = "Contenido";
-    const save = element("button", "Guardar");
+    body.placeholder = "Content";
+    const save = element("button", "Save");
     save.type = "submit";
     form.append(name, description, body, save);
     form.onsubmit = async (event) => {
@@ -73,8 +73,8 @@ export function createAgentPanel({ getTodos }) {
       const head = element("div", "", "skillHead");
       const title = element("strong", skill.id);
       const actions = element("div");
-      const view = element("button", "Ver");
-      const removeButton = element("button", "Borrar");
+      const view = element("button", "View");
+      const removeButton = element("button", "Delete");
       view.type = "button";
       removeButton.type = "button";
       view.onclick = () => alert(skill.description + "\n\n" + skill.content);

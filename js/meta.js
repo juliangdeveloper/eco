@@ -7,16 +7,16 @@ export const TIPO_STAT = Object.freeze({ TOTAL_ACUMULADO: "total_acumulado", MEJ
 export const TIPO_PROYECTO = Object.freeze({ PROYECTO: "proyecto", AREA: "area", RECURSO: "recurso", ARCHIVO: "archivo" });
 
 export const PROYECTO = Object.freeze({
-  objetivo: "Agente SI que corre en el navegador y se adapta a protocolos y APIs.",
+  objetivo: "AI agent that runs in the browser and adapts to protocols and APIs.",
   fase: FASE.LANZAMIENTO_Y_MANTENIMIENTO,
   fase_estado: ESTADO_FASE.EN_CURSO,
   fases_completadas: 5,
   tipo: TIPO_PROYECTO.RECURSO,
   aportes: [
-    { stat: "Programación", exp: 30, fuente: "creacion" },
-    { stat: "Diseño", exp: 8, fuente: "creacion" },
-    { stat: "Productividad", exp: 20, fuente: "uso" },
-    { stat: "Programación", exp: 10, fuente: "uso" }
+    { stat: "Programming", exp: 30, fuente: "creacion" },
+    { stat: "Design", exp: 8, fuente: "creacion" },
+    { stat: "Productivity", exp: 20, fuente: "uso" },
+    { stat: "Programming", exp: 10, fuente: "uso" }
   ],
 });
 

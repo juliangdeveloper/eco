@@ -10,9 +10,9 @@ export function sheetId(value) {
   const text = String(value || "").trim();
   if (!text || /^[A-Za-z0-9_-]{20,}$/.test(text)) return text;
   let url;
-  try { url = new URL(text); } catch { throw new Error("Introduce una URL de Google Sheets o su ID."); }
+  try { url = new URL(text); } catch { throw new Error("Enter a Google Sheets URL or its ID."); }
   const match = url.pathname.match(/^\/spreadsheets\/d\/([A-Za-z0-9_-]{20,})/);
-  if (url.protocol !== "https:" || url.hostname !== "docs.google.com" || !match) throw new Error("URL de Google Sheets inválida.");
+  if (url.protocol !== "https:" || url.hostname !== "docs.google.com" || !match) throw new Error("Invalid Google Sheets URL.");
   return match[1];
 }
 export class DriveMemory extends MemoryBackend {
@@ -27,9 +27,9 @@ export class DriveMemory extends MemoryBackend {
   }
   schedule(operation) {
     const pending = queue.then(async () => {
-      if (isWiping()) throw new Error("Memoria detenida");
+      if (isWiping()) throw new Error("Memory stopped");
       if (this.throttle) { const delay = Math.max(0, lastRequest + 2500 - Date.now()); if (delay) await new Promise(resolve => setTimeout(resolve, delay)); lastRequest = Date.now(); }
-      if (isWiping()) throw new Error("Memoria detenida");
+      if (isWiping()) throw new Error("Memory stopped");
       return operation();
     });
     queue = pending.catch(() => {});
@@ -38,7 +38,7 @@ export class DriveMemory extends MemoryBackend {
   call(method, path, query = {}, body = null) {
     return this.schedule(async () => {
       const result = await this.request(method, path, query, body);
-      if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconecta la memoria." : String(result.data?.error?.message || result.error || "No se pudo consultar la memoria."));
+      if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconnect the memory." : String(result.data?.error?.message || result.error || "Could not query the memory."));
       if (result.redactMemory) this.redactMemory = result.redactMemory;
       return result.data;
     });
@@ -100,7 +100,7 @@ export class DriveMemory extends MemoryBackend {
       const columns = Object.fromEntries(missing.map((key, index) => [key, { name: key, index: width + index }]));
       this.mapping = mergeMap(this.mapping, { tables: { [logical]: { columns } } });
     }
-    try { await this.batch(requests); } catch { schema.warning = "No se pudieron añadir campos o tablas ausentes. El mapa no modifica los datos existentes."; return schema; }
+    try { await this.batch(requests); } catch { schema.warning = "Missing fields or tables could not be added. The map does not modify existing data."; return schema; }
     if (requests.length) return this.inspect(this.mapping);
     return schema;
   }
@@ -118,7 +118,7 @@ export class DriveMemory extends MemoryBackend {
     if (index >= 0) await this.call("PUT", this.path(quoteTab(table.name) + "!" + columnLetter(table.fields.value) + (index + 2)), { valueInputOption: "RAW" }, { values: [[value]] });
     else await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, { key: "map", value })] });
     this.structure.map_shared = true;
-    } catch { this.structure.map_shared = false; this.structure.warning = "Mapa local: faltan permisos para guardar la fila map en _eco."; }
+    } catch { this.structure.map_shared = false; this.structure.warning = "Local map: missing permissions to save the map row in _eco."; }
   }
   async prepare() {
     if (!this.config.sheet) {
@@ -136,7 +136,7 @@ export class DriveMemory extends MemoryBackend {
     return this.preparing;
   }
   async schema(action = "ver", changes = {}) {
-    if (!["ver", "ajustar"].includes(action)) throw new Error("Acción de esquema inválida.");
+    if (!["ver", "ajustar"].includes(action)) throw new Error("Invalid schema action.");
     if (action === "ajustar") { const proposed = mergeMap(this.mapping, changes); await this.inspect(proposed); this.structure = await this.additive(this.structure); await this.persistMap(); }
     else await this.ensure();
     return { mapa: snapshotMap(this.structure), tables: this.structure.tables, unknown_tables: this.structure.unknown_tables, map_shared: this.structure.map_shared, warning: this.structure.warning, contenido_no_confiable: true };
@@ -205,10 +205,10 @@ export class DriveMemory extends MemoryBackend {
       if (filters.tags) clauses.push(column("tags") + " matches " + literal("(^|.*,)[ ]*" + String(filters.tags).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[ ]*(,.*|$)"));
       const tq = "select " + MEMORY_COLUMNS.map(column).join(",") + " where " + clauses.join(" and ");
       const response = await this.schedule(() => this.visualization(this.config.sheet, { sheet: table.name, headers: "1", tqx: "out:json", tq }));
-      if (!response.ok) throw new Error("Consulta no disponible.");
+      if (!response.ok) throw new Error("Query not available.");
       let data = response.data;
-      if (typeof data === "string") { const match = data.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/); if (!match) throw new Error("Consulta inválida."); data = JSON.parse(match[1]); }
-      if (data.status !== "ok" || data.table?.cols?.length !== MEMORY_COLUMNS.length) throw new Error("Consulta incompleta.");
+      if (typeof data === "string") { const match = data.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/); if (!match) throw new Error("Invalid query."); data = JSON.parse(match[1]); }
+      if (data.status !== "ok" || data.table?.cols?.length !== MEMORY_COLUMNS.length) throw new Error("Incomplete query.");
       for (const row of data.table.rows) { const record = decodeRow({ logical, fields: Object.fromEntries(MEMORY_COLUMNS.map((key, index) => [key, index])) }, row.c.map(cell => cell?.v ?? "")); if (record.id && !seen.has(record.id) && !isSecurityCommand(record.content) && matchesRecord(record, filters)) { seen.add(record.id); records.push(record); } }
     }
     return { records, contenido_no_confiable: true };
@@ -216,26 +216,26 @@ export class DriveMemory extends MemoryBackend {
   save(args) { const pending = this.saving.then(() => this.append(args)); this.saving = pending.catch(() => {}); return pending; }
   async append(args) {
     await this.ensure();
-    if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
-    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Tipo o contenido inválido.");
+    if (isSecurityCommand(args?.content)) throw new Error("Security commands are not saved through the agent.");
+    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Invalid type or content.");
     if (args.type === "ack") {
-      if (!UUID.test(args.reply_to || "")) throw new Error("El acuse necesita reply_to con el UUID original.");
+      if (!UUID.test(args.reply_to || "")) throw new Error("The ack needs reply_to with the original UUID.");
       const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"], true)).records[0];
-      if (!original && !args.copia) throw new Error("El mensaje original no existe.");
+      if (!original && !args.copia) throw new Error("The original message does not exist.");
       args = { ...args, to: args.to || original?.eco_author || "", thread: args.thread || original?.thread || "" };
     }
     const id = args.id || crypto.randomUUID();
-    if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
+    if (!UUID.test(id)) throw new Error("The id must be a UUID.");
     const existing = (await this.search({ id }, RECORD_TABS, true)).records[0];
-    if (existing) { if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || ""))) throw new Error("El UUID ya pertenece a otro registro."); if (existing.type === "fact" && args.replaces) await this.removeFact(args.replaces).catch(() => false); return { ok: true, id, duplicado: true }; }
+    if (existing) { if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || ""))) throw new Error("The UUID already belongs to another record."); if (existing.type === "fact" && args.replaces) await this.removeFact(args.replaces).catch(() => false); return { ok: true, id, duplicado: true }; }
     const replacing = replacementCheck({ ...args, id }, args.replaces ? (await this.search({ id: args.replaces }, RECORD_TABS, true)).records[0] : null, !args.copia);
     const table = requireTable(this.structure, TYPE_TABS[args.type]);
     const { copia, ...fields } = args;
     const record = { ...fields, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
     try { await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, record)] }); }
-    catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id." }; }
+    catch (error) { return { error: error.message, id, reintentar: "Repeat memoria_guardar with this same id." }; }
     if (!replacing) return { ok: true, id };
-    return await this.removeFact(args.replaces).catch(() => false) ? { ok: true, id, reemplazado: args.replaces } : { ok: true, id, aviso: "El fact anterior sigue en la hoja; queda sustituido por replaces." };
+    return await this.removeFact(args.replaces).catch(() => false) ? { ok: true, id, reemplazado: args.replaces } : { ok: true, id, aviso: "The previous fact is still in the sheet; it is superseded through replaces." };
   }
   async removeFact(id) {
     const table = requireTable(this.structure, "memories");
@@ -250,14 +250,14 @@ export class DriveMemory extends MemoryBackend {
     await this.ensure();
     const table = requireTable(this.structure, logical), values = (await this.readAll([logical]))[0];
     if (action === "listar") return { [logical === "agents" ? "agentes" : "rutinas"]: values.map(item => item.record).filter(record => record.id && (logical !== "routines" || record.agent_id === this.config.eco)), contenido_no_confiable: true };
-    if (action !== "actualizar") throw new Error("Acción de directorio inválida.");
+    if (action !== "actualizar") throw new Error("Invalid directory action.");
     const id = logical === "agents" ? this.config.eco : changes.id, matches = values.filter(item => item.record.id === id);
-    if (matches.length > 1) throw new Error("El id está repetido; asigna uno único sin sobrescribir filas.");
+    if (matches.length > 1) throw new Error("The id is repeated; assign a unique one without overwriting rows.");
     const previous = matches[0]?.record || {};
     let record;
     if (logical === "agents") {
-      if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id || "")) throw new Error("Nombre de agente inválido.");
-      for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("Solo puedes actualizar preferencias y stack propios.");
+      if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id || "")) throw new Error("Invalid agent name.");
+      for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("You can only update your own preferences and stack.");
       record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() };
     } else record = routineRecord(this.config, changes, previous);
     if (matches.length) {

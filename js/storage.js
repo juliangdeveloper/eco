@@ -42,7 +42,7 @@ export function closeDatabase() {
 }
 
 export function db() {
-  if (isWiping()) return Promise.reject(new Error("Almacenamiento cerrado"));
+  if (isWiping()) return Promise.reject(new Error("Storage closed"));
   if (databasePromise) return databasePromise;
   databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
@@ -54,13 +54,13 @@ export function db() {
       databasePromise = null;
       reject(new Error(message));
     };
-    const timer = setTimeout(() => fail("No se pudo abrir el almacenamiento. Cierra otras pestañas de Eco y vuelve a intentar."), OPEN_TIMEOUT_MS);
+    const timer = setTimeout(() => fail("Storage could not be opened. Close other Eco tabs and try again."), OPEN_TIMEOUT_MS);
     request.onupgradeneeded = () => {
       for (const name of STORES) {
         if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name, { keyPath: "id" });
       }
     };
-    request.onblocked = () => fail("Otra pestaña de Eco bloquea el almacenamiento. Ciérrala y vuelve a intentar.");
+    request.onblocked = () => fail("Another Eco tab is blocking storage. Close it and try again.");
     request.onsuccess = () => {
       const database = request.result;
       if (finished) { database.close(); return; }
@@ -70,22 +70,22 @@ export function db() {
       database.onclose = () => { databasePromise = null; };
       resolve(database);
     };
-    request.onerror = () => fail("No se pudo abrir el almacenamiento local.");
+    request.onerror = () => fail("Local storage could not be opened.");
   });
   return databasePromise;
 }
 
 async function transact(name, mode, operation) {
   const database = await db();
-  if (isWiping()) throw new Error("Almacenamiento cerrado");
+  if (isWiping()) throw new Error("Storage closed");
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(name, mode);
     transactions.add(transaction);
     let value;
     let error;
-    const timer = setTimeout(() => { error = new DOMException("El almacenamiento no responde. No cierres Eco hasta guardar.", "TimeoutError"); transaction.abort(); }, TRANSACTION_TIMEOUT_MS);
+    const timer = setTimeout(() => { error = new DOMException("Storage is not responding. Don't close Eco until it saves.", "TimeoutError"); transaction.abort(); }, TRANSACTION_TIMEOUT_MS);
     transaction.oncomplete = () => { clearTimeout(timer); transactions.delete(transaction); resolve(value); };
-    transaction.onabort = transaction.onerror = (event) => { clearTimeout(timer); transactions.delete(transaction); reject(error || event.target?.error || transaction.error || new Error("No se pudo guardar en el almacenamiento local.")); };
+    transaction.onabort = transaction.onerror = (event) => { clearTimeout(timer); transactions.delete(transaction); reject(error || event.target?.error || transaction.error || new Error("Could not save to local storage.")); };
     try { operation(transaction.objectStore(name), (result) => { value = result; }); }
     catch (cause) { error = cause; transaction.abort(); }
   });

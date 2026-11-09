@@ -3,6 +3,7 @@ import { all } from "./storage.js";
 import { byId } from "./ui.js";
 
 const ACTIVE = "ejecutando";
+const STATUS_LABELS = { ejecutando: "running", completado: "completed", error: "error", detenido: "stopped", interrumpido: "interrupted" };
 const PREVIEW_CHARS = 1600;
 const controllers = new Map();
 let api;
@@ -50,7 +51,7 @@ export async function jobUpdate(raw, finished) {
   await api.persist(session);
   if (isWiping()) return;
   renderSubagents();
-  if (finished) api.receiveJob(session, structuredClone(previous || next)).catch(() => { byId("subagentError").textContent = "No se pudo entregar el resultado. Indica al subagente que continúe."; });
+  if (finished) api.receiveJob(session, structuredClone(previous || next)).catch(() => { byId("subagentError").textContent = "The result could not be delivered. Tell the subagent to continue."; });
   return true;
 }
 
@@ -69,14 +70,14 @@ export function renderSubagents() {
   const rows = api.getSession().subagents || [];
   const active = rows.filter((job) => job.status === ACTIVE).length;
   byId("subagentsButton").hidden = !rows.length;
-  byId("subagentsButton").textContent = active ? "Subagentes · " + active + " en marcha" : "Subagentes · " + rows.length;
+  byId("subagentsButton").textContent = active ? "Subagents · " + active + " running" : "Subagents · " + rows.length;
   selected = Math.max(0, Math.min(selected, rows.length - 1));
   const job = rows[selected];
-  byId("subagentPosition").textContent = rows.length ? selected + 1 + " / " + rows.length : "Sin subagentes";
+  byId("subagentPosition").textContent = rows.length ? selected + 1 + " / " + rows.length : "No subagents";
   byId("subagentPrevious").disabled = selected === 0;
   byId("subagentNext").disabled = selected >= rows.length - 1;
   byId("subagentTask").textContent = job?.task || "";
-  byId("subagentStatus").textContent = job ? job.status + (job.project ? " · " + job.project : "") : "";
+  byId("subagentStatus").textContent = job ? (STATUS_LABELS[job.status] || job.status) + (job.project ? " · " + job.project : "") : "";
   byId("subagentResult").textContent = job?.summary?.slice(0, PREVIEW_CHARS) || "";
   byId("subagentStop").disabled = job?.status !== ACTIVE;
   byId("subagentInstruction").disabled = !job;
@@ -92,7 +93,7 @@ export async function setupSubagents(options) {
     for (const job of session.subagents || []) {
       if (job.status === ACTIVE) {
         job.status = "interrumpido";
-        job.summary = "Se interrumpió al cerrar o recargar Eco. Puedes indicarle que continúe.";
+        job.summary = "It was interrupted when Eco closed or reloaded. You can tell it to continue.";
         job.delivered = true;
       }
     }

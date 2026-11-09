@@ -19,7 +19,7 @@ const PROBE_ID = "probe";
 const MEMORY_CONTEXT_CHAR_LIMIT = 16000;
 const GENERAL_MEMORY_TAG = /^(reglas?|instrucciones?|general|global|preferencias?|rules?|instructions?)$/i;
 const PROJECT_MEMORY_TAG = /^proyecto[:=/](.+)$/i;
-const TASK_STOP_WORDS = new Set(["proyecto", "archivos", "revisar", "revisa", "tarea", "para", "como", "esta", "este", "hacer", "sobre", "with", "from", "that", "this", "project"]);
+const TASK_STOP_WORDS = new Set(["proyecto", "archivos", "revisar", "revisa", "tarea", "para", "como", "esta", "este", "hacer", "sobre", "with", "from", "that", "this", "project", "files", "review", "task", "make", "about", "into"]);
 
 let toolListener = () => {};
 let stateApi = null;
@@ -49,7 +49,7 @@ async function createConnectorSafely(raw) {
   try {
     definition = parsed(raw);
   } catch {
-    return JSON.stringify({ ok: false, error: "Definición inválida" });
+    return JSON.stringify({ ok: false, error: "Invalid definition" });
   }
   const check = validateConnector(definition);
   if (!check.ok) {
@@ -68,13 +68,13 @@ async function createConnectorSafely(raw) {
   let status;
   if (connector.kind === MCP_KIND && connector.auth.type === "none") {
     const check = await verifyMcp(connector.id);
-    status = check.ok ? "conectado" : "sin conectar";
+    status = check.ok ? "connected" : "disconnected";
     if (!check.ok) {
       stateApi?.refreshConnectors();
-      return JSON.stringify({ ok: false, id: connector.id, status, error: check.error || "No se pudieron leer las herramientas" });
+      return JSON.stringify({ ok: false, id: connector.id, status, error: check.error || "Could not read the tools" });
     }
   } else {
-    status = connector.auth.type === "none" ? "conectado" : await showCredentialCard(connector);
+    status = connector.auth.type === "none" ? "connected" : await showCredentialCard(connector);
   }
   stateApi?.refreshConnectors();
   return JSON.stringify({ ok: true, id: connector.id, status });
@@ -109,7 +109,7 @@ window.ecoBridge = {
     return JSON.stringify(await jobSnapshot(id, sessionId));
   },
   async memoryContext(task, project) {
-    if (!await passiveMemory()) return JSON.stringify({ estado: "Memoria local" });
+    if (!await passiveMemory()) return JSON.stringify({ estado: "Local memory" });
     const result = await memoryCall("reglas", {});
     const words = (String(task).toLocaleLowerCase().match(/[\p{L}\p{N}_-]{4,}/gu) || []).filter((word) => !TASK_STOP_WORDS.has(word));
     const projectName = String(project).trim().toLocaleLowerCase();
@@ -157,7 +157,7 @@ window.ecoBridge = {
     });
   },
   async saveMemory(target, value) {
-    if (!["memory", "user"].includes(target)) throw new Error("Destino inválido");
+    if (!["memory", "user"].includes(target)) throw new Error("Invalid destination");
     setting(target, String(value));
     stateApi?.refreshAgent();
     return true;
@@ -173,13 +173,13 @@ window.ecoBridge = {
     try {
       return await createConnectorSafely(raw);
     } catch {
-      return JSON.stringify({ ok: false, error: "No se pudo guardar el conector" });
+      return JSON.stringify({ ok: false, error: "Could not save the connector" });
     }
   },
   async requestSignIn(id) {
     const connector = await getConnector(String(id));
     if (!connector) {
-      return JSON.stringify({ ok: false, error: "Conector no encontrado" });
+      return JSON.stringify({ ok: false, error: "Connector not found" });
     }
     const status = await showCredentialCard(connector);
     stateApi?.refreshConnectors();
@@ -199,11 +199,11 @@ window.ecoBridge = {
     try {
       const target = new URL(String(url));
       if (target.protocol !== "https:") {
-        return JSON.stringify({ ok: false, error: "La URL debe ser https" });
+        return JSON.stringify({ ok: false, error: "The URL must be https" });
       }
       return JSON.stringify(await probeMcp({ id: PROBE_ID, base_url: target.href, auth: { type: "none" }, headers }));
     } catch {
-      return JSON.stringify({ ok: false, error: "URL inválida" });
+      return JSON.stringify({ ok: false, error: "Invalid URL" });
     }
   },
   async replaceConnector(id) {
@@ -248,7 +248,7 @@ window.ecoBridge = {
     try {
       return JSON.stringify(await routinesCall(String(action), parsed(argsJson)));
     } catch {
-      return JSON.stringify({ ok: false, error: "No se pudo guardar la rutina" });
+      return JSON.stringify({ ok: false, error: "Could not save the routine" });
     }
   },
   async skills() {

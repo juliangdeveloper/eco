@@ -70,7 +70,7 @@ export class ObsidianMemory extends MemoryBackend {
   }
   row(table, note) { return table.headers.map(header => Object.hasOwn(note.front, header) ? note.front[header] : header === BODY ? note.body : undefined); }
   async inspect(overrides = null) {
-    if (isWiping()) throw new Error("Memoria detenida");
+    if (isWiping()) throw new Error("Memory stopped");
     this.known = null;
     let parent = "", present = true;
     for (const part of this.root.split("/")) {
@@ -125,7 +125,7 @@ export class ObsidianMemory extends MemoryBackend {
     if (current.front.map === value) { this.structure.map_shared = true; return; }
     current.front.map = value;
     try { await this.files.write(this.path("_eco.md"), serializeNote(current.front, current.body)); this.known?.add(this.root); this.protocolNote = current; this.structure.map_shared = true; }
-    catch { this.structure.map_shared = false; this.structure.warning = "Mapa local: no se pudo guardar map en _eco.md."; }
+    catch { this.structure.map_shared = false; this.structure.warning = "Local map: could not save map in _eco.md."; }
   }
   async prepare() { await this.inspect(); await this.persistMap(); this.inspected = Date.now(); return this.structure; }
   ensure() {
@@ -135,7 +135,7 @@ export class ObsidianMemory extends MemoryBackend {
   }
   async connect() { await this.ensure(); return { protocol: "eco-memoria", version: PROTOCOL_VERSION, folder: this.root }; }
   async schema(action = "ver", changes = {}) {
-    if (!["ver", "ajustar"].includes(action)) throw new Error("Acción de esquema inválida.");
+    if (!["ver", "ajustar"].includes(action)) throw new Error("Invalid schema action.");
     if (action === "ajustar") { await this.inspect(mergeMap(this.mapping, changes)); await this.persistMap(); this.inspected = Date.now(); }
     else await this.ensure();
     return { mapa: snapshotMap(this.structure), tables: this.structure.tables, unknown_tables: this.structure.unknown_tables, map_shared: this.structure.map_shared, warning: this.structure.warning, contenido_no_confiable: true };
@@ -224,19 +224,19 @@ export class ObsidianMemory extends MemoryBackend {
   save(args) { const pending = this.writing.then(() => this.append(args)); this.writing = pending.catch(() => {}); return pending; }
   async append(args) {
     await this.ensure();
-    if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
-    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
+    if (isSecurityCommand(args?.content)) throw new Error("Security commands are not saved through the agent.");
+    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Invalid type or content (up to 45000 characters).");
     if (args.type === "ack") {
-      if (!UUID.test(args.reply_to || "")) throw new Error("El acuse necesita reply_to con el UUID original.");
+      if (!UUID.test(args.reply_to || "")) throw new Error("The ack needs reply_to with the original UUID.");
       const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"])).records[0];
-      if (!original && !args.copia) throw new Error("El mensaje original no existe.");
+      if (!original && !args.copia) throw new Error("The original message does not exist.");
       args = { ...args, to: args.to || original?.eco_author || "", thread: args.thread || original?.thread || "" };
     }
     const id = args.id || crypto.randomUUID();
-    if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
+    if (!UUID.test(id)) throw new Error("The id must be a UUID.");
     const existing = (await this.search({ id })).records[0];
     if (existing) {
-      if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || "")) || listTags(existing.tags).join(",") !== listTags(args.tags).join(",")) throw new Error("El UUID ya pertenece a otro registro.");
+      if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || "")) || listTags(existing.tags).join(",") !== listTags(args.tags).join(",")) throw new Error("The UUID already belongs to another record.");
       if (existing.type === "fact" && args.replaces) await this.removeFact(args.replaces).catch(() => false);
       return { ok: true, id, duplicado: true };
     }
@@ -246,12 +246,12 @@ export class ObsidianMemory extends MemoryBackend {
     const record = Object.fromEntries(MEMORY_COLUMNS.map(key => [key, String(args[key] || "")]));
     Object.assign(record, { id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario || "", tags: listTags(args.tags).join(",") });
     try {
-      if ((await this.list(this.path(table.name))).includes(id + ".md")) throw new Error("Ya existe una nota con ese id; no se sobrescribe.");
+      if ((await this.list(this.path(table.name))).includes(id + ".md")) throw new Error("A note with that id already exists; it is not overwritten.");
       await this.files.write(path, this.encode(table, record));
       this.known?.add(this.path(table.name));
-    } catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id; no generes otro." }; }
+    } catch (error) { return { error: error.message, id, reintentar: "Repeat memoria_guardar with this same id; don't generate another." }; }
     if (!replacing) return { ok: true, id };
-    return await this.removeFact(args.replaces).catch(() => false) ? { ok: true, id, reemplazado: args.replaces } : { ok: true, id, aviso: "El fact anterior sigue en la bóveda; queda sustituido por replaces." };
+    return await this.removeFact(args.replaces).catch(() => false) ? { ok: true, id, reemplazado: args.replaces } : { ok: true, id, aviso: "The previous fact is still in the vault; it is superseded through replaces." };
   }
   async removeFact(id) {
     const matches = (await this.entries("memories", false)).filter(item => item.record.id === id);
@@ -267,14 +267,14 @@ export class ObsidianMemory extends MemoryBackend {
     await this.ensure();
     const table = requireTable(this.structure, logical), items = await this.entries(logical, false);
     if (action === "listar") return { [logical === "agents" ? "agentes" : "rutinas"]: items.map(item => item.record).filter(record => record.id && (logical !== "routines" || record.agent_id === this.config.eco)), contenido_no_confiable: true };
-    if (action !== "actualizar") throw new Error("Acción de directorio inválida.");
+    if (action !== "actualizar") throw new Error("Invalid directory action.");
     const id = logical === "agents" ? this.config.eco : changes.id, matches = items.filter(item => item.record.id === id);
-    if (matches.length > 1) throw new Error("El id está repetido; asigna uno único sin sobrescribir notas.");
+    if (matches.length > 1) throw new Error("The id is repeated; assign a unique one without overwriting notes.");
     const previous = matches[0]?.record || {};
     let record;
     if (logical === "agents") {
-      if (!NAME.test(id || "")) throw new Error("Nombre de agente inválido.");
-      for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("Solo puedes actualizar preferencias y stack propios.");
+      if (!NAME.test(id || "")) throw new Error("Invalid agent name.");
+      for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("You can only update your own preferences and stack.");
       record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() };
     } else record = routineRecord(this.config, changes, previous);
     const path = matches[0]?.path || this.path(table.name, encodeURIComponent(id) + ".md");

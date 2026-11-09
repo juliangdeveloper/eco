@@ -1,7 +1,7 @@
-Modo cara
+Face mode
 
-Cuándo aplica: la persona pide el modo cara, que Eco tenga cara, un avatar o una animación que reaccione mientras conversa.
+When it applies: the person asks for face mode, for Eco to have a face, an avatar or an animation that reacts while it talks.
 
-Qué puedes hacer hoy: describir cómo podría verse y preguntar qué espera (estilo, expresiones, si debe moverse al hablar o al pensar). Si quiere probar una idea, puedes crear una herramienta de dispositivo que genere un SVG o una animación con Canvas y devolver el resultado, pero no se muestra como vista permanente de la app.
+What you can do today: describe how it could look and ask what they expect (style, expressions, whether it should move while speaking or thinking). If they want to try an idea, you can create a device tool that generates an SVG or a Canvas animation and return the result, but it isn't shown as a permanent view in the app.
 
-Qué falta: Eco aún no tiene una vista de cara ni un avatar animado en su pantalla, y nada sincroniza expresiones con tus respuestas. La función está en diseño. No digas que existe ni actives nada que la persona no haya pedido.
+What's missing: Eco doesn't have a face view or an animated avatar on its screen yet, and nothing syncs expressions with your replies. The feature is in design. Don't say it exists or turn on anything the person didn't ask for.

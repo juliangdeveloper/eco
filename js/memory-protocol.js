@@ -32,9 +32,9 @@ export const recordOf = values => Object.fromEntries(MEMORY_COLUMNS.map((key, in
 export const matchesRecord = (record, filters) => (!filters.type || record.type === filters.type) && (!filters.content || record.content.toLocaleLowerCase().includes(String(filters.content).toLocaleLowerCase())) && (!filters.tags || record.tags.split(",").map(tag => tag.trim()).includes(filters.tags)) && (!filters.eco_author || record.eco_author === filters.eco_author) && (!filters.thread || record.thread === filters.thread) && (!filters.id || record.id === filters.id);
 export function replacementCheck(args, target, strict = true) {
   if (!args.replaces) return false;
-  if (args.type === "memory" || target?.type === "memory") throw new Error("Los registros memory nunca se editan ni se borran; añade uno nuevo.");
+  if (args.type === "memory" || target?.type === "memory") throw new Error("memory records are never edited or deleted; add a new one.");
   if (args.type !== "fact" || !strict && !target) return false;
-  if (!target || target.type !== "fact" || target.id === args.id) throw new Error("replaces debe ser el id de un fact existente.");
+  if (!target || target.type !== "fact" || target.id === args.id) throw new Error("replaces must be the id of an existing fact.");
   return true;
 }
 export class MemoryBackend {
@@ -43,26 +43,26 @@ export class MemoryBackend {
     this.loadCursor = loadCursor;
     this.saveCursor = saveCursor;
   }
-  ensure() { throw new Error("Falta validar el protocolo de memoria."); }
+  ensure() { throw new Error("Memory protocol validation is missing."); }
   connect() { return this.ensure(); }
-  save() { throw new Error("Falta implementar guardar."); }
-  search() { throw new Error("Falta implementar buscar."); }
-  readNew() { throw new Error("Falta implementar novedades."); }
-  agents() { throw new Error("Falta implementar agentes."); }
-  routines() { throw new Error("Falta implementar rutinas."); }
+  save() { throw new Error("guardar is not implemented."); }
+  search() { throw new Error("buscar is not implemented."); }
+  readNew() { throw new Error("novedades is not implemented."); }
+  agents() { throw new Error("agentes is not implemented."); }
+  routines() { throw new Error("rutinas is not implemented."); }
 }
 export function routineRecord(config, changes, previous = {}) {
-  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(config.eco || "")) throw new Error("Nombre de agente inválido.");
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(config.eco || "")) throw new Error("Invalid agent name.");
   const limits = { id: 120, name: 120, schedule: 500, timezone: 100, trigger: 2000, description: 12000, stack: 4000, status: 20 };
-  for (const [key, value] of Object.entries(changes)) if (!Object.hasOwn(limits, key) || typeof value !== "string" || value.length > limits[key]) throw new Error("Campo de rutina inválido o no editable.");
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(changes.id || "")) throw new Error("La rutina necesita un id estable de hasta 120 caracteres.");
-  if (previous.id && previous.agent_id !== config.eco) throw new Error("Solo puedes editar rutinas de tu propio agente.");
+  for (const [key, value] of Object.entries(changes)) if (!Object.hasOwn(limits, key) || typeof value !== "string" || value.length > limits[key]) throw new Error("Invalid or non-editable routine field.");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(changes.id || "")) throw new Error("The routine needs a stable id of up to 120 characters.");
+  if (previous.id && previous.agent_id !== config.eco) throw new Error("You can only edit your own agent's routines.");
   const record = Object.fromEntries(ROUTINE_COLUMNS.map(key => [key, String(previous[key] || "")]));
   Object.assign(record, changes, { owner: config.usuario || "", agent_id: config.eco, updated: new Date().toISOString() });
-  if (!record.name.trim()) throw new Error("La rutina necesita un nombre.");
+  if (!record.name.trim()) throw new Error("The routine needs a name.");
   record.status ||= "activa";
-  if (!["activa", "pausada", "borrada"].includes(record.status)) throw new Error("Estado de rutina inválido.");
+  if (!["activa", "pausada", "borrada"].includes(record.status)) throw new Error("Invalid routine status.");
   record.timezone ||= Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  try { new Intl.DateTimeFormat("en", { timeZone: record.timezone }); } catch { throw new Error("Zona horaria inválida."); }
+  try { new Intl.DateTimeFormat("en", { timeZone: record.timezone }); } catch { throw new Error("Invalid time zone."); }
   return record;
 }

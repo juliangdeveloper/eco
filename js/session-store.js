@@ -50,11 +50,11 @@ export async function recoverSessions(resume = null) {
     row.messages ||= [];
     for (const message of row.messages) message.id ||= "m-" + crypto.randomUUID();
     if ((row.inFlight || row.pendingTurns?.length) && !resume?.sessions?.some((item) => item.id === row.id)) {
-      row.messages.push({ id: "m-" + crypto.randomUUID(), role: "assistant", content: "La respuesta se interrumpió. Tus mensajes están guardados; puedes pedir que continúe." });
+      row.messages.push({ id: "m-" + crypto.randomUUID(), role: "assistant", content: "The response was interrupted. Your messages are saved; you can ask it to continue." });
       const context = row.contextMessages || [];
       const answered = new Set(context.filter((message) => message.role === "tool").map((message) => message.tool_call_id));
       for (const call of context.flatMap((message) => message.tool_calls || [])) {
-        if (!answered.has(call.id)) context.push({ id: "m-" + crypto.randomUUID(), role: "tool", tool_call_id: call.id, name: call.function.name, content: "La ejecución se interrumpió. Comprueba el estado antes de repetir la acción." });
+        if (!answered.has(call.id)) context.push({ id: "m-" + crypto.randomUUID(), role: "tool", tool_call_id: call.id, name: call.function.name, content: "The run was interrupted. Check the state before repeating the action." });
       }
       row.inFlight = null;
       row.pendingTurns = [];

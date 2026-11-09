@@ -15,7 +15,7 @@ class Registry:
     async def call(self, name, args):
         item = self.items.get(name)
         if not item:
-            return {"error": "Herramienta no disponible"}
+            return {"error": "Tool not available"}
         return await item["handler"](args)
 
 

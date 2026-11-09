@@ -26,7 +26,7 @@ let offlineMark = null;
 let offlineLeader = !navigator.locks;
 let offlineLocking = null;
 const ITERATIONS = 600000;
-const PREFIX = /^\s*(?:autodestrucci[oó]n|borrado\s+seguro)(?:\s+|[:-]\s*|$)/iu;
+const PREFIX = /^\s*(?:autodestrucci[oó]n|borrado\s+seguro|self-destruct|secure\s+wipe)(?:\s+|[:-]\s*|$)/iu;
 let wiping = false;
 let shutdown = () => {};
 let queue = Promise.resolve();
@@ -89,8 +89,8 @@ function renderOffline(total = offlineTotal()) {
   if (!visible) return;
   const text = offlineText(limits.offline - total);
   node.querySelector("span").textContent = text;
-  node.setAttribute("aria-label", "Borrado sin memoria compartida en " + text);
-  node.title = "Eco se borrará en " + text + " si no recupera la memoria compartida";
+  node.setAttribute("aria-label", "Wipe without shared memory in " + text);
+  node.title = "Eco will erase itself in " + text + " if it doesn't get shared memory back";
 }
 
 async function trackOffline() {
@@ -219,7 +219,7 @@ export function configureSecurity(word, current = "") {
 
 export function securityNotice() {
   const node = document.getElementById("securityNotice");
-  if (node) { node.hidden = false; node.textContent = "No se pudo verificar la solicitud."; }
+  if (node) { node.hidden = false; node.textContent = "The request could not be verified."; }
 }
 
 export async function interceptSecurityCommand(text) {
@@ -262,8 +262,8 @@ export async function inspectSecurityRecord(record, eco, redact) {
 export function redactSecurityData(value) {
   if (typeof value === "string") {
     const normalized = value.normalize("NFC");
-    const pattern = /(?:autodestrucci[oó]n|borrado\s+seguro)\b[^\r\n]*/giu;
-    return pattern.test(normalized) ? normalized.replace(pattern, "[orden de seguridad oculta]") : value;
+    const pattern = /(?:autodestrucci[oó]n|borrado\s+seguro|self-destruct|secure\s+wipe)\b[^\r\n]*/giu;
+    return pattern.test(normalized) ? normalized.replace(pattern, "[security command hidden]") : value;
   }
   if (Array.isArray(value)) return value.map(redactSecurityData);
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactSecurityData(item)]));

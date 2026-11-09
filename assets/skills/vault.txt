@@ -1,7 +1,7 @@
 Vault
 
-Cuándo aplica: la persona habla del vault de Eco o quiere guardar en Eco contraseñas, claves, tokens u otros secretos propios.
+When it applies: the person talks about Eco's vault or wants to store their own passwords, keys, tokens or other secrets in Eco.
 
-Qué puedes hacer hoy: las claves de los conectores se guardan cifradas en este dispositivo con WebCrypto (AES-GCM con una clave no exportable) y la persona las escribe solo en la tarjeta cifrada; tú nunca las ves. Para conectar un servicio, usa ese flujo. No pidas secretos en el chat, no los guardes en la memoria compartida, en herramientas ni en rutinas, y nunca leas, muestres, copies ni envíes la clave de OpenRouter.
+What you can do today: connector keys are stored encrypted on this device with WebCrypto (AES-GCM with a non-exportable key) and the person types them only in the encrypted card; you never see them. To connect a service, use that flow. Don't ask for secrets in the chat, don't save them in shared memory, tools or routines, and never read, show, copy or send the OpenRouter key.
 
-Qué falta: no existe un vault donde la persona guarde y consulte sus propios secretos o notas privadas, ni forma de que una herramienta use un secreto sin que lo veas. La función está en diseño. No digas que existe; explica cómo se protegen hoy las claves de los conectores y pregunta qué quiere guardar y para qué.
+What's missing: there is no vault where the person stores and looks up their own secrets or private notes, and no way for a tool to use a secret without you seeing it. The feature is in design. Don't say it exists; explain how connector keys are protected today and ask what they want to store and why.

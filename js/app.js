@@ -21,8 +21,8 @@ import { bindSettings, renderConnectors } from "./settings.js";
 import { all, closeDatabase, flushWrites, json, retryFailedWrites } from "./storage.js";
 import { autoExpand, bindReplyGestures, byId, updateToolCard } from "./ui.js";
 
-const DEFAULT_TITLE = "Nueva conversación";
-const LOAD_ERROR = "No se pudo preparar el agente. Recarga la página.";
+const DEFAULT_TITLE = "New conversation";
+const LOAD_ERROR = "The agent could not be prepared. Reload the page.";
 
 let pyodide;
 let session = newSessionData();
@@ -49,7 +49,7 @@ async function resolveSession(id) {
   if (!id) return session;
   if (knownSessions.has(id)) return knownSessions.get(id);
   const saved = (await all("sessions")).find((row) => row.id === id);
-  if (!saved) throw new Error("Conversación no encontrada");
+  if (!saved) throw new Error("Conversation not found");
   if (!knownSessions.has(id)) knownSessions.set(id, saved);
   return knownSessions.get(id);
 }
@@ -162,7 +162,7 @@ function bindCloseButtons() {
 
 async function refreshCredentials() {
   try { await Promise.all([renderConnectors(), renderReconnectNotice()]); }
-  catch { byId("reconnectNotice").hidden = false; byId("reconnectText").textContent = "No se pudo leer el acceso guardado. Puedes seguir usando Eco."; }
+  catch { byId("reconnectNotice").hidden = false; byId("reconnectText").textContent = "Saved access could not be read. You can keep using Eco."; }
 }
 
 function bindComposer() {
@@ -257,8 +257,8 @@ async function main() {
   window.addEventListener("eco-storage-error", (event) => {
     byId("storageNotice").hidden = false;
     byId("storageText").textContent = event.detail?.name === "QuotaExceededError"
-      ? "No queda espacio para guardar. Ya intenté liberar resultados antiguos. No cierres Eco hasta guardar tus mensajes."
-      : "No se pudieron guardar los últimos cambios. No cierres Eco; vuelve a intentar guardar.";
+      ? "There is no space left to save. Old results were already cleared. Don't close Eco until your messages are saved."
+      : "The latest changes could not be saved. Don't close Eco; try saving again.";
   });
   window.addEventListener("eco-storage-saved", () => { byId("storageNotice").hidden = true; });
   byId("storageRetry").onclick = async () => {
@@ -297,7 +297,7 @@ async function main() {
     stop: stopRoutines
   });
   if (reloadResume) {
-    const notice = "Eco se recargó de " + reloadResume.before + " a " + APP_VERSION + ". Motivo: " + reloadResume.reason + ". Continúa el trabajo pendiente desde el último punto guardado. Los subagentes activos se reanudan con su mismo id. Comprueba el estado de operaciones interrumpidas antes de repetirlas; no dupliques escrituras ni tareas.";
+    const notice = "Eco reloaded from " + reloadResume.before + " a " + APP_VERSION + ". Motivo: " + reloadResume.reason + ". Continue the pending work from the last saved point. Active subagents resume with the same id. Check the state of interrupted operations before repeating them; don't duplicate writes or tasks.";
     const owners = [];
     for (const item of reloadResume.sessions || []) {
       const owner = await resolveSession(item.id);
@@ -322,7 +322,7 @@ async function main() {
 
 window.ecoApp = {
   ready: main().catch(() => {
-    byId("chat").textContent = "No se pudo abrir el almacenamiento o preparar Eco. Cierra otras pestañas y vuelve a cargar.";
+    byId("chat").textContent = "Storage could not be opened or Eco could not be prepared. Close other tabs and reload.";
     byId("send").disabled = true;
     return false;
   }),
@@ -331,7 +331,7 @@ window.ecoApp = {
 
 document.getElementById("reloadButton").onclick = async () => {
   await window.ecoApp.ready;
-  const check = prepareReload({ motivo: "Actualizar desde el botón" });
+  const check = prepareReload({ motivo: "Update from the button" });
   if (!check.ok) { updateToolCard("eco_actualizar", "error", check); return; }
   commitReload(check).catch((error) => updateToolCard("eco_actualizar", "error", { error: error.message }));
 };

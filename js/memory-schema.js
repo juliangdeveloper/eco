@@ -17,19 +17,19 @@ export function parseMap(value) {
   try { const map = typeof value === "string" ? JSON.parse(value) : value; return cleanMap(map); } catch { return { tables: {} }; }
 }
 export function cleanMap(map) {
-  if (!map || typeof map !== "object" || Array.isArray(map) || !map.tables || typeof map.tables !== "object" || Array.isArray(map.tables) || JSON.stringify(map).length > 45000) throw new Error("Mapa de memoria inválido. Usa {tables:{tabla:{name,columns:{campo:encabezado}}}}.");
+  if (!map || typeof map !== "object" || Array.isArray(map) || !map.tables || typeof map.tables !== "object" || Array.isArray(map.tables) || JSON.stringify(map).length > 45000) throw new Error("Invalid memory map. Use {tables:{table:{name,columns:{field:header}}}}.");
   const result = { tables: {} };
   for (const [logical, entry] of Object.entries(map.tables)) {
-    if (!Object.hasOwn(SCHEMA_COLUMNS, logical) || !entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Tabla lógica desconocida en el mapa.");
+    if (!Object.hasOwn(SCHEMA_COLUMNS, logical) || !entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Unknown logical table in the map.");
     const item = { columns: {} };
-    if (entry.name !== undefined) { if (typeof entry.name !== "string" || !entry.name || entry.name.length > 200) throw new Error("Nombre de tabla inválido."); item.name = entry.name; }
-    if (entry.headers !== undefined) { if (!Array.isArray(entry.headers) || entry.headers.some(value => typeof value !== "string" || value.length > 200)) throw new Error("Encabezados inválidos en el mapa."); item.headers = [...entry.headers]; }
+    if (entry.name !== undefined) { if (typeof entry.name !== "string" || !entry.name || entry.name.length > 200) throw new Error("Invalid table name."); item.name = entry.name; }
+    if (entry.headers !== undefined) { if (!Array.isArray(entry.headers) || entry.headers.some(value => typeof value !== "string" || value.length > 200)) throw new Error("Invalid headers in the map."); item.headers = [...entry.headers]; }
     if (entry.sheetId !== undefined && Number.isInteger(entry.sheetId)) item.sheetId = entry.sheetId;
     for (const [key, selector] of Object.entries(entry.columns || {})) {
-      if (!SCHEMA_COLUMNS[logical].includes(key)) throw new Error("Campo lógico desconocido en el mapa.");
+      if (!SCHEMA_COLUMNS[logical].includes(key)) throw new Error("Unknown logical field in the map.");
       if (selector === null || typeof selector === "string" && selector.length <= 200 || Number.isInteger(selector) && selector >= 0 && selector < 18278) item.columns[key] = selector;
       else if (selector && typeof selector === "object" && typeof selector.name === "string" && selector.name.length <= 200 && Number.isInteger(selector.index) && selector.index >= 0 && selector.index < 18278) item.columns[key] = { name: selector.name, index: selector.index };
-      else throw new Error("Selector de columna inválido: usa encabezado, índice desde cero o null para añadirla.");
+      else throw new Error("Invalid column selector: use a header, a zero-based index or null to add it.");
     }
     result.tables[logical] = item;
   }
@@ -76,6 +76,6 @@ export const encodeRow = (table, record) => table.headers.map((_, index) => { co
 export function requireTable(schema, logical, fields = SCHEMA_COLUMNS[logical]) {
   const table = schema.tables[logical];
   const missing = fields.filter(key => table?.fields[key] === undefined);
-  if (!table?.name || missing.length) throw new Error("Adapta la memoria con memoria_esquema: " + logical + (missing.length ? " necesita " + missing.join(",") : " no tiene tabla asignada") + ". No renombres ni borres datos del usuario.");
+  if (!table?.name || missing.length) throw new Error("Adapt the memory with memoria_esquema: " + logical + (missing.length ? " needs " + missing.join(",") : " has no assigned table") + ". Don't rename or delete the user's data.");
   return table;
 }

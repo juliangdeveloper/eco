@@ -7,10 +7,10 @@ import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES } from ".
 import { isWiping, reportMemoryConnection } from "./security.js";
 
 export const MEMORY_BACKENDS = Object.freeze({
-  "google-drive": { name: "Memoria persistente Google Drive", skill: "assets/skills/memoria-google-drive.txt", create: dependencies => new DriveMemory(dependencies) },
-  supabase: { name: "Memoria persistente en base de datos", skill: "assets/skills/memoria-database.txt", create: dependencies => new SupabaseMemory(dependencies) },
-  database: { name: "Memoria persistente en base de datos", skill: "assets/skills/memoria-database.txt", create: dependencies => new DatabaseMemory(dependencies) },
-  obsidian: { name: "Memoria persistente en Obsidian", skill: "assets/skills/memoria-obsidian.txt", create: dependencies => new ObsidianMemory(dependencies) }
+  "google-drive": { name: "Persistent memory in Google Drive", skill: "assets/skills/memoria-google-drive.txt", create: dependencies => new DriveMemory(dependencies) },
+  supabase: { name: "Persistent memory in a database", skill: "assets/skills/memoria-database.txt", create: dependencies => new SupabaseMemory(dependencies) },
+  database: { name: "Persistent memory in a database", skill: "assets/skills/memoria-database.txt", create: dependencies => new DatabaseMemory(dependencies) },
+  obsidian: { name: "Persistent memory in Obsidian", skill: "assets/skills/memoria-obsidian.txt", create: dependencies => new ObsidianMemory(dependencies) }
 });
 export const OBSIDIAN_ACTIONS = Object.freeze(["list", "read", "write", "delete"]);
 const text = value => "'" + String(value ?? "").replaceAll("'", "''") + "'";
@@ -33,7 +33,7 @@ export function databaseSQL(action, args) {
     return "SELECT table_name,column_name,ordinal_position FROM information_schema.columns WHERE table_schema=CURRENT_SCHEMA ORDER BY table_name,ordinal_position";
   }
   const logical = args.logical || (["agents", "routines"].includes(action) ? action : action === "redact" ? "messages" : args.table);
-  if (!MEMORY_TABLES.includes(logical)) throw new Error("Tabla lógica no compatible.");
+  if (!MEMORY_TABLES.includes(logical)) throw new Error("Unsupported logical table.");
   const table = args.table || logical, columns = args.columns || Object.fromEntries((logical === "agents" ? AGENT_COLUMNS : logical === "routines" ? ROUTINE_COLUMNS : MEMORY_COLUMNS).map(key => [key, key]));
   const field = key => q(columns[key]);
   if (action === "save") {
@@ -76,16 +76,16 @@ const missing = result => result?.status === 404 ? { ...result, ok: true, missin
 
 function obsidianFiles(config, report) {
   const id = config.connector, names = config.arguments || {}, extra = config.operation_args || {};
-  const fail = () => { throw new Error("Falló la operación de la bóveda. Revisa el conector y sus permisos."); };
+  const fail = () => { throw new Error("The vault operation failed. Check the connector and its permissions."); };
   const tool = async (action, args) => {
-    if (isWiping()) throw new Error("Memoria detenida");
+    if (isWiping()) throw new Error("Memory stopped");
     const name = config.operations?.[action];
-    if (!name) throw new Error("Falta la herramienta de bóveda para " + action);
+    if (!name) throw new Error("Missing vault tool for " + action);
     const result = await observed(callMcpTool(id, name, { ...(extra[action] || {}), ...args }).then(value => !value.ok && !value.error && value.status === undefined ? { ...value, status: 422 } : value), report);
     return result;
   };
   const rest = async (method, path, body, accept) => {
-    if (isWiping()) throw new Error("Memoria detenida");
+    if (isWiping()) throw new Error("Memory stopped");
     return observed(connectorFetch(id, method, path, {}, body, true, undefined, { accept, text: true }).then(missing), report);
   };
   const kind = async () => (await getConnector(id))?.kind === "mcp";
@@ -121,20 +121,20 @@ export function memoryDependencies(config, report = reportMemoryConnection) {
   if (config.backend === "obsidian") return { files: obsidianFiles(config, report) };
   const id = config.backend === "google-drive" ? "eco-memory-drive" : config.connector;
   const invoke = async (action, args) => {
-    if (isWiping()) throw new Error("Memoria detenida");
+    if (isWiping()) throw new Error("Memory stopped");
     const connector = await getConnector(id);
-    if (!connector) throw new Error("Conecta primero la base de datos.");
+    if (!connector) throw new Error("Connect the database first.");
     const name = config.operations?.[action] || config.operation;
-    if (!name) throw new Error("Falta la operación de memoria " + action);
+    if (!name) throw new Error("Missing memory operation " + action);
     const payload = config.mode === "sql" ? { [config.sql_argument || "query"]: databaseSQL(action, args) } : { ...args, action, ...(["agents", "routines"].includes(action) ? { operation: args.action } : {}) };
     let result;
     if (connector.kind === "mcp") result = await observed(callMcpTool(id, name, payload), report);
     else {
       const operation = connector.operations.find(item => item.name === name);
-      if (!operation || operation.method !== "POST" || operation.path.includes("{")) throw new Error("La operación de base de datos debe ser POST con ruta fija.");
+      if (!operation || operation.method !== "POST" || operation.path.includes("{")) throw new Error("The database operation must be POST with a fixed path.");
       result = await observed(connectorFetch(id, "POST", operation.path, {}, payload, true), report);
     }
-    if (!result.ok) throw new Error("Falló la operación de memoria " + action + ". Revisa el conector y sus permisos.");
+    if (!result.ok) throw new Error("Memory operation failed: " + action + ". Check the connector and its permissions.");
     if (action === "schema" && ["add", "map"].includes(args.stage) || ["save", "redact", "remove"].includes(action) || ["agents", "routines"].includes(action) && args.action === "actualizar") return { ok: true };
     return unpack(result.data);
   };

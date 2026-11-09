@@ -67,7 +67,7 @@ async function post(connector, session, body, auth, signal) {
   try {
     response = await timedFetch(connector.base_url, { method: "POST", headers, body: JSON.stringify(body), signal });
   } catch {
-    return { ok: false, error: "No se pudo conectar con el servidor MCP" };
+    return { ok: false, error: "Could not connect to the MCP server" };
   }
   if (response.status === UNAUTHORIZED_STATUS || response.status === FORBIDDEN_STATUS) {
     return { ok: false, status: response.status, error: NOT_CONNECTED, reason: AUTH_REJECTED, auth_required: true, resource_metadata: resourceMetadata(response) };
@@ -93,10 +93,10 @@ async function post(connector, session, body, auth, signal) {
     }
   }
   if (!response.ok || !message) {
-    return { ok: false, status: response.status, error: text.slice(0, MAX_ERROR_CHARS) || "Respuesta inválida del servidor MCP" };
+    return { ok: false, status: response.status, error: text.slice(0, MAX_ERROR_CHARS) || "Invalid response from the MCP server" };
   }
   if (message.error) {
-    return { ok: false, status: response.status, error: String(message.error.message || "Error MCP").slice(0, MAX_ERROR_CHARS) };
+    return { ok: false, status: response.status, error: String(message.error.message || "MCP error").slice(0, MAX_ERROR_CHARS) };
   }
   return { ok: true, result: message.result, sessionId: response.headers.get(SESSION_HEADER) || "" };
 }
@@ -132,7 +132,7 @@ async function rpc(connector, method, params, auth = true, signal) {
     }
     sessions.delete(connector.id);
   }
-  return { ok: false, error: "La sesión MCP expiró" };
+  return { ok: false, error: "The MCP session expired" };
 }
 
 export async function probeMcp(connector) {
@@ -145,7 +145,7 @@ export async function probeMcp(connector) {
   if (opened.auth_required) {
     return { ok: true, auth_required: true, resource_metadata: opened.resource_metadata };
   }
-  return { ok: false, error: opened.error || "No responde como servidor MCP" };
+  return { ok: false, error: opened.error || "It does not respond as an MCP server" };
 }
 
 function compactTool(tool) {
@@ -160,7 +160,7 @@ function compactTool(tool) {
 export async function verifyMcp(id) {
   const connector = await getConnector(id);
   if (!connector || connector.kind !== "mcp") {
-    return { ok: false, error: "Conector no encontrado" };
+    return { ok: false, error: "Connector not found" };
   }
   sessions.delete(id);
   const tools = [];
@@ -179,7 +179,7 @@ export async function verifyMcp(id) {
   }
   if (!tools.length) {
     await store(CONNECTORS_STORE, { ...connector, tools: [], verified: false });
-    return { ok: false, error: "El servidor MCP no ofrece herramientas" };
+    return { ok: false, error: "The MCP server offers no tools" };
   }
   await store(CONNECTORS_STORE, { ...connector, tools, verified: true });
   return { ok: true, tools: tools.length };
@@ -188,7 +188,7 @@ export async function verifyMcp(id) {
 export async function callMcpTool(id, name, args, signal) {
   const connector = await getConnector(id);
   if (!connector || connector.kind !== "mcp") {
-    return { ok: false, error: "Conector no encontrado" };
+    return { ok: false, error: "Connector not found" };
   }
   const result = await rpc(connector, "tools/call", { name, arguments: args || {} }, connector.auth.type !== "none", signal);
   if (!result.ok) {

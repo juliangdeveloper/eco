@@ -58,7 +58,7 @@ export async function discoverEnvironment() {
     screen: { width: screen.width, height: screen.height, pixelRatio: devicePixelRatio, viewport: { width: innerWidth, height: innerHeight } },
     touchPoints: navigator.maxTouchPoints || 0, cores: navigator.hardwareConcurrency || null, memoryGB: navigator.deviceMemory || null,
     features: featureDefinitions().map((entry) => ({ ...entry, available: Boolean(featureValue(entry.path)), requestPermission: typeof featureValue(entry.path)?.requestPermission === "function", policies: Object.fromEntries(entry.policies.map((name) => [name, policyState(name)])) })),
-    permissions, execution: "Código aislado en worker de iframe opaco. Solo device.call/get/construct/listen/capture cruzan al navegador. Acceso automático sin confirmación salvo cuando el navegador requiere un toque. device.capture(stream) devuelve JPEG con dataUrl, width y height y detiene las pistas. No hay acceso a almacenamiento, DOM de Eco ni credenciales. Las APIs ausentes o bloqueadas no pueden habilitarse con código."
+    permissions, execution: "Code isolated in a worker inside an opaque iframe. Only device.call/get/construct/listen/capture reach the browser. Access is automatic without confirmation except when the browser requires a tap. device.capture(stream) returns a JPEG with dataUrl, width and height and stops the tracks. There is no access to storage, Eco's DOM or credentials. Missing or blocked APIs cannot be enabled with code."
   };
 }
 
@@ -66,11 +66,11 @@ const safeNames = new Set(["memory", "user", "model", "stats", "lastSession", "p
 const secretNames = /key|token|secret|credential|password|authorization|cookie|vault|client.?id/i;
 
 function redact(value, name = "") {
-  if (secretNames.test(name)) return "[oculto]";
+  if (secretNames.test(name)) return "[hidden]";
   if (Array.isArray(value)) return value.map((item) => redact(item));
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item, key)]));
   if (typeof value !== "string") return value;
-  return value.replace(/(?:sk-[\w-]{8,}|AIza[\w-]{20,}|ya29\.[\w.-]+|gh[pousr]_[\w]+|github_pat_[\w]+|eyJ[\w-]+\.[\w-]+\.[\w-]+|Bearer\s+\S+|(?:api[_ -]?key|token|secret|password|contraseña|clave)\s*[:=]\s*[^\n,;]+)/gi, "[oculto]");
+  return value.replace(/(?:sk-[\w-]{8,}|AIza[\w-]{20,}|ya29\.[\w.-]+|gh[pousr]_[\w]+|github_pat_[\w]+|eyJ[\w-]+\.[\w-]+\.[\w-]+|Bearer\s+\S+|(?:api[_ -]?key|token|secret|password|contraseña|clave)\s*[:=]\s*[^\n,;]+)/gi, "[hidden]");
 }
 
 export function readEnvironmentStorage() {
@@ -83,10 +83,10 @@ export function readEnvironmentStorage() {
     if (!safeNames.has(name) || secretNames.test(name)) { omitted++; continue; }
     let value = localStorage.getItem(key);
     try { value = JSON.parse(value); } catch {}
-    if (["memory", "user"].includes(name)) value = { content: "[oculto: texto libre]", characters: localStorage.getItem(key).length };
+    if (["memory", "user"].includes(name)) value = { content: "[hidden: free text]", characters: localStorage.getItem(key).length };
     if (name === "stats") value = Object.fromEntries(Object.entries(value || {}).filter(([key, item]) => ["mensajes_enviados", "herramientas_usadas"].includes(key) && typeof item === "number"));
     if (name === "persistentMemory") value = Object.fromEntries(Object.entries(value || {}).filter(([key, item]) => ["backend", "sheet", "folder", "eco", "usuario"].includes(key) && typeof item === "string"));
     entries.push({ key, value: redact(value) });
   }
-  return { untrusted: true, entries, omitted, note: "Solo configuración y memoria local conocidas. El texto libre de memoria/perfil se oculta; las herramientas de memoria normales siguen disponibles. No se leen secretos, diarios de sesiones, datos de conectores ni material cifrado de IndexedDB." };
+  return { untrusted: true, entries, omitted, note: "Only known settings and local memory. Free text from memory/profile is hidden; the normal memory tools remain available. Secrets, session logs, connector data and encrypted IndexedDB material are not read." };
 }

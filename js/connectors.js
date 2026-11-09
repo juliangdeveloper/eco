@@ -35,7 +35,7 @@ const MCP_KIND = "mcp";
 const MCP_AUTH_TYPES = ["none", "bearer"];
 const MCP_HEADER_PATTERN = /^X-MCP-[A-Za-z0-9-]+$/i;
 
-export const STATUS = Object.freeze({ CONNECTED: "conectado", DISCONNECTED: "sin conectar", EXPIRED: "expirado" });
+export const STATUS = Object.freeze({ CONNECTED: "connected", DISCONNECTED: "disconnected", EXPIRED: "expired" });
 
 function isHttpsUrl(value) {
   try {
@@ -51,55 +51,55 @@ function secretId(connector) {
 
 export function validateConnector(definition) {
   if (!definition || typeof definition !== "object") {
-    return { ok: false, error: "Definición inválida" };
+    return { ok: false, error: "Invalid definition" };
   }
   if (!ID_PATTERN.test(String(definition.id || ""))) {
-    return { ok: false, error: "id inválido" };
+    return { ok: false, error: "Invalid id" };
   }
   if (!String(definition.name || "").trim()) {
-    return { ok: false, error: "Falta name" };
+    return { ok: false, error: "Missing name" };
   }
   if (!isHttpsUrl(definition.base_url)) {
-    return { ok: false, error: "base_url debe ser https" };
+    return { ok: false, error: "base_url must be https" };
   }
   const auth = definition.auth || {};
   if (!AUTH_TYPES.includes(auth.type)) {
-    return { ok: false, error: "auth.type inválido" };
+    return { ok: false, error: "Invalid auth.type" };
   }
   if (auth.type === "oauth2") {
     if (!isHttpsUrl(auth.authorize_url)) {
-      return { ok: false, error: "auth.authorize_url debe ser https" };
+      return { ok: false, error: "auth.authorize_url must be https" };
     }
     const flow = auth.flow || "pkce";
     if (!OAUTH_FLOWS.includes(flow)) {
-      return { ok: false, error: "auth.flow inválido" };
+      return { ok: false, error: "Invalid auth.flow" };
     }
     if (flow === "pkce" && !isHttpsUrl(auth.token_url)) {
-      return { ok: false, error: "auth.token_url debe ser https" };
+      return { ok: false, error: "auth.token_url must be https" };
     }
     if (auth.developer_url !== undefined && !isHttpsUrl(auth.developer_url)) {
-      return { ok: false, error: "auth.developer_url debe ser https" };
+      return { ok: false, error: "auth.developer_url must be https" };
     }
     if (auth.renewal !== undefined && !RENEWAL_MODES.includes(auth.renewal)) {
-      return { ok: false, error: "auth.renewal inválido" };
+      return { ok: false, error: "Invalid auth.renewal" };
     }
   }
   if (definition.kind === MCP_KIND) {
-    return MCP_AUTH_TYPES.includes(auth.type) ? { ok: true } : { ok: false, error: "auth.type de MCP debe ser none o bearer" };
+    return MCP_AUTH_TYPES.includes(auth.type) ? { ok: true } : { ok: false, error: "MCP auth.type must be none or bearer" };
   }
   const operations = definition.operations;
   if (!Array.isArray(operations) || !operations.length || operations.length > MAX_OPERATIONS) {
-    return { ok: false, error: "operations inválidas" };
+    return { ok: false, error: "Invalid operations" };
   }
   for (const operation of operations) {
     if (!operation || !String(operation.name || "").trim()) {
-      return { ok: false, error: "Operación sin name" };
+      return { ok: false, error: "Operation without name" };
     }
     if (!METHODS.includes(String(operation.method || "").toUpperCase())) {
-      return { ok: false, error: "Método inválido en " + operation.name };
+      return { ok: false, error: "Invalid method in " + operation.name };
     }
     if (!String(operation.path || "").startsWith("/")) {
-      return { ok: false, error: "La ruta debe empezar con / en " + operation.name };
+      return { ok: false, error: "The path must start with / in " + operation.name };
     }
   }
   return { ok: true };
@@ -339,12 +339,12 @@ function apiMessage(data) {
 export async function connectorFetch(id, method, path, query, body, complete = false, signal, options = {}) {
   const connector = await getConnector(id);
   if (!connector) {
-    return { ok: false, error: "Conector no encontrado" };
+    return { ok: false, error: "Connector not found" };
   }
   const base = new URL(connector.base_url);
   const url = new URL(connector.base_url + path);
   if (url.origin !== base.origin) {
-    return { ok: false, error: "Ruta fuera del conector" };
+    return { ok: false, error: "Path outside the connector" };
   }
   for (const [key, value] of Object.entries(query || {})) {
     if (base.hostname === "sheets.googleapis.com" && key === "ranges" && Array.isArray(value)) value.forEach(range => url.searchParams.append(key, String(range)));
@@ -369,7 +369,7 @@ export async function connectorFetch(id, method, path, query, body, complete = f
   try {
     response = await timedFetch(url.href, init);
   } catch {
-    return { ok: false, error: "No se pudo conectar con el servicio" };
+    return { ok: false, error: "Could not connect to the service" };
   }
   const text = await response.text();
   let data;
@@ -572,9 +572,9 @@ function waitForOAuth(popup, state) {
     const poll = channel ? null : setInterval(() => {
       if (!popup.closed) { closedAt = 0; return; }
       if (!closedAt) closedAt = Date.now();
-      if (Date.now() - closedAt >= POPUP_CLOSE_GRACE_MS) finish(reject, new Error("Se cerró la ventana de acceso."));
+      if (Date.now() - closedAt >= POPUP_CLOSE_GRACE_MS) finish(reject, new Error("The sign-in window was closed."));
     }, OAUTH_POLL_MS);
-    const timer = setTimeout(() => finish(reject, new Error("El inicio de sesión no respondió. Vuelve a intentarlo.")), OAUTH_TIMEOUT_MS);
+    const timer = setTimeout(() => finish(reject, new Error("Sign-in did not respond. Try again.")), OAUTH_TIMEOUT_MS);
     window.addEventListener("message", onMessage);
   });
 }

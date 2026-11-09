@@ -35,13 +35,13 @@ export async function clearResumeMarker() {
 export function setupReload(options) { api = options; }
 
 export function prepareReload(args = {}) {
-  if (isWiping() || reloading) return { ok: false, error: "Eco no puede recargarse ahora." };
+  if (isWiping() || reloading) return { ok: false, error: "Eco can't reload right now." };
   const now = Date.now();
   const history = (json(HISTORY_KEY) || []).filter((stamp) => now - stamp < RELOAD_WINDOW_MS);
   if (history.length >= MAX_RELOADS_PER_WINDOW || history.some((stamp) => now - stamp < MIN_RELOAD_INTERVAL_MS)) {
-    return { ok: false, error: "Límite de recargas: espera al menos un minuto; máximo tres cada diez minutos.", retry_after_ms: Math.max(MIN_RELOAD_INTERVAL_MS - (now - (history.at(-1) || 0)), history.length >= MAX_RELOADS_PER_WINDOW ? RELOAD_WINDOW_MS - (now - history[0]) : 0) };
+    return { ok: false, error: "Reload limit: wait at least a minute; at most three every ten minutes.", retry_after_ms: Math.max(MIN_RELOAD_INTERVAL_MS - (now - (history.at(-1) || 0)), history.length >= MAX_RELOADS_PER_WINDOW ? RELOAD_WINDOW_MS - (now - history[0]) : 0) };
   }
-  return { ok: true, reload: true, motivo: String(args.motivo || "Actualizar Eco").slice(0, MAX_REASON_CHARS) };
+  return { ok: true, reload: true, motivo: String(args.motivo || "Update Eco").slice(0, MAX_REASON_CHARS) };
 }
 
 async function applyWorker() {
@@ -59,7 +59,7 @@ async function applyWorker() {
     };
     const timer = setTimeout(() => {
       worker.removeEventListener("statechange", finish);
-      reject(new Error("La actualización todavía no está lista. Inténtalo después."));
+      reject(new Error("The update isn't ready yet. Try again later."));
     }, SW_WAIT_MS);
     worker.addEventListener("statechange", finish);
     worker.postMessage({ type: "eco-activate" });

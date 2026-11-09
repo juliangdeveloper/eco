@@ -44,7 +44,7 @@ def prune_history():
     for key, item in reversed(list(items.items())):
         size = len(item.get("content", "").encode("utf-8"))
         if size > RESULT_HISTORY_BYTES:
-            item["content"] = dumps({"error": "El resultado excede los 8 MiB del historial. Solicita datos por partes en el origen.", "total_bytes": size})
+            item["content"] = dumps({"error": "The result exceeds the 8 MiB history limit. Request the data in parts at the source.", "total_bytes": size})
             item["omitted"] = True
             size = len(item["content"].encode("utf-8"))
         if len(keep) < RESULT_HISTORY_COUNT and total + size <= RESULT_HISTORY_BYTES:
@@ -83,10 +83,10 @@ def cap(value, items, chars):
     if isinstance(value, list):
         result = [cap(item, items, chars) for item in value[:items]]
         if len(value) > items:
-            result.append("… " + str(len(value) - items) + " elementos más")
+            result.append("… " + str(len(value) - items) + " more items")
         return result
     if isinstance(value, str) and len(value) > chars:
-        return value[:chars] + "… (" + str(len(value)) + " caracteres)"
+        return value[:chars] + "… (" + str(len(value)) + " characters)"
     return value
 
 
@@ -125,9 +125,9 @@ def compact(name, result, args=None):
         items, chars = items // 2, max(chars // 2, 80)
     if len(small.encode("utf-8")) > COMPACT_BYTE_LIMIT:
         shown = small.encode("utf-8")[:COMPACT_BYTE_LIMIT].decode("utf-8", errors="ignore")
-    note = "[resultado resumido; completo en historial id=" + key + ", " + str(len(full.encode("utf-8"))) + " bytes UTF-8; usa leer_resultado para ver más]"
+    note = "[summarized result; full in history id=" + key + ", " + str(len(full.encode("utf-8"))) + " UTF-8 bytes; use leer_resultado to see more]"
     if current_store()["items"].get(key, {}).get("omitted") or key not in current_store()["items"]:
-        note = "[resultado resumido; excede los 8 MiB del historial. Solicita datos por partes en el origen]"
+        note = "[summarized result; exceeds the 8 MiB history limit. Request the data in parts at the source]"
     return dumps({"resumen": shown, "nota": note}), key
 
 
@@ -146,7 +146,7 @@ async def leer_resultado(args):
     key = str(args.get("id", ""))
     item = current_store()["items"].get(key)
     if not item:
-        return {"error": "No existe el resultado " + key, "disponibles": list(current_store()["items"].keys())[-MAX_SEARCH_MATCHES:]}
+        return {"error": "No such result " + key, "disponibles": list(current_store()["items"].keys())[-MAX_SEARCH_MATCHES:]}
     text = item["content"]
     try:
         value = unwrap(json.loads(text))[0]
@@ -157,7 +157,7 @@ async def leer_resultado(args):
         try:
             text = dumps(select(value, args["path"]))
         except Exception:
-            return {"error": "Ruta no encontrada: " + args["path"]}
+            return {"error": "Path not found: " + args["path"]}
     search = args.get("buscar")
     if search:
         lower, needle, matches, start = text.lower(), search.lower(), [], 0
@@ -175,17 +175,17 @@ async def leer_resultado(args):
     limit = min(READ_MAX_LIMIT, max(1, int(args.get("limit") or READ_DEFAULT_LIMIT)))
     shown = data[offset:offset + limit].decode("utf-8", errors="ignore")
     if not shown and offset < len(data):
-        return {"error": "limit es insuficiente para un carácter UTF-8; usa al menos 4 bytes", "id": key, "offset": offset}
+        return {"error": "limit is too small for a UTF-8 character; use at least 4 bytes", "id": key, "offset": offset}
     end = offset + len(shown.encode("utf-8"))
     return {"id": key, "herramienta": item["tool"], "total": len(data), "unidad": "bytes UTF-8", "offset": offset, "texto": shown, "siguiente_offset": end if end < len(data) else None}
 
 
 def register(registry):
     properties = {
-        "id": {"type": "string", "description": "Id del historial, por ejemplo r3"},
-        "path": {"type": "string", "description": "Ruta JSON opcional, por ejemplo items.0.title"},
-        "buscar": {"type": "string", "description": "Texto a buscar dentro del resultado"},
-        "offset": {"type": "integer", "minimum": 0, "description": "Desplazamiento en bytes UTF-8; usa siguiente_offset para continuar"},
-        "limit": {"type": "integer", "minimum": 1, "maximum": READ_MAX_LIMIT, "description": "Bytes UTF-8 por página, hasta 131072; devuelve el fragmento literal sin resumir"},
+        "id": {"type": "string", "description": "History id, for example r3"},
+        "path": {"type": "string", "description": "Optional JSON path, for example items.0.title"},
+        "buscar": {"type": "string", "description": "Text to search for inside the result"},
+        "offset": {"type": "integer", "minimum": 0, "description": "Offset in UTF-8 bytes; use siguiente_offset to continue"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": READ_MAX_LIMIT, "description": "UTF-8 bytes per page, up to 131072; returns the literal fragment without summarizing"},
     }
-    registry.add("leer_resultado", schema("Lee el resultado completo de una herramienta guardado en el historial: por partes con offset y limit, una ruta JSON o buscando texto.", properties, ["id"]), leer_resultado)
+    registry.add("leer_resultado", schema("Reads a tool's full result saved in the history: in parts with offset and limit, by a JSON path or by searching text.", properties, ["id"]), leer_resultado)

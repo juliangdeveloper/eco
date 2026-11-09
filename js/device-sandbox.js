@@ -6,7 +6,7 @@ const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? ar
 const request = (kind, path, args) => new Promise((resolve, reject) => {
   const id = ++sequence;
   const message = { kind, id, path, args: normalizeArgs(args) };
-  if (size(message) > 65536) return reject(new Error("Parámetros demasiado grandes"));
+  if (size(message) > 65536) return reject(new Error("Parameters too large"));
   pending.set(id, { resolve, reject });
   postMessage(message);
 });
@@ -30,7 +30,7 @@ onmessage = async ({ data }) => {
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
     const result = await new AsyncFunction("params", "device", '"use strict"; ' + data.code)(data.params, device);
-    if (size(result ?? null) > 131072) throw new Error("Resultado mayor de 128 KiB");
+    if (size(result ?? null) > 131072) throw new Error("Result larger than 128 KiB");
     postMessage({ kind: "done", result: result ?? null });
   } catch (error) { postMessage({ kind: "done", error: String(error.message || error) }); }
 };
@@ -46,12 +46,12 @@ export function sandboxDocument() {
     const blob = new Blob([${JSON.stringify(workerSource)}], { type: "text/javascript" });
     const url = URL.createObjectURL(blob);
     try { worker = new Worker(url); }
-    catch { URL.revokeObjectURL(url); port.postMessage({kind:"done",error:"Este navegador no permite herramientas aisladas. Prueba una versión actual de Safari o Chromium."}); return; }
+    catch { URL.revokeObjectURL(url); port.postMessage({kind:"done",error:"This browser does not support isolated tools. Try a current version of Safari or Chromium."}); return; }
     worker.onmessage = event => {
       if (event.data.kind === "worker-ready") { URL.revokeObjectURL(url); port.postMessage({kind:"ready"}); return; }
       port.postMessage(event.data);
     };
-    worker.onerror = event => { URL.revokeObjectURL(url); event.preventDefault(); port.postMessage({kind:"done",error:"No se pudo ejecutar el código aislado"}); };
+    worker.onerror = event => { URL.revokeObjectURL(url); event.preventDefault(); port.postMessage({kind:"done",error:"Could not run the isolated code"}); };
     port.onmessage = event => {
       if (event.data.kind === "stop") { worker.terminate(); port.close(); return; }
       worker.postMessage(event.data);

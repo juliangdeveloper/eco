@@ -17,7 +17,7 @@ async def todo_list(args):
     incoming = args.get("todos")
     if incoming is not None:
         if not valid(incoming):
-            return {"error": "Lista de tareas inválida"}
+            return {"error": "Invalid task list"}
         if args.get("merge"):
             indexed = {item["id"]: item for item in state.get("todos", [])}
             indexed.update({item["id"]: item for item in incoming})
@@ -30,4 +30,4 @@ async def todo_list(args):
 
 def register(registry):
     properties = {"todos": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}, "content": {"type": "string"}, "status": {"type": "string", "enum": list(VALID_STATUS)}}}}, "merge": {"type": "boolean"}}
-    registry.add("todo_list", schema("Consulta o actualiza las tareas de esta sesión.", properties), todo_list)
+    registry.add("todo_list", schema("Reads or updates this session's tasks.", properties), todo_list)

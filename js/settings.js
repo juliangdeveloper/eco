@@ -10,9 +10,9 @@ import { listRoutines, manageRoutine, onRoutinesChange } from "./routines.js";
 import { memoryOverview } from "./passive-skills.js";
 
 const TEXT_SETTINGS = ["openrouterKey", "model"];
-const EMPTY_ROUTINES = "Pídele a Eco que revise algo cada cierto tiempo y aparecerá aquí.";
+const EMPTY_ROUTINES = "Ask Eco to check something every so often and it will show up here.";
 const SECONDS_PER_MINUTE = 60;
-const EMPTY_CONNECTORS = "Pídele a Eco que se conecte a un servicio y aparecerá aquí.";
+const EMPTY_CONNECTORS = "Ask Eco to connect to a service and it will show up here.";
 
 export function bindSettings() {
   bindStepLimits(byId);
@@ -67,19 +67,19 @@ export async function renderConnectors() {
     const name = document.createElement("strong");
     name.textContent = connector.name;
     const detail = document.createElement("small");
-    const toolCount = connector.kind === "mcp" && status === "conectado" ? " · " + (connector.tools || []).length + " herramientas" : "";
+    const toolCount = connector.kind === "mcp" && status === "connected" ? " · " + (connector.tools || []).length + " tools" : "";
     detail.textContent = status.charAt(0).toUpperCase() + status.slice(1) + toolCount + " · " + new URL(connector.base_url).host;
     info.append(name, detail);
     const actions = document.createElement("div");
     actions.className = "connectorActions";
     if (connector.auth.type !== "none") {
-      if (status === "conectado") {
-        actions.append(button("Quitar acceso", "", async () => {
+      if (status === "connected") {
+        actions.append(button("Remove access", "", async () => {
           await deleteSecret(connector.id);
           await renderConnectors();
         }));
       } else {
-        actions.append(button("Conectar", "", async () => {
+        actions.append(button("Connect", "", async () => {
           byId("settings").close();
           const owner = rows.find((item) => item.id === connector.auth.secret_of) || connector;
           if (owner.auth.type === "oauth2" && owner.auth.client_id) {
@@ -94,7 +94,7 @@ export async function renderConnectors() {
         }));
       }
     }
-    actions.append(button("Eliminar", "danger", async () => {
+    actions.append(button("Delete", "danger", async () => {
       await deleteConnector(connector.id);
       await renderConnectors();
     }));
@@ -121,12 +121,12 @@ export async function renderRoutines() {
     name.textContent = routine.nombre;
     const detail = document.createElement("small");
     const minutes = routine.cada_segundos / SECONDS_PER_MINUTE;
-    detail.textContent = (routine.activa ? "Activa" : "En pausa") + " · cada " + (Number.isInteger(minutes) ? minutes + " min" : routine.cada_segundos + " s");
+    detail.textContent = (routine.activa ? "Active" : "Paused") + " · every " + (Number.isInteger(minutes) ? minutes + " min" : routine.cada_segundos + " s");
     info.append(name, detail);
     const actions = document.createElement("div");
     actions.className = "connectorActions";
-    actions.append(button(routine.activa ? "Pausar" : "Reanudar", "", () => manageRoutine(routine.id, routine.activa ? "pausar" : "reanudar")));
-    actions.append(button("Eliminar", "danger", () => {
+    actions.append(button(routine.activa ? "Pause" : "Resume", "", () => manageRoutine(routine.id, routine.activa ? "pausar" : "reanudar")));
+    actions.append(button("Delete", "danger", () => {
       manageRoutine(routine.id, "borrar");
     }));
     row.append(info, actions);
@@ -144,7 +144,7 @@ export async function renderMemories() {
     const name = document.createElement("strong");
     name.textContent = memory.nombre;
     const detail = document.createElement("small");
-    detail.textContent = [memory.rol === "principal" ? "Principal" : "Copia", memory.conectada ? "" : "Sin conexión", memory.pendientes ? memory.pendientes + " por copiar" : ""].filter(Boolean).join(" · ");
+    detail.textContent = [memory.rol === "principal" ? "Primary" : "Mirror", memory.conectada ? "" : "Offline", memory.pendientes ? memory.pendientes + " to copy" : ""].filter(Boolean).join(" · ");
     info.append(name, detail);
     row.append(info);
     return row;
@@ -158,8 +158,8 @@ export function updateNotice() {
 function renderSecurity() {
   const state = securityState();
   byId("securityCurrentLabel").hidden = !state.enabled;
-  byId("securitySave").textContent = state.enabled ? "Cambiar palabra" : "Guardar palabra";
-  byId("securityStatus").textContent = state.enabled ? "Protección activada. El borrado solo afecta a Eco en este dispositivo." : "Configura una palabra de 8 a 128 caracteres para habilitar el borrado.";
+  byId("securitySave").textContent = state.enabled ? "Change word" : "Save word";
+  byId("securityStatus").textContent = state.enabled ? "Protection on. The wipe only affects Eco on this device." : "Set a word of 8 to 128 characters to enable the wipe.";
 }
 
 function renderWipeLimits() {
@@ -199,8 +199,8 @@ function bindSecurity() {
     try {
       const ok = word.normalize("NFC").trim() === repeat.normalize("NFC").trim() && await configureSecurity(word, current);
       renderSecurity();
-      if (!ok) byId("securityStatus").textContent = "No se pudo guardar. Comprueba las palabras o espera antes de intentarlo otra vez.";
-    } catch { byId("securityStatus").textContent = "No se pudo guardar la protección en este navegador."; }
+      if (!ok) byId("securityStatus").textContent = "Could not save. Check the words or wait before trying again.";
+    } catch { byId("securityStatus").textContent = "Protection could not be saved in this browser."; }
     finally { byId("securitySave").disabled = false; }
   };
   byId("clearData").onclick = () => {
@@ -217,8 +217,8 @@ function bindSecurity() {
     byId("wipeWord").value = "";
     byId("wipeSubmit").disabled = true;
     try {
-      if (!await eraseWithWord(word, byId("wipeConfirm").checked)) byId("wipeStatus").textContent = "No se pudo verificar la solicitud.";
-    } catch { byId("wipeStatus").textContent = "No se pudo verificar la solicitud."; }
+      if (!await eraseWithWord(word, byId("wipeConfirm").checked)) byId("wipeStatus").textContent = "The request could not be verified.";
+    } catch { byId("wipeStatus").textContent = "The request could not be verified."; }
     finally { byId("wipeSubmit").disabled = false; }
   };
   byId("wipeDialog").addEventListener("close", () => { byId("wipeWord").value = ""; byId("wipeConfirm").checked = false; if (!isWiping()) byId("settings").showModal(); });

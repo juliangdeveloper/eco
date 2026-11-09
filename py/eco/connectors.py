@@ -9,35 +9,35 @@ METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 PARAM_LOCATIONS = ["path", "query", "body"]
 NOT_CONNECTED = "not_connected"
 AUTH_REASONS = {
-    "missing_credential": "No hay credencial guardada para este conector.",
-    "credential_unreadable": "La credencial guardada no se pudo descifrar en este navegador.",
-    "expired": "El acceso expiró y no se pudo renovar.",
-    "rejected_by_api": "El servicio rechazó la credencial (401): puede ser inválida, revocada o sin permisos.",
+    "missing_credential": "There is no saved credential for this connector.",
+    "credential_unreadable": "The saved credential could not be decrypted in this browser.",
+    "expired": "Access expired and could not be renewed.",
+    "rejected_by_api": "The service rejected the credential (401): it may be invalid, revoked or lack permissions.",
 }
-SIGN_IN_REQUESTED = "El conector no está conectado. Se pidió a la persona iniciar sesión; vuelve a intentarlo cuando confirme."
+SIGN_IN_REQUESTED = "The connector is not connected. The person was asked to sign in; try again when they confirm."
 
 DEFINITION_SCHEMA = {
     "type": "object",
     "properties": {
-        "id": {"type": "string", "description": "Identificador corto en minúsculas, números y guiones."},
+        "id": {"type": "string", "description": "Short identifier in lowercase letters, numbers and hyphens."},
         "name": {"type": "string"},
-        "base_url": {"type": "string", "description": "URL https base de la API."},
-        "mcp_url": {"type": "string", "description": "URL https del servidor MCP remoto oficial. Si la usas, no hacen falta base_url ni operations: las herramientas se cargan del servidor."},
-        "headers": {"type": "object", "description": "Solo para MCP: cabeceras X-MCP-* del servidor, por ejemplo para elegir conjuntos de herramientas."},
+        "base_url": {"type": "string", "description": "Base https URL of the API."},
+        "mcp_url": {"type": "string", "description": "https URL of the official remote MCP server. If you use it, base_url and operations aren't needed: the tools load from the server."},
+        "headers": {"type": "object", "description": "MCP only: the server's X-MCP-* headers, for example to choose tool sets."},
         "auth": {
             "type": "object",
             "properties": {
                 "type": {"type": "string", "enum": AUTH_TYPES},
-                "header": {"type": "string", "description": "Cabecera para api_key."},
-                "query_param": {"type": "string", "description": "Parámetro de query para api_key."},
-                "prefix": {"type": "string", "description": "Prefijo para bearer, por defecto 'Bearer '."},
+                "header": {"type": "string", "description": "Header for api_key."},
+                "query_param": {"type": "string", "description": "Query parameter for api_key."},
+                "prefix": {"type": "string", "description": "Prefix for bearer, 'Bearer ' by default."},
                 "authorize_url": {"type": "string"},
                 "token_url": {"type": "string"},
-                "developer_url": {"type": "string", "description": "Opcional: página https del proveedor para registrar la aplicación OAuth y obtener el Client ID."},
+                "developer_url": {"type": "string", "description": "Optional: the provider's https page to register the OAuth application and get the Client ID."},
                 "scopes": {"type": "array", "items": {"type": "string"}},
-                "flow": {"type": "string", "enum": ["pkce", "implicit"], "description": "Para Google usa implicit."},
+                "flow": {"type": "string", "enum": ["pkce", "implicit"], "description": "For Google use implicit."},
                 "extra_params": {"type": "object"},
-                "renewal": {"type": "string", "enum": ["refresh_token", "silent", "none"], "description": "Cómo renovar el acceso sin molestar: refresh_token si el proveedor entrega uno (flow pkce), silent para renovación silenciosa con prompt=none (Google, flow implicit), none si no se puede."},
+                "renewal": {"type": "string", "enum": ["refresh_token", "silent", "none"], "description": "How to renew access without bothering anyone: refresh_token if the provider issues one (flow pkce), silent for silent renewal with prompt=none (Google, flow implicit), none if it isn't possible."},
             },
             "required": ["type"],
         },
@@ -49,8 +49,8 @@ DEFINITION_SCHEMA = {
                     "name": {"type": "string"},
                     "description": {"type": "string"},
                     "method": {"type": "string", "enum": METHODS},
-                    "path": {"type": "string", "description": "Ruta que empieza con /, con {param} para parámetros de ruta."},
-                    "params": {"type": "object", "description": "nombre -> {type, in: path|query|body, required, description}"},
+                    "path": {"type": "string", "description": "Path starting with /, with {param} for path parameters."},
+                    "params": {"type": "object", "description": "name -> {type, in: path|query|body, required, description}"},
                     "write": {"type": "boolean"},
                 },
                 "required": ["name", "method", "path"],
@@ -87,7 +87,7 @@ MCP_HEADER_PREFIX = "x-mcp-"
 MCP_SEPARATOR = "__"
 TOOL_NAME_LIMIT = 64
 MAX_MCP_TOOLS = 60
-RETRY_HINT = " Corrige la definición y vuelve a llamar a create_connector."
+RETRY_HINT = " Fix the definition and call create_connector again."
 
 
 def compact(value):
@@ -213,7 +213,7 @@ def normalize_operation(name, raw, base_path):
 def normalize_mcp(definition):
     url = str(definition.get("mcp_url") or definition.get("base_url") or definition.get("url") or "").strip()
     if not url.startswith("https://"):
-        return None, "mcp_url debe ser la URL https del servidor MCP." + RETRY_HINT
+        return None, "mcp_url must be the https URL of the MCP server." + RETRY_HINT
     name = str(definition.get("name") or "").strip()
     identifier = slug(definition.get("id") or name or urlparse(url).hostname.split(".")[0])
     auth = definition.get("auth")
@@ -232,12 +232,12 @@ def normalize_mcp(definition):
 def normalize_definition(raw):
     definition = unwrap(raw)
     if not definition:
-        return None, "La definición debe ser un objeto JSON." + RETRY_HINT
+        return None, "The definition must be a JSON object." + RETRY_HINT
     if definition.get("mcp_url") or compact(definition.get("kind")) == "mcp":
         return normalize_mcp(definition)
     base_url = as_https(definition.get("base_url") or definition.get("baseUrl") or definition.get("url") or definition.get("api_url"))
     if not urlparse(base_url).hostname:
-        return None, "Falta base_url, la URL https de la API." + RETRY_HINT
+        return None, "Missing base_url, the https URL of the API." + RETRY_HINT
     base_path = urlparse(base_url).path.rstrip("/")
     name = str(definition.get("name") or definition.get("title") or "").strip()
     identifier = slug(definition.get("id") or name or urlparse(base_url).hostname.split(".")[0])
@@ -251,7 +251,7 @@ def normalize_definition(raw):
     operations = [normalize_operation(key, value, base_path) for key, value in pairs]
     operations = [item for item in operations if item["name"] and item["method"] in METHODS]
     if not operations:
-        return None, "Incluye al menos una operación con name, method y path." + RETRY_HINT
+        return None, "Include at least one operation with name, method and path." + RETRY_HINT
     result = {
         "id": identifier,
         "name": name or identifier,
@@ -265,7 +265,7 @@ def normalize_definition(raw):
 
 
 MIN_SERVICE_KEY = 4
-MCP_FIRST = "Antes de crear un conector de API, busca el servidor MCP remoto oficial del servicio y compruébalo con probe_mcp. Si el servicio no tiene MCP o no responde, vuelve a llamar a create_connector con sin_mcp en true."
+MCP_FIRST = "Before creating an API connector, look for the service's official remote MCP server and check it with probe_mcp. If the service has no MCP or it doesn't respond, call create_connector again with sin_mcp set to true."
 
 
 def service_key(value):
@@ -308,7 +308,7 @@ async def create_connector(args):
     try:
         result = json.loads(await ecoBridge.createConnector(json.dumps(definition, ensure_ascii=False)))
     except Exception:
-        return {"ok": False, "error": "No se pudo guardar el conector." + RETRY_HINT}
+        return {"ok": False, "error": "Could not save the connector." + RETRY_HINT}
     if not result.get("ok") and result.get("error"):
         result["error"] = str(result["error"]) + "." + RETRY_HINT
     return result
@@ -361,7 +361,7 @@ async def register_mcp(registry):
         registry.items.pop(name)
     count = 0
     for connector in await connectors():
-        if connector.get("kind") != "mcp" or connector.get("status") != "conectado":
+        if connector.get("kind") != "mcp" or connector.get("status") != "connected":
             continue
         ordered = sorted(connector.get("tools", []), key=lambda tool: not tool.get("readOnly"))
         for tool in ordered:
@@ -388,7 +388,7 @@ def build_request(operation, params):
         if location == "path" or (location is None and token in path):
             text = str(value)
             if ".." in text.split("/"):
-                return None, "Parámetro de ruta inválido: " + name
+                return None, "Invalid path parameter: " + name
             path = path.replace(token, quote(text, safe="/"))
         elif location == "body" or (location is None and operation["method"] != "GET"):
             body[name] = value
@@ -396,7 +396,7 @@ def build_request(operation, params):
             query[name] = value
     missing = [name for name, spec in declared.items() if (spec or {}).get("required") and name not in params]
     if "{" in path or missing:
-        return None, "Faltan parámetros: " + ", ".join(missing or [path])
+        return None, "Missing parameters: " + ", ".join(missing or [path])
     return {"path": path, "query": query, "body": body or None}, None
 
 
@@ -407,10 +407,10 @@ async def call_connector(args):
     items = {item["id"]: item for item in await connectors()}
     connector = items.get(connector_id)
     if not connector:
-        return {"error": "Conector no encontrado"}
+        return {"error": "Connector not found"}
     operation = next((item for item in connector.get("operations", []) if item.get("name") == operation_name), None)
     if not operation:
-        return {"error": "Operación no encontrada"}
+        return {"error": "Operation not found"}
     request, error = build_request(operation, params)
     if error:
         return {"error": error}
@@ -427,7 +427,7 @@ async def call_connector(args):
         await ecoBridge.requestSignIn(connector_id)
         detail = AUTH_REASONS.get(reason, "")
         if result.get("api_message"):
-            detail += " Respuesta del servicio: " + str(result["api_message"])
+            detail += " Service response: " + str(result["api_message"])
         return {"error": SIGN_IN_REQUESTED, "reason": reason, "detail": detail.strip()}
     return result
 
@@ -436,8 +436,8 @@ def register(registry):
     registry.add(
         "create_connector",
         schema(
-            "Crea un conector cuando la persona pide conectarse a un servicio. Prefiere siempre el servidor MCP remoto oficial del servicio: pasa mcp_url (comprobada antes con probe_mcp) y auth bearer si pide token; reemplaza cualquier conector de API del mismo servicio. Solo si el servicio no tiene MCP, define base_url, autenticación y operaciones HTTP, marca write en las que modifican datos y pasa sin_mcp en true. Nunca pidas contraseñas ni tokens en el chat: tras crearlo, la app muestra a la persona un formulario seguro de inicio de sesión.",
-            {"definition": DEFINITION_SCHEMA, "sin_mcp": {"type": "boolean", "description": "true solo si ya comprobaste que el servicio no tiene servidor MCP remoto."}},
+            "Creates a connector when the person asks to connect to a service. Always prefer the service's official remote MCP server: pass mcp_url (checked first with probe_mcp) and auth bearer if it asks for a token; it replaces any API connector for the same service. Only if the service has no MCP, define base_url, authentication and HTTP operations, mark write on the ones that modify data and pass sin_mcp as true. Never ask for passwords or tokens in the chat: after it's created, the app shows the person a secure sign-in form.",
+            {"definition": DEFINITION_SCHEMA, "sin_mcp": {"type": "boolean", "description": "true only if you already checked that the service has no remote MCP server."}},
             ["definition"],
         ),
         create_connector,
@@ -445,17 +445,17 @@ def register(registry):
     registry.add(
         "probe_mcp",
         schema(
-            "Comprueba si una URL https es un servidor MCP remoto que responde desde el navegador y si pide token. Úsala siempre primero, con la URL del servidor MCP oficial que publica el proveedor en su documentación; si falla, prueba otra URL oficial antes de recurrir a una API.",
-            {"url": {"type": "string"}, "headers": {"type": "object", "description": "Cabeceras X-MCP-* opcionales."}},
+            "Checks whether an https URL is a remote MCP server that responds from the browser and whether it asks for a token. Always use it first, with the official MCP server URL the provider publishes in its documentation; if it fails, try another official URL before falling back to an API.",
+            {"url": {"type": "string"}, "headers": {"type": "object", "description": "Optional X-MCP-* headers."}},
             ["url"],
         ),
         probe_mcp,
     )
-    registry.add("list_connectors", schema("Lista los conectores, sus operaciones y si están conectados.", {}), list_connectors)
+    registry.add("list_connectors", schema("Lists the connectors, their operations and whether they are connected.", {}), list_connectors)
     registry.add(
         "call_connector",
         schema(
-            "Llama a una operación de un conector. Las operaciones se ejecutan sin confirmación.",
+            "Calls a connector operation. Operations run without confirmation.",
             {"connector": {"type": "string"}, "operation": {"type": "string"}, "params": {"type": "object"}},
             ["connector", "operation"],
         ),
@@ -463,6 +463,6 @@ def register(registry):
     )
     registry.add(
         "request_sign_in",
-        schema("Muestra a la persona el formulario seguro para iniciar sesión en un conector.", {"connector": {"type": "string"}}, ["connector"]),
+        schema("Shows the person the secure form to sign in to a connector.", {"connector": {"type": "string"}}, ["connector"]),
         request_sign_in,
     )

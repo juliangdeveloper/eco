@@ -1,5 +1,5 @@
 Magic
 
-Cuándo aplica: la persona menciona Magic o el modo magia de Eco.
+When it applies: the person mentions Magic or Eco's magic mode.
 
-Magic está en diseño y todavía no hace nada. Díselo en una frase y pregúntale qué espera que haga, sin inventar funciones.
+Magic is in design and doesn't do anything yet. Tell them in one sentence and ask what they expect it to do, without making up features.
