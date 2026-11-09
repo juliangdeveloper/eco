@@ -92,8 +92,8 @@ export async function memoryCall(action, args) {
   const destination = adapter(config);
   await destination.ensure();
   if (action === "reglas") return destination.search(args, ["memories"]);
-  if (action === "agentes") return destination.agents(args?.accion || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "accion")), agentIdentity());
-  if (action === "rutinas") return destination.routines(args?.accion || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "accion")));
+  if (action === "agentes") return destination.agents(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")), agentIdentity());
+  if (action === "rutinas") return destination.routines(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")));
   if (action === "guardar") return destination.save(args);
   if (action === "buscar") return destination.search(args);
   if (action === "leer_nuevos") return destination.readNew();
@@ -116,7 +116,7 @@ export async function memoryMentions(cursor) {
   const records = [];
   for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
     const result = await reader.readNew(["messages"], { load: () => position, save: value => { position = value; } });
-    records.push(...result.records.filter((record) => record.tipo === "mensaje" && record.eco_autor !== config.eco && (record.para === config.eco || record.para === BROADCAST || record.contenido.includes(mention))));
+    records.push(...result.records.filter((record) => record.type === "message" && record.eco_author !== config.eco && (record.to === config.eco || record.to === BROADCAST || record.content.includes(mention))));
     if (!result.hay_mas) break;
   }
   return { records, cursor: { identity, position } };
@@ -317,9 +317,9 @@ export async function checkSecurityMemory() {
 
 function agentIdentity() {
   return {
-    modelo: setting("model") || DEFAULT_MODEL,
+    model: setting("model") || DEFAULT_MODEL,
     version: APP_VERSION,
-    perifericos: featureDefinitions().filter(entry => CAPABILITY_LABELS[entry.name] && featureValue(entry.path)).map(entry => CAPABILITY_LABELS[entry.name]).join(", ") || "Sin periféricos expuestos"
+    peripherals: featureDefinitions().filter(entry => CAPABILITY_LABELS[entry.name] && featureValue(entry.path)).map(entry => CAPABILITY_LABELS[entry.name]).join(", ") || "Sin periféricos expuestos"
   };
 }
 

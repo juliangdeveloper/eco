@@ -394,7 +394,7 @@ export async function connectorFetch(id, method, path, query, body, complete = f
       if (!/^[0-9a-f-]{36}$/i.test(id) || isWiping()) return;
       const target = new URL(connector.base_url + "/rest/v1/messages");
       target.searchParams.set("id", "eq." + id);
-      return window.fetch(target.href, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ contenido: "[orden de seguridad retirada]" }), keepalive: true }).catch(() => {});
+      return window.fetch(target.href, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ content: "[orden de seguridad retirada]" }), keepalive: true }).catch(() => {});
     };
   }
   return result;

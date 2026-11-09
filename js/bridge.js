@@ -113,16 +113,16 @@ window.ecoBridge = {
     const result = await memoryCall("reglas", {});
     const words = (String(task).toLocaleLowerCase().match(/[\p{L}\p{N}_-]{4,}/gu) || []).filter((word) => !TASK_STOP_WORDS.has(word));
     const projectName = String(project).trim().toLocaleLowerCase();
-    const superseded = new Set(result.records.map((row) => row.reemplaza_a).filter(Boolean));
+    const superseded = new Set(result.records.map((row) => row.replaces).filter(Boolean));
     const records = result.records.filter((row) => !superseded.has(row.id)).map((row) => {
-      const tags = String(row.etiquetas || "").split(",").map((tag) => tag.trim());
-      const content = String(row.contenido + " " + row.etiquetas).toLocaleLowerCase();
+      const tags = String(row.tags || "").split(",").map((tag) => tag.trim());
+      const content = String(row.content + " " + row.tags).toLocaleLowerCase();
       const scopes = tags.map((tag) => tag.match(PROJECT_MEMORY_TAG)?.[1]?.toLocaleLowerCase()).filter(Boolean);
       const projectMatch = projectName && (scopes.length ? scopes.includes(projectName) : content.includes(projectName));
       const sharedRule = tags.some((tag) => GENERAL_MEMORY_TAG.test(tag)) && (!scopes.length || projectMatch);
       const relevant = projectMatch || !scopes.length && words.some((word) => content.includes(word));
       return { row, score: (sharedRule ? 2 : 0) + (relevant ? 1 : 0) };
-    }).filter(({ row, score }) => score && (["recuerdo", "dato"].includes(row.tipo) || score >= 2)).sort((a, b) => b.score - a.score);
+    }).filter(({ row, score }) => score && (["memory", "fact"].includes(row.type) || score >= 2)).sort((a, b) => b.score - a.score);
     const selected = [];
     let used = 0;
     for (const { row } of records) {

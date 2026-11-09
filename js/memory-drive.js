@@ -1,14 +1,11 @@
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
-import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, LEGACY_TABS, recordOf, matchesRecord, MemoryBackend } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, LEGACY_MEMORY_COLUMNS, LEGACY_AGENT_COLUMNS, LEGACY_ROUTINE_COLUMNS, normalizeValues, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, LEGACY_TABS, recordOf, matchesRecord, MemoryBackend } from "./memory-protocol.js";
 export { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL } from "./memory-protocol.js";
 const BATCH_ROWS = 100;
 const FIRST_ROW = 2;
 const REQUEST_INTERVAL_MS = 2500;
 const MAX_CONTENT = 45000;
 const AGENT_FIELD_LIMIT = 2000;
-const IMPORT_ATTEMPTS = 3;
-const LEGACY_METADATA_BASE = 1000000000;
-const LEGACY_METADATA_KEY = "eco-memoria:v1";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHEET_ID_PATTERN = /^[A-Za-z0-9_-]{20,}$/;
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -21,7 +18,6 @@ let lastRequest = 0;
 const cells = values => values.map(value => ({ userEnteredValue: { stringValue: String(value ?? "") } }));
 const rows = values => values.map(value => ({ values: cells(value) }));
 const rangeFor = (tab, start = FIRST_ROW, end = "") => "'" + tab + "'!A" + start + ":K" + end;
-const metadataFor = (row, id) => ({ createDeveloperMetadata: { developerMetadata: { metadataId: LEGACY_METADATA_BASE + row, metadataKey: LEGACY_METADATA_KEY, metadataValue: id, location: { spreadsheet: true }, visibility: "DOCUMENT" } } });
 
 export function sheetId(value) {
   const text = String(value || "").trim();
@@ -37,18 +33,25 @@ export function sheetId(value) {
 export function validateProtocol(protocol, headers) {
   const values = Object.fromEntries(protocol);
   const version = String(values.version);
-  const header = version === "1" ? headers.records || headers : null;
-  const expectedTabs = version === "2" ? ["recuerdos", "mensajes", "acuses"] : RECORD_TABS;
+  const current = version === PROTOCOL_VERSION;
+  const recordColumns = current ? MEMORY_COLUMNS : LEGACY_MEMORY_COLUMNS;
+  const agentColumns = current ? AGENT_COLUMNS : LEGACY_AGENT_COLUMNS;
+  const routineColumns = current ? ROUTINE_COLUMNS : LEGACY_ROUTINE_COLUMNS;
+  const expectedTabs = version === "1" ? ["records"] : version === "2" ? ["recuerdos", "mensajes", "acuses"] : RECORD_TABS;
   const agentTab = version === "2" ? "agentes" : "agents";
-  const oldV3 = version === "3" && values.tablas === "memories,messages,acks";
-  const ackHeaders = ["acks", "acuses"].every(tab => !headers[tab] || JSON.stringify(headers[tab]) === JSON.stringify(MEMORY_COLUMNS));
-  const routineHeader = !headers.routines || JSON.stringify(headers.routines) === JSON.stringify(ROUTINE_COLUMNS);
-  const valid = values.protocolo === PROTOCOL_NAME && values.columnas === MEMORY_COLUMNS.join(",") && routineHeader && ackHeaders && (version === "1"
-    ? values.tabla === "records" && JSON.stringify(header) === JSON.stringify(MEMORY_COLUMNS)
-    : ["2", PROTOCOL_VERSION].includes(version) && (version === "2" ? values.tablas === expectedTabs.join(",") : oldV3 || values.tablas === MEMORY_TABLES.join(",") && values.routines === ROUTINE_COLUMNS.join(",")) && values[agentTab] === AGENT_COLUMNS.join(",") && expectedTabs.every(tab => JSON.stringify(headers[tab]) === JSON.stringify(MEMORY_COLUMNS)) && (!oldV3 || JSON.stringify(headers.acks) === JSON.stringify(MEMORY_COLUMNS)) && JSON.stringify(headers[agentTab]) === JSON.stringify(AGENT_COLUMNS));
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const protocolName = values.protocol ?? values.protocolo;
+  const columns = values.columns ?? values.columnas;
+  const tables = values.tables ?? values.tablas;
+  const oldV3 = version === "3" && tables === "memories,messages,acks";
+  const valid = ["1", "2", "3", PROTOCOL_VERSION].includes(version) && protocolName === PROTOCOL_NAME && columns === recordColumns.join(",") && expectedTabs.every(tab => same(headers[tab], recordColumns)) &&
+    (version === "1" ? (values.tabla ?? values.table) === "records" :
+      (version === "2" ? tables === expectedTabs.join(",") : oldV3 || tables === MEMORY_TABLES.join(",") && values.routines === routineColumns.join(",")) &&
+      values[agentTab] === agentColumns.join(",") && same(headers[agentTab], agentColumns)) &&
+    ["acks", "acuses"].every(tab => !headers[tab] || same(headers[tab], recordColumns)) &&
+    (!oldV3 || same(headers.acks, recordColumns)) && (!headers.routines || same(headers.routines, routineColumns));
   if (!valid) throw new Error("La hoja no usa un protocolo eco-memoria compatible o sus columnas no coinciden.");
-  return { protocolo: PROTOCOL_NAME, version, tablas: version === "1" ? ["records"] : expectedTabs, needsUpgrade: version !== "3" || oldV3 || !headers.routines || Boolean(headers.acks) || Boolean(headers.acuses) };
-
+  return { protocol: PROTOCOL_NAME, version, tables: expectedTabs, needsUpgrade: !current || !headers.routines || Boolean(headers.acks) || Boolean(headers.acuses) || Boolean(headers.records) };
 }
 
 export class DriveMemory extends MemoryBackend {
@@ -62,7 +65,6 @@ export class DriveMemory extends MemoryBackend {
     this.throttle = throttle;
     this.saving = Promise.resolve();
     this.preparing = null;
-    this.importing = null;
     this.structure = null;
     this.agentWriting = Promise.resolve();
     this.routineWriting = Promise.resolve();
@@ -108,7 +110,7 @@ export class DriveMemory extends MemoryBackend {
   }
   async describe() {
     const schema = await this.inspect();
-    const result = await this.batchValues(schema.tablas.map(tab => "'" + tab + "'!A2:A"));
+    const result = await this.batchValues(schema.tables.map(tab => "'" + tab + "'!A2:A"));
     return { ...schema, count: new Set(result.flat().map(row => row[0]).filter(Boolean)).size };
   }
   ensure() {
@@ -144,17 +146,18 @@ export class DriveMemory extends MemoryBackend {
           ids.add(sheetId);
           targetIds[tab] = sheetId;
           requests.push({ addSheet: { properties: { title: tab, sheetId, gridProperties: { frozenRowCount: 1 } } } });
-          requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
+          if (tab === "routines" && schema.version !== PROTOCOL_VERSION) requests.push({ insertDimension: { range: { sheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, inheritFromBefore: true } });
+      requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
         }
         const seen = new Set();
         for (const [index, value] of legacy.entries()) {
           if (!value[0] || seen.has(value[0])) continue;
-          const tab = TYPE_TABS[value[4]];
+          const tab = TYPE_TABS[normalizeValues(value)[4]];
           if (!tab) throw new Error("Tipo de registro v1 desconocido: " + value[4]);
           seen.add(value[0]);
-          requests.push(metadataFor(index + FIRST_ROW, String(value[0])));
-          requests.push({ appendCells: { sheetId: targetIds[tab], rows: rows([value]), fields: "userEnteredValue" } });
+          requests.push({ appendCells: { sheetId: targetIds[tab], rows: rows([normalizeValues(value)]), fields: "userEnteredValue" } });
         }
+        requests.push({ deleteSheet: { sheetId: schema.tabs.records } });
         requests.push({ updateCells: { start: { sheetId: schema.tabs._eco, rowIndex: 0, columnIndex: 0 }, rows: rows(MEMORY_PROTOCOL), fields: "userEnteredValue" } });
         try { await this.batch(requests); }
         catch (error) {
@@ -171,6 +174,7 @@ export class DriveMemory extends MemoryBackend {
   }
   async upgrade(schema) {
     const requests = [];
+    if (schema.version !== PROTOCOL_VERSION) requests.push({ addNamedRange: { namedRange: { namedRangeId: "eco_memory_protocol_v4", name: "eco_memory_protocol_v4", range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 } } } });
     if (schema.version === "2") {
       if (Object.values(LEGACY_TABS).some(tab => Object.hasOwn(schema.tabs, tab))) throw new Error("Hay pestañas v3 en una hoja v2. Revisa el esquema antes de migrar.");
       for (const [previous, title] of Object.entries(LEGACY_TABS)) requests.push({ updateSheetProperties: { properties: { sheetId: schema.tabs[previous], title }, fields: "title" } });
@@ -178,6 +182,7 @@ export class DriveMemory extends MemoryBackend {
     const sources = ["acuses", "acks"].filter(tab => Object.hasOwn(schema.tabs, tab));
     if (sources.length > 1) throw new Error("Hay dos pestañas antiguas de acuses. Revisa sus datos antes de migrar.");
     const source = sources[0] || "";
+    const migrated = new Set();
     if (source) {
       const target = schema.version === "2" ? "mensajes" : "messages";
       const [legacy, existing] = await this.batchValues([rangeFor(source), rangeFor(target)]);
@@ -186,16 +191,32 @@ export class DriveMemory extends MemoryBackend {
       for (const value of legacy) {
         if (!value.some(cell => String(cell ?? "").length)) continue;
         const record = recordOf(value);
-        if (!UUID_PATTERN.test(record.id) || !["acuse", "mensaje"].includes(record.tipo)) throw new Error("Hay acuses con id o tipo inválido. Conserva los datos y revisa la pestaña antes de migrar.");
+        if (!UUID_PATTERN.test(record.id) || !["ack", "message"].includes(record.type)) throw new Error("Hay acuses con id o tipo inválido. Conserva los datos y revisa la pestaña antes de migrar.");
         if (known.has(record.id)) {
           if (JSON.stringify(known.get(record.id)) !== JSON.stringify(record)) throw new Error("Hay un UUID de acuse con contenido diferente en messages.");
           continue;
         }
         known.set(record.id, record);
-        transferred.push(value);
+        transferred.push(normalizeValues(value));
+        migrated.add(record.id);
       }
       if (transferred.length) requests.push({ appendCells: { sheetId: schema.tabs[target], rows: rows(transferred), fields: "userEnteredValue" } });
       requests.push({ deleteSheet: { sheetId: schema.tabs[source] } });
+    }
+    if (Object.hasOwn(schema.tabs, "records")) {
+      const targets = RECORD_TABS.map(tab => schema.version === "2" ? Object.keys(LEGACY_TABS).find(key => LEGACY_TABS[key] === tab) : tab);
+      const [legacy, ...existing] = await this.batchValues([rangeFor("records"), ...targets.map(tab => rangeFor(tab))]);
+      const known = new Map(existing.flat().filter(value => value[0]).map(value => [value[0], recordOf(value)]));
+      for (const value of legacy) {
+        if (!value[0]) continue;
+        const record = recordOf(value);
+        const tab = TYPE_TABS[record.type];
+        if (!tab) throw new Error("Tipo de registro antiguo desconocido.");
+        if (known.has(record.id) || migrated.has(record.id)) continue;
+        known.set(record.id, record);
+        requests.push({ appendCells: { sheetId: schema.tabs[targets[RECORD_TABS.indexOf(tab)]], rows: rows([normalizeValues(value)]), fields: "userEnteredValue" } });
+      }
+      requests.push({ deleteSheet: { sheetId: schema.tabs.records } });
     }
     if (!Object.hasOwn(schema.tabs, "routines")) {
       const ids = new Set(Object.values(schema.tabs));
@@ -204,55 +225,40 @@ export class DriveMemory extends MemoryBackend {
       requests.push({ addSheet: { properties: { title: "routines", sheetId, gridProperties: { frozenRowCount: 1 } } } });
       requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([ROUTINE_COLUMNS]), fields: "userEnteredValue" } });
     }
+    for (const tab of MEMORY_TABLES) {
+      const previous = schema.version === "2" ? Object.keys(LEGACY_TABS).find(key => LEGACY_TABS[key] === tab) || tab : tab;
+      if (!Object.hasOwn(schema.tabs, previous)) continue;
+      const sheetId = schema.tabs[previous];
+      if (tab === "routines" && schema.version !== PROTOCOL_VERSION) requests.push({ insertDimension: { range: { sheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, inheritFromBefore: true } });
+      requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
+      if (RECORD_TABS.includes(tab)) {
+        const values = await this.values("'" + previous + "'!E2:E");
+        if (values.length) requests.push({ updateCells: { start: { sheetId, rowIndex: 1, columnIndex: 4 }, rows: rows(values.map(value => [normalizeValues(["", "", "", "", value[0]])[4]])), fields: "userEnteredValue" } });
+      }
+    }
     requests.push({ updateCells: { range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 30, startColumnIndex: 0, endColumnIndex: 2 }, rows: rows(MEMORY_PROTOCOL), fields: "userEnteredValue" } });
     try { await this.batch(requests); }
     catch (error) { if ((await this.inspect()).needsUpgrade) throw error; }
   }
   async connect() {
     await this.ensure();
-    await this.importLegacy();
-    return { ...this.config, protocolo: PROTOCOL_NAME, version: PROTOCOL_VERSION, url: "https://docs.google.com/spreadsheets/d/" + this.config.sheet + "/edit" };
-  }
-  importLegacy() {
-    if (!Object.hasOwn(this.structure?.tabs || {}, "records")) return Promise.resolve();
-    if (!this.importing) this.importing = this.copyLegacy().finally(() => { this.importing = null; });
-    return this.importing;
-  }
-  async copyLegacy() {
-    for (let attempt = 0; attempt < IMPORT_ATTEMPTS; attempt++) {
-      const values = await this.batchValues(["'_eco'!A1:B30", rangeFor("records"), ...RECORD_TABS.map(tab => rangeFor(tab))]);
-      if (String(Object.fromEntries(values[0]).version) !== PROTOCOL_VERSION) throw new Error("El protocolo cambió durante la importación.");
-      const known = new Set(values.slice(2).flat().map(value => value[0]).filter(Boolean));
-      const requests = [];
-      for (const [index, value] of values[1].entries()) {
-        if (!value[0] || known.has(value[0])) continue;
-        const tab = TYPE_TABS[value[4]];
-        if (!tab) throw new Error("Tipo de registro v1 desconocido: " + value[4]);
-        known.add(value[0]);
-        requests.push(metadataFor(index + FIRST_ROW, String(value[0])));
-        requests.push({ appendCells: { sheetId: this.structure.tabs[tab], rows: rows([value]), fields: "userEnteredValue" } });
-      }
-      if (!requests.length) return;
-      try { await this.batch(requests); return; }
-      catch (error) { if (attempt === IMPORT_ATTEMPTS - 1) throw error; }
-    }
+    return { ...this.config, protocol: PROTOCOL_NAME, version: PROTOCOL_VERSION, url: "https://docs.google.com/spreadsheets/d/" + this.config.sheet + "/edit" };
   }
   async collect(tabs, start, end) {
     await this.ensure();
-    await this.importLegacy();
     return this.batchValues(tabs.map(tab => rangeFor(tab, typeof start === "object" ? start[tab] : start, typeof end === "object" ? end[tab] : end)));
   }
   async visible(value, tab, row) {
     const record = recordOf(value);
-    if (isSecurityCommand(record.contenido)) {
-      if (tab === "messages" && record.tipo === "mensaje") await inspectSecurityRecord(record, this.config.eco, () => this.redactMemory?.(tab, row));
+    if (isSecurityCommand(record.content)) {
+      if (tab === "messages" && record.type === "message") await inspectSecurityRecord(record, this.config.eco, () => this.redactMemory?.(tab, row));
       return null;
     }
     return record.id ? record : null;
   }
   async readNew(tabs = RECORD_TABS, cursors = { load: this.loadCursor, save: this.saveCursor }) {
     const cursor = cursors.load() || {};
-    const state = [2, 3].includes(cursor.version) ? { version: 3, tabs: { ...cursor.tabs } } : { version: 3, tabs: {} };
+    const state = [2, 3, 4].includes(cursor.version) ? { version: 4, tabs: { ...cursor.tabs } } : { version: 4, tabs: {} };
     if (cursor.version === 2) for (const [previous, tab] of Object.entries(LEGACY_TABS)) {
       if (state.tabs[previous] && !state.tabs[tab]) state.tabs[tab] = state.tabs[previous];
       delete state.tabs[previous];
@@ -287,9 +293,8 @@ export class DriveMemory extends MemoryBackend {
     return { records, hay_mas: more, contenido_no_confiable: true };
   }
   async search(filters = {}, tabs = RECORD_TABS, consistent = false) {
-    if (filters.tipo) tabs = TYPE_TABS[filters.tipo] ? [TYPE_TABS[filters.tipo]] : [];
+    if (filters.type) tabs = TYPE_TABS[filters.type] ? [TYPE_TABS[filters.type]] : [];
     await this.ensure();
-    await this.importLegacy();
     if (!consistent && this.visualization && tabs.length) {
       try { return await this.querySearch(filters, tabs); } catch {}
     }
@@ -314,10 +319,10 @@ export class DriveMemory extends MemoryBackend {
   async querySearch(filters, tabs) {
     const literal = value => '"' + String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r") + '"';
     const clauses = ["A is not null"];
-    for (const [key, column] of Object.entries({ tipo: "E", autor: "C", hilo: "G", id: "A" })) if (filters[key]) clauses.push(column + " = " + literal(filters[key]));
-    if (filters.texto) clauses.push("lower(I) contains " + literal(String(filters.texto).toLocaleLowerCase()));
-    if (filters.etiqueta) {
-      const escaped = String(filters.etiqueta).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const [key, column] of Object.entries({ type: "E", eco_author: "C", thread: "G", id: "A" })) if (filters[key]) clauses.push(column + " = " + literal(filters[key]));
+    if (filters.content) clauses.push("lower(I) contains " + literal(String(filters.content).toLocaleLowerCase()));
+    if (filters.tags) {
+      const escaped = String(filters.tags).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       clauses.push("J matches " + literal("(^|.*,)[ ]*" + escaped + "[ ]*(,.*|$)"));
     }
     const tq = "select A,B,C,D,E,F,G,H,I,J,K where " + clauses.join(" and ");
@@ -335,7 +340,7 @@ export class DriveMemory extends MemoryBackend {
       if (data.status !== "ok" || !Array.isArray(data.table?.rows) || data.table.cols?.length !== MEMORY_COLUMNS.length) throw new Error("Consulta incompleta.");
       for (const row of data.table.rows) {
         const record = recordOf(row.c.map(cell => cell?.v ?? ""));
-        if (!record.id || seen.has(record.id) || isSecurityCommand(record.contenido) || !matchesRecord(record, filters)) continue;
+        if (!record.id || seen.has(record.id) || isSecurityCommand(record.content) || !matchesRecord(record, filters)) continue;
         seen.add(record.id);
         records.push(record);
       }
@@ -348,19 +353,19 @@ export class DriveMemory extends MemoryBackend {
     return pending;
   }
   async append(args) {
-    if (isSecurityCommand(args?.contenido)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
-    if (!Object.hasOwn(TYPE_TABS, args.tipo) || !String(args.contenido || "").trim() || String(args.contenido).length > MAX_CONTENT) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
-    if (args.tipo === "acuse" && !UUID_PATTERN.test(args.responde_a || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con responde_a.");
+    if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
+    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > MAX_CONTENT) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
+    if (args.type === "ack" && !UUID_PATTERN.test(args.reply_to || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con reply_to.");
     const id = args.id || crypto.randomUUID();
     if (!UUID_PATTERN.test(id)) throw new Error("El id debe ser un UUID.");
     const existing = (await this.search({ id }, RECORD_TABS, true)).records;
     if (existing.length) {
-      if (["contenido", "tipo", "para", "hilo", "responde_a", "etiquetas", "reemplaza_a"].some(key => String(existing[0][key] || "") !== String(args[key] || "")) || existing[0].eco_autor !== this.config.eco) throw new Error("El UUID ya pertenece a otro registro.");
+      if (["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[0][key] || "") !== String(args[key] || "")) || existing[0].eco_author !== this.config.eco) throw new Error("El UUID ya pertenece a otro registro.");
       return { ok: true, id, duplicado: true };
     }
-    const record = { ...args, id, fecha: new Date().toISOString(), eco_autor: this.config.eco, usuario_autor: this.config.usuario };
+    const record = { ...args, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
     try {
-      await this.call("POST", this.path("'" + TYPE_TABS[args.tipo] + "'!A:K") + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [MEMORY_COLUMNS.map(key => String(record[key] || ""))] });
+      await this.call("POST", this.path("'" + TYPE_TABS[args.type] + "'!A:K") + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [MEMORY_COLUMNS.map(key => String(record[key] || ""))] });
     } catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id; no generes otro." }; }
     return { ok: true, id };
   }
@@ -371,14 +376,14 @@ export class DriveMemory extends MemoryBackend {
       return { agentes: values.filter(value => value[0]).map(value => Object.fromEntries(AGENT_COLUMNS.map((key, index) => [key, String(value[index] ?? "")]))), contenido_no_confiable: true };
     }
     if (action !== "actualizar" || !NAME_PATTERN.test(this.config.eco || "")) throw new Error("Acción o nombre de agente inválido.");
-    for (const [key, value] of Object.entries(changes)) if (!["preferencias", "stack"].includes(key) || typeof value !== "string" || value.length > AGENT_FIELD_LIMIT) throw new Error("Solo puedes actualizar preferencias y stack propios (máximo 2000 caracteres por campo).");
+    for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > AGENT_FIELD_LIMIT) throw new Error("Solo puedes actualizar preferencias y stack propios (máximo 2000 caracteres por campo).");
     const pending = this.agentWriting.then(async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
         const values = await this.values("'agents'!A2:J");
         const index = values.findIndex(value => value[0] === this.config.eco);
         if (values.filter(value => value[0] === this.config.eco).length > 1) throw new Error("El nombre de este agente está repetido en la hoja.");
         const previous = index < 0 ? {} : Object.fromEntries(AGENT_COLUMNS.map((key, column) => [key, String(values[index][column] ?? "")]));
-        const record = { ...previous, ...changes, id: this.config.eco, clase: "eco", modelo: identity.modelo || "", alias: this.config.usuario || "", perifericos: identity.perifericos || "", estado: "activo", version: identity.version || "", actualizado: new Date().toISOString() };
+        const record = { ...previous, ...changes, id: this.config.eco, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() };
         const data = [AGENT_COLUMNS.map(key => String(record[key] ?? ""))];
         if (index >= 0) await this.call("PUT", this.path("'agents'!A" + (index + FIRST_ROW) + ":J" + (index + FIRST_ROW)), { valueInputOption: "RAW" }, { values: data });
         else {
@@ -399,20 +404,20 @@ export class DriveMemory extends MemoryBackend {
   async routines(action = "listar", changes = {}) {
     await this.ensure();
     if (action === "listar") {
-      const values = await this.values("'routines'!A2:J");
+      const values = await this.values("'routines'!A2:K");
       return { rutinas: values.filter(value => value[0] && value[3] === this.config.eco).map(value => Object.fromEntries(ROUTINE_COLUMNS.map((key, index) => [key, String(value[index] ?? "")]))), contenido_no_confiable: true };
     }
     if (action !== "actualizar") throw new Error("Acción de rutina inválida.");
     const pending = this.routineWriting.then(async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const values = await this.values("'routines'!A2:J");
+        const values = await this.values("'routines'!A2:K");
         const matches = values.map((value, index) => ({ value, index })).filter(item => item.value[0] === changes.id);
         if (matches.length > 1) throw new Error("El id de rutina está repetido.");
         const index = matches[0]?.index ?? -1;
         const previous = index < 0 ? {} : Object.fromEntries(ROUTINE_COLUMNS.map((key, column) => [key, String(values[index][column] ?? "")]));
         const record = routineRecord(this.config, changes, previous);
         const data = [ROUTINE_COLUMNS.map(key => record[key])];
-        if (index >= 0) await this.call("PUT", this.path("'routines'!A" + (index + FIRST_ROW) + ":J" + (index + FIRST_ROW)), { valueInputOption: "RAW" }, { values: data });
+        if (index >= 0) await this.call("PUT", this.path("'routines'!A" + (index + FIRST_ROW) + ":K" + (index + FIRST_ROW)), { valueInputOption: "RAW" }, { values: data });
         else {
           const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(record.id));
           const name = "eco_routine_" + [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");

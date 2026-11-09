@@ -107,15 +107,15 @@ export function eraseWithWord(word, confirmed) {
 }
 
 export async function inspectSecurityRecord(record, eco, redact) {
-  if (!isSecurityCommand(record?.contenido)) return false;
+  if (!isSecurityCommand(record?.content)) return false;
   await serial(async () => {
     const state = readRecord();
-    const created = Date.parse(record.fecha);
-    if (!state || wiping || ![eco, "*"].includes(String(record.para).trim()) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.id || "") || !Number.isFinite(created) || created < state.armedAt || created > Date.now() + 120000 || state.consumed.includes(record.id)) return;
+    const created = Date.parse(record.date);
+    if (!state || wiping || ![eco, "*"].includes(String(record.to).trim()) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.id || "") || !Number.isFinite(created) || created < state.armedAt || created > Date.now() + 120000 || state.consumed.includes(record.id)) return;
     if (state.lockedUntil > Date.now()) return;
     state.consumed = [...state.consumed, record.id];
     try { writeRecord(state); } catch {}
-    const word = record.contenido.normalize("NFC").replace(PREFIX, "");
+    const word = record.content.normalize("NFC").replace(PREFIX, "");
     if (!await verify(word, state)) return;
     try { Promise.resolve(redact?.()).catch(() => {}); } catch {}
     await erase();
