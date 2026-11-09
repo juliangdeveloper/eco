@@ -3,7 +3,7 @@ import { callMcpTool } from "./mcp.js";
 import { DriveMemory } from "./memory-drive.js";
 import { DatabaseMemory, SupabaseMemory } from "./memory-database.js";
 import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES } from "./memory-protocol.js";
-import { isWiping } from "./security.js";
+import { isWiping, reportMemoryConnection } from "./security.js";
 
 export const MEMORY_BACKENDS = Object.freeze({
   "google-drive": { name: "Memoria persistente Google Drive", skill: "assets/skills/memoria-google-drive.txt", create: dependencies => new DriveMemory(dependencies) },
@@ -52,6 +52,15 @@ export function databaseSQL(action, args) {
   return "SELECT " + Object.values(columns).map(q).join(",") + " FROM " + q(table) + (where.length ? " WHERE " + where.join(" AND ") : "") + (["agents", "routines"].includes(logical) ? " ORDER BY " + field("id") : " ORDER BY " + field("date") + "," + field("id") + " FETCH FIRST 100 ROWS ONLY");
 }
 
+const reachable = result => result?.ok ? true : result?.status && ![401, 403, 404, 408, 429].includes(result.status) && result.status < 500 ? null : false;
+async function observed(pending) {
+  let result;
+  try { result = await pending; } catch (error) { reportMemoryConnection(false); throw error; }
+  const state = reachable(result);
+  if (state !== null) reportMemoryConnection(state);
+  return result;
+}
+
 export function memoryDependencies(config) {
   const id = config.backend === "google-drive" ? "eco-memory-drive" : config.connector;
   const invoke = async (action, args) => {
@@ -62,18 +71,18 @@ export function memoryDependencies(config) {
     if (!name) throw new Error("Falta la operación de memoria " + action);
     const payload = config.mode === "sql" ? { [config.sql_argument || "query"]: databaseSQL(action, args) } : { ...args, action, ...(["agents", "routines"].includes(action) ? { operation: args.action } : {}) };
     let result;
-    if (connector.kind === "mcp") result = await callMcpTool(id, name, payload);
+    if (connector.kind === "mcp") result = await observed(callMcpTool(id, name, payload));
     else {
       const operation = connector.operations.find(item => item.name === name);
       if (!operation || operation.method !== "POST" || operation.path.includes("{")) throw new Error("La operación de base de datos debe ser POST con ruta fija.");
-      result = await connectorFetch(id, "POST", operation.path, {}, payload, true);
+      result = await observed(connectorFetch(id, "POST", operation.path, {}, payload, true));
     }
     if (!result.ok) throw new Error("Falló la operación de memoria " + action + ". Revisa el conector y sus permisos.");
     if (action === "schema" && ["add", "map"].includes(args.stage) || ["save", "redact"].includes(action) || ["agents", "routines"].includes(action) && args.action === "actualizar") return { ok: true };
     return unpack(result.data);
   };
   return {
-    request: (method, path, query, body, upsert) => connectorFetch(id, method, path, query, body, true, undefined, { upsert, ...(path === "/rest/v1/" ? { accept: "application/openapi+json" } : {}) }),
+    request: (method, path, query, body, upsert) => observed(connectorFetch(id, method, path, query, body, true, undefined, { upsert, ...(path === "/rest/v1/" ? { accept: "application/openapi+json" } : {}) })),
     visualization: (sheet, query) => connectorVisualization(id, sheet, query),
     execute: invoke
   };

@@ -4,7 +4,15 @@ const CHANNEL_KEY = "eco.securityChannel";
 const ACTIVITY_KEY = "eco.lastActivityAt";
 const ACTIVITY_INTERVAL_MS = 60000;
 const MAX_INACTIVE_MS = 15 * 24 * 60 * 60 * 1000;
+const OFFLINE_KEY = "eco.memoryOfflineMs";
+const MAX_OFFLINE_MS = 5 * 24 * 60 * 60 * 1000;
+const WARN_OFFLINE_MS = 3 * 24 * 60 * 60 * 1000;
 let activityTimer;
+let memoryHealth = async () => null;
+let memoryFailing = false;
+let offlineMark = null;
+let offlineLeader = !navigator.locks;
+let offlineLocking = null;
 const ITERATIONS = 600000;
 const PREFIX = /^\s*(?:autodestrucci[oó]n|borrado\s+seguro)(?:\s+|[:-]\s*|$)/iu;
 let wiping = false;
@@ -31,13 +39,64 @@ export function checkLocalActivity() {
     const timestamp = Number(previous);
     if (previous !== null && Number.isFinite(timestamp) && timestamp > 0 && now - timestamp > MAX_INACTIVE_MS) { await erase(); return true; }
     try { localStorage.setItem(ACTIVITY_KEY, String(now)); } catch {}
-    return false;
+    return trackOffline();
   });
+}
+
+function offlineTotal() {
+  let value = 0;
+  try { value = Number(localStorage.getItem(OFFLINE_KEY)); } catch {}
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function offlineText(remaining) {
+  const minutes = Math.max(1, Math.ceil(remaining / 60000));
+  const days = Math.floor(minutes / 1440), hours = Math.floor(minutes % 1440 / 60), rest = minutes % 60;
+  return days ? days + " d " + hours + " h" : hours ? hours + " h " + rest + " min" : rest + " min";
+}
+
+function renderOffline(total = offlineTotal()) {
+  const node = document.getElementById("offlineCountdown");
+  if (!node) return;
+  const visible = !wiping && total >= WARN_OFFLINE_MS && total < MAX_OFFLINE_MS;
+  node.hidden = !visible;
+  if (!visible) return;
+  const text = offlineText(MAX_OFFLINE_MS - total);
+  node.querySelector("span").textContent = text;
+  node.setAttribute("aria-label", "Borrado sin memoria compartida en " + text);
+  node.title = "Eco se borrará en " + text + " si no recupera la memoria compartida";
+}
+
+async function trackOffline() {
+  let failing = false;
+  try { const state = await memoryHealth(); failing = state !== null && (state || memoryFailing); } catch {}
+  const now = performance.now();
+  let total = offlineTotal();
+  if (failing && offlineLeader) {
+    if (offlineMark !== null && now > offlineMark) total += now - offlineMark;
+    offlineMark = now;
+    if (total >= MAX_OFFLINE_MS) { await erase(); return true; }
+    try { localStorage.setItem(OFFLINE_KEY, String(Math.round(total))); } catch {}
+  } else offlineMark = null;
+  renderOffline(total);
+  return false;
+}
+
+export function setMemoryHealth(callback) { memoryHealth = callback; }
+
+export function reportMemoryConnection(ok) {
+  if (wiping) return;
+  memoryFailing = !ok;
+  if (!ok) { if (offlineMark === null && offlineLeader) offlineMark = performance.now(); return; }
+  offlineMark = null;
+  try { localStorage.removeItem(OFFLINE_KEY); } catch {}
+  renderOffline(0);
 }
 
 const activityWake = () => { checkLocalActivity().catch(() => {}); };
 export async function startLocalActivityWatch() {
   stopLocalActivityWatch();
+  if (!offlineLeader && !offlineLocking) offlineLocking = navigator.locks.request("eco-memory-offline", () => { offlineLeader = true; return new Promise(() => {}); }).catch(() => {});
   if (await checkLocalActivity()) return true;
   activityTimer = setInterval(activityWake, ACTIVITY_INTERVAL_MS);
   window.addEventListener("focus", activityWake);
@@ -181,6 +240,7 @@ function receiveSignal(value) {
 }
 channel?.addEventListener("message", event => receiveSignal(event.data));
 window.addEventListener("storage", event => {
+  if (event.key === OFFLINE_KEY) renderOffline();
   if (event.key === KEY && event.newValue) nonce = readRecord()?.nonce || nonce;
   if (event.key === CHANNEL_KEY && event.newValue) nonce = readRecord()?.nonce || event.newValue;
   if (event.key === SIGNAL_KEY && event.newValue) {

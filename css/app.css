@@ -116,6 +116,26 @@ small {
   gap: 8px;
 }
 
+.brand .offlineCountdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+  white-space: nowrap;
+  color: var(--red);
+  font-weight: 600;
+}
+
+.offlineCountdown svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  align-self: center;
+}
+
 .iconButton {
   display: grid;
   width: 36px;
