@@ -9,7 +9,10 @@ async def skills_list(args):
 
 async def skill_view(args):
     skills = json.loads(await ecoBridge.skills())
-    return next((skill for skill in skills if skill.get("id") == args.get("name")), {"error": "Habilidad no encontrada"})
+    found = next((skill for skill in skills if skill.get("id") == args.get("name")), None)
+    if found:
+        return found
+    return json.loads(await ecoBridge.passiveTopic(str(args.get("name", "")))) or {"error": "Habilidad no encontrada"}
 
 
 async def skill_manage(args):

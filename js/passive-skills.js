@@ -49,6 +49,14 @@ const DRIVE_FILES_CONNECTOR = Object.freeze({
   ]
 });
 const SHARED_SKILL = "assets/skills/memoria-varias.txt";
+const TOPIC_SKILLS = Object.freeze([
+  { id: "contenedores", description: "Contenedores, Docker, entornos aislados o ejecutar código en un servidor.", skill: "assets/skills/contenedores.txt" },
+  { id: "modo-cara", description: "Modo cara: una cara o avatar animado para Eco.", skill: "assets/skills/modo-cara.txt" },
+  { id: "chat-voz", description: "Hablar con Eco por voz, dictar o escuchar sus respuestas.", skill: "assets/skills/chat-voz.txt" },
+  { id: "vault", description: "Vault: guardar contraseñas, claves o secretos propios en Eco.", skill: "assets/skills/vault.txt" },
+  { id: "llm-local", description: "Usar un modelo local o sin nube (WebGPU, WebLLM, Ollama, LM Studio).", skill: "assets/skills/llm-local.txt" },
+  { id: "magic", description: "Magic o el modo magia de Eco.", skill: "assets/skills/magic.txt" }
+]);
 const QUEUE_PREFIX = "memoryQueue:";
 const BACKEND_LABELS = Object.freeze({ "google-drive": "Hoja de Google", supabase: "Supabase", database: "Base de datos", obsidian: "Obsidian" });
 const skillTexts = new Map();
@@ -157,6 +165,15 @@ async function skillText(path) {
     skillTexts.set(path, await response.text());
   }
   return skillTexts.get(path);
+}
+
+export function topicSkills() {
+  return TOPIC_SKILLS.map(({ id, description }) => ({ id, description }));
+}
+
+export async function topicSkill(id) {
+  const entry = TOPIC_SKILLS.find(item => item.id === id);
+  return entry ? { id: entry.id, description: entry.description, content: await skillText(entry.skill), pasiva: true } : null;
 }
 
 export async function passiveMemory() {

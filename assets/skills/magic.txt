@@ -1,0 +1,5 @@
+Magic
+
+Cuándo aplica: la persona menciona Magic o el modo magia de Eco.
+
+Magic está en diseño y todavía no hace nada. Díselo en una frase y pregúntale qué espera que haga, sin inventar funciones.

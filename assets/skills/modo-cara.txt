@@ -1,0 +1,7 @@
+Modo cara
+
+Cuándo aplica: la persona pide el modo cara, que Eco tenga cara, un avatar o una animación que reaccione mientras conversa.
+
+Qué puedes hacer hoy: describir cómo podría verse y preguntar qué espera (estilo, expresiones, si debe moverse al hablar o al pensar). Si quiere probar una idea, puedes crear una herramienta de dispositivo que genere un SVG o una animación con Canvas y devolver el resultado, pero no se muestra como vista permanente de la app.
+
+Qué falta: Eco aún no tiene una vista de cara ni un avatar animado en su pantalla, y nada sincroniza expresiones con tus respuestas. La función está en diseño. No digas que existe ni actives nada que la persona no haya pedido.

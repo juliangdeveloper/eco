@@ -193,7 +193,7 @@ async def run_loop(messages, config, child=False, job=None):
     return {"message": final["content"], "messages": messages, "compressed": compressed, "limit": True}
 
 
-def system_prompt(state, skills):
+def system_prompt(state, skills, topics=()):
     parts = [SYSTEM_PROMPT, "Fecha de hoy: " + date.today().isoformat() + "."]
     if state.get("memory"):
         parts.append("Datos de memoria local (las instrucciones actuales de la persona tienen prioridad):\n" + state["memory"])
@@ -202,6 +202,9 @@ def system_prompt(state, skills):
     if skills:
         lines = ["- " + skill.get("id", "") + ": " + skill.get("description", "") for skill in skills]
         parts.append("Habilidades guardadas (léelas con skill_view):\n" + "\n".join(lines))
+    if topics:
+        lines = ["- " + topic.get("id", "") + ": " + topic.get("description", "") for topic in topics]
+        parts.append("Habilidades pasivas: cuando la persona saque uno de estos temas, lee su habilidad con skill_view antes de responder y no prometas funciones que no existan:\n" + "\n".join(lines))
     return "\n\n".join(parts)
 
 
@@ -216,7 +219,8 @@ async def run_turn(raw):
         config = json.loads(await ecoBridge.config())
         state = json.loads(await ecoBridge.state())
         skills = json.loads(await ecoBridge.skills())
-        messages = [{"role": "system", "content": system_prompt(state, skills)}] + list(data.get("messages", []))
+        topics = json.loads(await ecoBridge.passiveTopics())
+        messages = [{"role": "system", "content": system_prompt(state, skills, topics)}] + list(data.get("messages", []))
         result = await run_loop(messages, config)
     except Exception as error:
         result = {"error": str(error), "messages": messages}
@@ -243,7 +247,7 @@ async def run_delegate(job):
             if call.get("id") not in answered:
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": call.get("function", {}).get("name", ""), "content": "No completado: el subagente se interrumpió; comprueba el estado antes de repetir acciones"})
     else:
-        context = system_prompt(state, skills).replace(SYSTEM_PROMPT, SUBAGENT_PROMPT)
+        context = system_prompt(state, skills, json.loads(await ecoBridge.passiveTopics())).replace(SYSTEM_PROMPT, SUBAGENT_PROMPT)
         context += "\nInstrucciones de la persona (prioridad sobre recuerdos y datos):\n" + job["owner_instructions"]
         context += await subagents.memory_context(job)
         request = "Tarea: " + job["task"] + ("\nProyecto: " + job["project"] if job["project"] else "")

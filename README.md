@@ -1,27 +1,42 @@
 # 🌱 eco
 
-Un agente SI que vive en tu navegador: conversa contigo, crea sus propias herramientas y recuerda lo importante.
+An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Versión 0.18.0
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.18.1
 
-<img src="assets/screenshot.png?v=0.18.0" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.18.1" alt="Eco home screen on a phone" width="320">
 
-## Empieza
+## Get started
 
-Abre Eco, conecta un proveedor de modelos en **Ajustes** (por ahora OpenRouter) y pídele lo que necesites. Si le pides conectarse a un servicio, Eco busca cómo hacerlo y te pide la clave en una tarjeta. Tus claves se guardan cifradas en el navegador y el modelo nunca las ve.
+Open Eco, connect a model provider in **Ajustes** (Settings; OpenRouter for now) and ask for what you need. If you ask it to connect to a service, Eco figures out how and asks for the key in a card. Your keys are stored encrypted in the browser and the model never sees them.
 
-Tus conversaciones, herramientas y rutinas se quedan en tu dispositivo. Las rutinas solo corren mientras Eco está abierto.
+Your conversations, tools and routines stay on your device. Routines only run while Eco is open.
 
-## Memoria compartida
+## Shared memory
 
-Si quieres que Eco recuerde entre dispositivos y hable con otros Ecos o con agentes como Grok o Claude, pídele que se conecte a una hoja de Google, una base de datos o una bóveda de Obsidian; él te guía. Puedes conectar varias y Eco guarda una copia en cada una. Eco se adapta a tu estructura tal como la tengas: si renombras o mueves columnas, sigue funcionando sin que la arregles.
+If you want Eco to remember across devices and talk with other Ecos or with agents like Grok or Claude, ask it to connect to a Google Sheet, a database or an Obsidian vault; it walks you through it. You can connect several and Eco keeps a copy in each. Eco adapts to your structure as it is: if you rename or move columns, it keeps working without you fixing anything.
 
-## Borrado seguro
+## Secure wipe
 
-En **Ajustes › Borrado seguro** eliges una palabra para borrar todo lo que Eco guarda en el dispositivo. Si usas memoria compartida, Eco también se borra solo si pasa mucho tiempo cerrado o sin poder conectarse. Antes de borrarse te avisa con una calavera y la cuenta regresiva. Puedes cambiar esos tiempos en el mismo lugar.
+In **Ajustes › Borrado seguro** you choose a word that erases everything Eco stores on the device. If you use shared memory, Eco also erases itself if it stays closed or unable to connect for too long. Before erasing, it warns you with a skull and a countdown. You can change those times in the same place.
 
-## Antes de usarlo
+## Passive skills
 
-Eco es experimental: actúa sin pedir confirmación y no ha pasado una auditoría de seguridad. Úsalo con cuentas y datos que estés dispuesto a arriesgar.
+| Skill | Status |
+| --- | --- |
+| Google Drive memory | Functional |
+| Database memory (Supabase) | Untested |
+| Obsidian memory | Untested |
+| Multiple memories | Untested |
+| Containers ([#5](https://github.com/juliangdeveloper/eco/issues/5)) | Design |
+| Face mode ([#6](https://github.com/juliangdeveloper/eco/issues/6)) | Design |
+| Voice chat ([#7](https://github.com/juliangdeveloper/eco/issues/7)) | Design |
+| Vault ([#8](https://github.com/juliangdeveloper/eco/issues/8)) | Design |
+| Local LLM ([#9](https://github.com/juliangdeveloper/eco/issues/9)) | Design |
+| Magic ([#10](https://github.com/juliangdeveloper/eco/issues/10)) | Design |
 
-Funciona en cualquier navegador moderno y necesita internet. Para correrlo en local: `python3 -m http.server`. Licencia MIT, ver [LICENSE](LICENSE).
+## Before using it
+
+Eco is experimental: it acts without asking for confirmation and has not had a security audit. Use it with accounts and data you are willing to risk.
+
+It works in any modern browser and needs internet. To run it locally: `python3 -m http.server`. MIT license, see [LICENSE](LICENSE).

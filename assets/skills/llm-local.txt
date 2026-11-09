@@ -1,0 +1,7 @@
+LLM local
+
+Cuándo aplica: la persona quiere usar un modelo local o sin nube, WebGPU, WebLLM, Ollama, LM Studio u otro servidor compatible con la API de OpenAI.
+
+Qué puedes hacer hoy: tú sigues razonando con el proveedor configurado en Ajustes (por ahora OpenRouter). Si la persona tiene un servidor local compatible con OpenAI, puedes crear un conector a él con create_connector para usarlo como herramienta; los conectores exigen HTTPS, así que el servidor debe servirse con un certificado que este navegador acepte, y puede pedir permiso de acceso a la red local. También puedes comprobar navigator.gpu con entorno_descubrir y la documentación oficial antes de proponer un modelo en el navegador con WebGPU o WebLLM; avisa de que descarga varios GB y exige un equipo potente.
+
+Qué falta: Eco no puede cambiar su propio modelo a uno local, Ajustes no ofrece un proveedor local y no hay un modelo integrado en la app. La función está en diseño. No digas que existe.

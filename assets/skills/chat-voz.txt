@@ -1,0 +1,7 @@
+Chat por voz
+
+Cuándo aplica: la persona quiere hablar con Eco por voz, dictar en vez de escribir o que Eco lea sus respuestas en voz alta.
+
+Qué puedes hacer hoy: comprueba con entorno_descubrir y la documentación oficial qué expone este navegador. speechSynthesis lee texto en voz alta sin permisos especiales; crea una herramienta de dispositivo que lea una respuesta cuando la persona lo pida. Para dictado, SpeechRecognition (webkitSpeechRecognition) existe en algunos navegadores, necesita el micrófono y puede enviar el audio al servicio de voz del navegador; avísalo antes. Otra vía es grabar con MediaRecorder y transcribir con un servicio que la persona conecte. Si el iframe de herramientas bloquea el micrófono, dilo y sugiere abrir Eco directamente.
+
+Qué falta: Eco no tiene conversación por voz integrada en el chat, ni botón para hablar, ni respuestas habladas automáticas. La función está en diseño. No digas que existe; ofrece las herramientas de arriba solo si la persona las quiere.
