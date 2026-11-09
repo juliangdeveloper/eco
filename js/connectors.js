@@ -358,7 +358,10 @@ export async function connectorFetch(id, method, path, query, body, complete = f
   }
   const secretText = Object.values(headers).join(" ") + " " + url.search;
   const init = { method, headers, signal };
-  if (body && Object.keys(body).length) {
+  if (options.text && typeof body === "string") {
+    headers["Content-Type"] = "text/markdown";
+    init.body = body;
+  } else if (body && Object.keys(body).length) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }

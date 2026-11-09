@@ -2,14 +2,17 @@ import { connectorFetch, connectorVisualization, getConnector } from "./connecto
 import { callMcpTool } from "./mcp.js";
 import { DriveMemory } from "./memory-drive.js";
 import { DatabaseMemory, SupabaseMemory } from "./memory-database.js";
+import { ObsidianMemory } from "./memory-obsidian.js";
 import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES } from "./memory-protocol.js";
 import { isWiping, reportMemoryConnection } from "./security.js";
 
 export const MEMORY_BACKENDS = Object.freeze({
   "google-drive": { name: "Memoria persistente Google Drive", skill: "assets/skills/memoria-google-drive.txt", create: dependencies => new DriveMemory(dependencies) },
   supabase: { name: "Memoria persistente en base de datos", skill: "assets/skills/memoria-database.txt", create: dependencies => new SupabaseMemory(dependencies) },
-  database: { name: "Memoria persistente en base de datos", skill: "assets/skills/memoria-database.txt", create: dependencies => new DatabaseMemory(dependencies) }
+  database: { name: "Memoria persistente en base de datos", skill: "assets/skills/memoria-database.txt", create: dependencies => new DatabaseMemory(dependencies) },
+  obsidian: { name: "Memoria persistente en Obsidian", skill: "assets/skills/memoria-obsidian.txt", create: dependencies => new ObsidianMemory(dependencies) }
 });
+export const OBSIDIAN_ACTIONS = Object.freeze(["list", "read", "write", "delete"]);
 const text = value => "'" + String(value ?? "").replaceAll("'", "''") + "'";
 const identifier = value => '"' + value.replaceAll('"', '""') + '"';
 const likeText = value => text("%" + String(value).replace(/[\\%_]/g, "\\$&") + "%");
@@ -62,7 +65,60 @@ async function observed(pending) {
   return result;
 }
 
+const vaultPath = path => "/vault/" + String(path).split("/").map(encodeURIComponent).join("/");
+const textOf = data => typeof data === "string" ? data : data && typeof data === "object" && !Array.isArray(data) && typeof (data.content ?? data.text) === "string" ? data.content ?? data.text : data === null || data === undefined ? "" : JSON.stringify(data);
+function listOf(data) {
+  if (typeof data === "string") { try { return listOf(JSON.parse(data)); } catch { return data.split("\n").map(line => line.trim()).filter(Boolean); } }
+  if (Array.isArray(data)) return data.map(item => typeof item === "string" ? item : item?.path || item?.name || "").filter(Boolean);
+  return listOf(data?.files ?? data?.entries ?? data?.items ?? []);
+}
+const missing = result => result?.status === 404 ? { ...result, ok: true, missing: true } : result;
+
+function obsidianFiles(config) {
+  const id = config.connector, names = config.arguments || {}, extra = config.operation_args || {};
+  const fail = () => { throw new Error("Falló la operación de la bóveda. Revisa el conector y sus permisos."); };
+  const tool = async (action, args) => {
+    if (isWiping()) throw new Error("Memoria detenida");
+    const name = config.operations?.[action];
+    if (!name) throw new Error("Falta la herramienta de bóveda para " + action);
+    const result = await observed(callMcpTool(id, name, { ...(extra[action] || {}), ...args }).then(value => !value.ok && !value.error && value.status === undefined ? { ...value, status: 422 } : value));
+    return result;
+  };
+  const rest = async (method, path, body, accept) => {
+    if (isWiping()) throw new Error("Memoria detenida");
+    return observed(connectorFetch(id, method, path, {}, body, true, undefined, { accept, text: true }).then(missing));
+  };
+  const kind = async () => (await getConnector(id))?.kind === "mcp";
+  return {
+    async list(dir) {
+      if (await kind()) { const result = await tool("list", { [names.path || "path"]: dir }); if (!result.ok) return []; return listOf(result.data); }
+      const result = await rest("GET", dir ? vaultPath(dir) + "/" : "/vault/", null, "application/json");
+      if (result.missing) return [];
+      if (!result.ok) fail();
+      return listOf(result.data);
+    },
+    async read(path) {
+      if (await kind()) { const result = await tool("read", { [names.path || "path"]: path }); if (!result.ok) return null; return textOf(result.data); }
+      const result = await rest("GET", vaultPath(path), null, "text/markdown");
+      if (result.missing) return null;
+      if (!result.ok) fail();
+      return textOf(result.data);
+    },
+    async write(path, text) {
+      const result = await kind() ? await tool("write", { [names.path || "path"]: path, [names.content || "content"]: text }) : await rest("PUT", vaultPath(path), text, "application/json");
+      if (!result.ok || result.missing) fail();
+      return true;
+    },
+    async remove(path) {
+      const result = await kind() ? await tool("delete", { [names.path || "path"]: path }) : await rest("DELETE", vaultPath(path), null, "application/json");
+      if (!result.ok) fail();
+      return true;
+    }
+  };
+}
+
 export function memoryDependencies(config) {
+  if (config.backend === "obsidian") return { files: obsidianFiles(config) };
   const id = config.backend === "google-drive" ? "eco-memory-drive" : config.connector;
   const invoke = async (action, args) => {
     if (isWiping()) throw new Error("Memoria detenida");

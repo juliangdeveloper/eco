@@ -5,7 +5,7 @@ import { json, setting } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
 import { sheetId } from "./memory-drive.js";
-import { MEMORY_BACKENDS, memoryDependencies } from "./memory-backends.js";
+import { MEMORY_BACKENDS, OBSIDIAN_ACTIONS, memoryDependencies } from "./memory-backends.js";
 
 const PRESENCE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const CAPABILITY_LABELS = { mediaDevices: "cámara y micrófono", geolocation: "ubicación", bluetooth: "Bluetooth", usb: "USB", serial: "serial", hid: "HID", nfc: "NFC", clipboard: "portapapeles" };
@@ -56,6 +56,7 @@ let presenceUpdated = 0;
 
 function identityOf(config) {
   if (config.backend === "google-drive") return [config.backend, config.sheet, config.eco, config.usuario].join(":");
+  if (config.backend === "obsidian") return [config.backend, config.connector, config.folder, JSON.stringify(config.operations || {}), JSON.stringify(config.arguments || {}), JSON.stringify(config.operation_args || {}), config.eco, config.usuario].join(":");
   return [config.backend, config.connector, config.operation, config.mode, config.sql_argument, JSON.stringify(config.operations), config.eco, config.usuario].join(":");
 }
 
@@ -157,6 +158,7 @@ export async function configureMemory(input) {
     presenceUpdated = 0;
     return { ok: true, estado: "Memoria local; los datos remotos y las credenciales siguen intactos." };
   }
+  if (options.backend === "obsidian") return configureObsidian(options);
   if (options.backend && options.backend !== "google-drive") return configureDatabase(options);
   const definition = ADAPTERS["google-drive"];
   let connector = await getConnector(CONNECTOR_ID);
@@ -253,6 +255,47 @@ export async function databaseMemoryGuide() {
     skillTexts.set("database", await response.text());
   }
   return skillTexts.get("database");
+}
+
+async function skillText(backend) {
+  if (!skillTexts.has(backend)) {
+    const response = await fetch(ADAPTERS[backend].skill + "?v=" + APP_VERSION);
+    if (!response.ok) throw new Error("No se pudo cargar la habilidad de memoria.");
+    skillTexts.set(backend, await response.text());
+  }
+  return skillTexts.get(backend);
+}
+
+async function configureObsidian(options) {
+  const previous = json(CONFIG_KEY) || {};
+  const folder = String(options.folder || "Eco").trim().replace(/^\/+|\/+$/g, "");
+  if (!folder || folder.length > 120 || folder.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Usa una carpeta relativa a la bóveda, sin . ni ..");
+  const config = { backend: "obsidian", connector: String(options.connector || ""), folder, eco: options.eco || previous.eco || "eco-" + crypto.randomUUID().slice(0, 6), usuario: options.usuario || previous.usuario || "usuario" };
+  if (!NAME_PATTERN.test(config.eco) || !NAME_PATTERN.test(config.usuario)) throw new Error("Usa nombres de 1 a 40 letras minúsculas, números o guiones.");
+  const connector = config.connector && await getConnector(config.connector);
+  if (!connector) return { ok: false, error: "Crea primero el conector a la bóveda e indica su id en connector.", instructions: await skillText("obsidian") };
+  if (connector.kind === "mcp") {
+    const names = connector.tools?.map(tool => tool.name) || [];
+    config.operations = Object.fromEntries(OBSIDIAN_ACTIONS.map(action => [action, String(options.operations?.[action] || "")]));
+    const absent = OBSIDIAN_ACTIONS.filter(action => !names.includes(config.operations[action]));
+    if (absent.length) return { ok: false, error: "Indica en operations la herramienta MCP para: " + absent.join(", "), herramientas: names, instructions: await skillText("obsidian") };
+    const argumentsMap = Object.fromEntries(["path", "content"].filter(key => typeof options.arguments?.[key] === "string" && options.arguments[key]).map(key => [key, options.arguments[key]]));
+    if (Object.keys(argumentsMap).length) config.arguments = argumentsMap;
+    const fixed = Object.fromEntries(OBSIDIAN_ACTIONS.filter(action => options.operation_args?.[action] && typeof options.operation_args[action] === "object" && !Array.isArray(options.operation_args[action])).map(action => [action, options.operation_args[action]]));
+    if (Object.keys(fixed).length) config.operation_args = fixed;
+  }
+  if (await connectorStatus(config.connector) !== STATUS.CONNECTED && await showCredentialCard(connector) !== STATUS.CONNECTED) return { ok: false, estado: "La memoria sigue local." };
+  try {
+    const destination = adapter(config);
+    await destination.connect();
+    await destination.agents("actualizar", {}, agentIdentity());
+  } catch (error) {
+    return { ok: false, error: error.message, instructions: await skillText("obsidian") };
+  }
+  json(CONFIG_KEY, config);
+  presenceIdentity = identityOf(config);
+  presenceUpdated = Date.now();
+  return { ok: true, backend: config.backend, eco: config.eco, carpeta: folder, estado: "Memoria conectada a la bóveda de Obsidian." };
 }
 
 async function configureDatabase(options) {

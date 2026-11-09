@@ -85,7 +85,7 @@ export function readEnvironmentStorage() {
     try { value = JSON.parse(value); } catch {}
     if (["memory", "user"].includes(name)) value = { content: "[oculto: texto libre]", characters: localStorage.getItem(key).length };
     if (name === "stats") value = Object.fromEntries(Object.entries(value || {}).filter(([key, item]) => ["mensajes_enviados", "herramientas_usadas"].includes(key) && typeof item === "number"));
-    if (name === "persistentMemory") value = Object.fromEntries(Object.entries(value || {}).filter(([key, item]) => ["backend", "sheet", "eco", "usuario"].includes(key) && typeof item === "string"));
+    if (name === "persistentMemory") value = Object.fromEntries(Object.entries(value || {}).filter(([key, item]) => ["backend", "sheet", "folder", "eco", "usuario"].includes(key) && typeof item === "string"));
     entries.push({ key, value: redact(value) });
   }
   return { untrusted: true, entries, omitted, note: "Solo configuración y memoria local conocidas. El texto libre de memoria/perfil se oculta; las herramientas de memoria normales siguen disponibles. No se leen secretos, diarios de sesiones, datos de conectores ni material cifrado de IndexedDB." };
