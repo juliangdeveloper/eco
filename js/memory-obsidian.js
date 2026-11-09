@@ -1,4 +1,4 @@
-import { MEMORY_COLUMNS, MEMORY_PROTOCOL, PROTOCOL_VERSION, RECORD_TABS, TYPE_TABS, MemoryBackend, matchesRecord, replacementCheck, routineRecord } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, MEMORY_PROTOCOL, PROTOCOL_VERSION, RECORD_TABS, TYPE_TABS, MemoryBackend, matchesRecord, replacementCheck, routineRecord, protocolUpgrades } from "./memory-protocol.js";
 import { SCHEMA_COLUMNS, parseMap, mergeMap, resolveSchema, snapshotMap, decodeRow, requireTable } from "./memory-schema.js";
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
 
@@ -122,9 +122,11 @@ export class ObsidianMemory extends MemoryBackend {
     try { localStorage.setItem("eco.obsidianSchema:" + this.config.connector + ":" + this.root, JSON.stringify(map)); } catch {}
     const value = JSON.stringify(map);
     const current = this.protocolNote ? { front: { ...this.protocolNote.front }, body: this.protocolNote.body } : { front: Object.fromEntries(MEMORY_PROTOCOL.slice(1)), body: "" };
-    if (current.front.map === value) { this.structure.map_shared = true; return; }
+    const upgrades = protocolUpgrades(Object.entries(current.front).map(([key, value]) => ({ key, value })));
+    if (current.front.map === value && !upgrades.length) { this.structure.map_shared = true; return; }
     current.front.map = value;
-    try { await this.files.write(this.path("_eco.md"), serializeNote(current.front, current.body)); this.known?.add(this.root); this.protocolNote = current; this.structure.map_shared = true; }
+    for (const [key, entry] of upgrades) current.front[key] = entry;
+    try { await this.files.write(this.path("_eco.md"), serializeNote(current.front, current.body)); this.known?.add(this.root); this.protocolNote = current; this.structure.map_shared = true; if (upgrades.length) this.structure.version = PROTOCOL_VERSION; }
     catch { this.structure.map_shared = false; this.structure.warning = "Local map: could not save map in _eco.md."; }
   }
   async prepare() { await this.inspect(); await this.persistMap(); this.inspected = Date.now(); return this.structure; }
@@ -275,7 +277,7 @@ export class ObsidianMemory extends MemoryBackend {
     if (logical === "agents") {
       if (!NAME.test(id || "")) throw new Error("Invalid agent name.");
       for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("You can only update your own preferences and stack.");
-      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() };
+      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString(), ip: identity.ip || String(previous.ip || "") };
     } else record = routineRecord(this.config, changes, previous);
     const path = matches[0]?.path || this.path(table.name, encodeURIComponent(id) + ".md");
     this.known?.add(this.path(table.name));

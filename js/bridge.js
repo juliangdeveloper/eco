@@ -4,7 +4,7 @@ import { redactSecurityData } from "./security.js";
 import { discoverEnvironment, readEnvironmentStorage } from "./environment.js";
 import { readDeviceDocumentation, listDeviceTools, manageDeviceTool, callDeviceTool } from "./device-tools.js";
 import { timedFetch } from "./network.js";
-import { passiveMemory, memoryCall, configureMemory, databaseMemoryGuide, topicSkill, topicSkills } from "./passive-skills.js";
+import { passiveMemory, memoryCall, configureMemory, databaseMemoryGuide, topicSkill, topicSkills, devicePublicIp } from "./passive-skills.js";
 import { abortJob, jobRecords, jobSignal, jobSnapshot, jobUpdate, resumeJob } from "./subagents.js";
 import { DEFAULT_MODEL } from "./config.js";
 import { all, remove, setting, store } from "./storage.js";
@@ -85,6 +85,7 @@ window.ecoBridge = {
   commitReload,
   async deviceEnvironment() { return JSON.stringify(await discoverEnvironment()); },
   async deviceStorage() { return JSON.stringify(readEnvironmentStorage()); },
+  async devicePublicIp() { return JSON.stringify(await devicePublicIp()); },
   async deviceDocumentation(url) {
     try { return JSON.stringify(await readDeviceDocumentation(String(url))); }
     catch (error) { return JSON.stringify({ ok: false, error: String(error.message || error) }); }

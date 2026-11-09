@@ -190,7 +190,7 @@ export class DatabaseMemory extends MemoryBackend {
     const pending = this.writing.then(async () => {
       const previous = (await this.execute("agents", { action: "listar", id: this.config.eco }))[0] || {};
       const record = Object.fromEntries(AGENT_COLUMNS.map(key => [key, String(previous[key] || "")]));
-      Object.assign(record, changes, { id: this.config.eco, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() });
+      Object.assign(record, changes, { id: this.config.eco, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString(), ip: identity.ip || String(previous.ip || "") });
       await this.execute("agents", { action: "actualizar", record });
       return { ok: true, agente: record };
     });

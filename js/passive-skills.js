@@ -7,9 +7,11 @@ import { showCredentialCard } from "./credentials.js";
 import { sheetId } from "./memory-drive.js";
 import { MEMORY_BACKENDS, OBSIDIAN_ACTIONS, memoryDependencies } from "./memory-backends.js";
 import { MemorySet } from "./memory-set.js";
+import { publicIp } from "./public-ip.js";
 
 const PRESENCE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const PROBE_STALE_MS = 5 * 60 * 1000;
+const IP_WAIT_MS = 6000;
 const CAPABILITY_LABELS = { mediaDevices: "camera and microphone", geolocation: "location", bluetooth: "Bluetooth", usb: "USB", serial: "serial", hid: "HID", nfc: "NFC", clipboard: "clipboard" };
 const CONFIG_KEY = "persistentMemory";
 const CONNECTOR_ID = "eco-memory-drive";
@@ -193,7 +195,7 @@ export async function memoryCall(action, args) {
   flushQueues(set);
   if (action === "esquema") return set.schema(args?.action || "ver", args?.mapa || {}, args?.memoria);
   if (action === "reglas") return set.search(args, ["memories"]);
-  if (action === "agentes") return set.agents(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")), agentIdentity());
+  if (action === "agentes") { const operation = args?.action || "listar"; return set.agents(operation, Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")), operation === "actualizar" ? await presenceIdentityWithIp() : agentIdentity()); }
   if (action === "rutinas") return set.routines(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")));
   if (action === "guardar") return set.save(args);
   if (action === "buscar") return set.search(args);
@@ -454,6 +456,23 @@ export async function checkSecurityMemory() {
   } catch {} finally { securityChecking = false; }
 }
 
+async function currentIp() {
+  let timer;
+  const limit = new Promise(resolve => { timer = setTimeout(() => resolve(""), IP_WAIT_MS); });
+  try { return await Promise.race([publicIp().then(result => result.ip).catch(() => ""), limit]); }
+  finally { clearTimeout(timer); }
+}
+
+async function presenceIdentityWithIp() {
+  const ip = await currentIp();
+  return { ...agentIdentity(), ...(ip ? { ip } : {}) };
+}
+
+export async function devicePublicIp() {
+  const result = await publicIp(true).catch(() => ({ ip: "", source: "" }));
+  return result.ip ? { ip: result.ip, source: result.source, contenido_no_confiable: true } : { error: "Could not get the public IP. Check the connection and try again." };
+}
+
 function agentIdentity() {
   return {
     model: setting("model") || DEFAULT_MODEL,
@@ -468,7 +487,7 @@ export async function refreshMemoryPresence(force = false) {
   const identity = set.members.map(member => member.identity).join("|");
   if (!force && presenceIdentity === identity && Date.now() - presenceUpdated < PRESENCE_INTERVAL_MS) return;
   if (presencePending) return presencePending;
-  presencePending = set.agents("actualizar", {}, agentIdentity()).then(result => {
+  presencePending = presenceIdentityWithIp().then(details => set.agents("actualizar", {}, details)).then(result => {
     presenceIdentity = identity;
     presenceUpdated = Date.now();
     return result;

@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.19.0
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.20.0
 
-<img src="assets/screenshot.png?v=0.19.0" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.20.0" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
@@ -14,7 +14,7 @@ Your conversations, tools and routines stay on your device. Routines only run wh
 
 ## Shared memory
 
-If you want Eco to remember across devices and talk with other Ecos or with agents like Grok or Claude, ask it to connect to a Google Sheet, a database or an Obsidian vault; it walks you through it. You can connect several and Eco keeps a copy in each. Eco adapts to your structure as it is: if you rename or move columns, it keeps working without you fixing anything.
+If you want Eco to remember across devices and talk with other Ecos or with agents like Grok or Claude, ask it to connect to a Google Sheet, a database or an Obsidian vault; it walks you through it. You can connect several and Eco keeps a copy in each. Each Eco records its public IP along with its activity. Eco adapts to your structure as it is: if you rename or move columns, it keeps working without you fixing anything.
 
 ## Secure wipe
 

@@ -1,5 +1,5 @@
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
-import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, matchesRecord, MemoryBackend, replacementCheck } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, matchesRecord, MemoryBackend, replacementCheck, protocolUpgrades } from "./memory-protocol.js";
 import { SCHEMA_COLUMNS, foldName, columnLetter, quoteTab, parseMap, mergeMap, resolveSchema, snapshotMap, decodeRow, encodeRow, requireTable } from "./memory-schema.js";
 export { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL } from "./memory-protocol.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -120,6 +120,21 @@ export class DriveMemory extends MemoryBackend {
     this.structure.map_shared = true;
     } catch { this.structure.map_shared = false; this.structure.warning = "Local map: missing permissions to save the map row in _eco."; }
   }
+  async upgradeProtocol() {
+    const table = this.structure.tables._eco;
+    if (!table.name || table.fields.key === undefined || table.fields.value === undefined) return;
+    const existing = this.structure.protocol.map(row => decodeRow(table, row));
+    const upgrades = protocolUpgrades(existing);
+    if (!upgrades.length) return;
+    try {
+      for (const [key, value] of upgrades) {
+        const index = existing.findIndex(row => row.key === key);
+        if (index >= 0) await this.call("PUT", this.path(quoteTab(table.name) + "!" + columnLetter(table.fields.value) + (index + 2)), { valueInputOption: "RAW" }, { values: [[value]] });
+        else await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, { key, value })] });
+      }
+      this.structure.version = PROTOCOL_VERSION;
+    } catch { this.structure.warning = "The _eco protocol rows could not be updated; existing data is kept."; }
+  }
   async prepare() {
     if (!this.config.sheet) {
       const created = await this.call("POST", "/v4/spreadsheets", {}, { properties: { title: "Eco · Memoria" }, sheets: Object.entries(SCHEMA_COLUMNS).map(([title, columns], sheetId) => ({ properties: { title, sheetId, gridProperties: { frozenRowCount: 1 } }, data: [{ startRow: 0, startColumn: 0, rowData: rows(title === "_eco" ? MEMORY_PROTOCOL : [columns]) }] })) });
@@ -129,7 +144,8 @@ export class DriveMemory extends MemoryBackend {
     schema = await this.additive(schema);
     this.structure = schema;
     await this.persistMap();
-    return schema;
+    await this.upgradeProtocol();
+    return this.structure;
   }
   ensure() {
     if (!this.preparing) this.preparing = this.prepare().finally(() => { this.preparing = null; });
@@ -258,7 +274,7 @@ export class DriveMemory extends MemoryBackend {
     if (logical === "agents") {
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id || "")) throw new Error("Invalid agent name.");
       for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("You can only update your own preferences and stack.");
-      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() };
+      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString(), ip: identity.ip || String(previous.ip || "") };
     } else record = routineRecord(this.config, changes, previous);
     if (matches.length) {
       const requests = Object.entries(table.fields).filter(([key]) => record[key] !== undefined).map(([key, columnIndex]) => ({ updateCells: { start: { sheetId: table.sheetId, rowIndex: matches[0].row - 1, columnIndex }, rows: rows([[record[key]]]), fields: "userEnteredValue" } }));
