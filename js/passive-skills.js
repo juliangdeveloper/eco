@@ -93,6 +93,7 @@ export async function memoryCall(action, args) {
   await destination.ensure();
   if (action === "reglas") return destination.search(args, ["memories"]);
   if (action === "agentes") return destination.agents(args?.accion || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "accion")), agentIdentity());
+  if (action === "rutinas") return destination.routines(args?.accion || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "accion")));
   if (action === "guardar") return destination.save(args);
   if (action === "buscar") return destination.search(args);
   if (action === "leer_nuevos") return destination.readNew();
@@ -115,7 +116,7 @@ export async function memoryMentions(cursor) {
   const records = [];
   for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
     const result = await reader.readNew(["messages"], { load: () => position, save: value => { position = value; } });
-    records.push(...result.records.filter((record) => record.eco_autor !== config.eco && (record.para === config.eco || record.para === BROADCAST || record.contenido.includes(mention))));
+    records.push(...result.records.filter((record) => record.tipo === "mensaje" && record.eco_autor !== config.eco && (record.para === config.eco || record.para === BROADCAST || record.contenido.includes(mention))));
     if (!result.hay_mas) break;
   }
   return { records, cursor: { identity, position } };
@@ -272,10 +273,10 @@ async function configureDatabase(options) {
     config.mode = options.mode || "operations";
     if (!["operations", "sql"].includes(config.mode)) throw new Error("Modo de base de datos no compatible.");
     config.operation = String(options.operation || "");
-    config.operations = Object.fromEntries(Object.entries(options.operations || {}).filter(([key, value]) => ["schema", "search", "new", "save", "agents", "redact"].includes(key) && typeof value === "string"));
+    config.operations = Object.fromEntries(Object.entries(options.operations || {}).filter(([key, value]) => ["schema", "search", "new", "save", "agents", "routines", "redact"].includes(key) && typeof value === "string"));
     config.sql_argument = String(options.sql_argument || "query");
     const names = connector.kind === "mcp" ? connector.tools?.map(tool => tool.name) || [] : connector.operations.map(operation => operation.name);
-    for (const action of ["schema", "search", "new", "save", "agents", "redact"]) if (!names.includes(config.operations[action] || config.operation)) throw new Error("Falta una operación de memoria compatible: " + action);
+    for (const action of ["schema", "search", "new", "save", "agents", "routines", "redact"]) if (!names.includes(config.operations[action] || config.operation)) throw new Error("Falta una operación de memoria compatible: " + action);
   }
   try {
     const destination = adapter(config);

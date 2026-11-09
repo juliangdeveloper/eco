@@ -1,4 +1,4 @@
-import { MemoryBackend, MEMORY_COLUMNS, AGENT_COLUMNS, MEMORY_PROTOCOL, TYPE_TABS, RECORD_TABS, PROTOCOL_VERSION, matchesRecord } from "./memory-protocol.js";
+import { MemoryBackend, MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, MEMORY_PROTOCOL, TYPE_TABS, RECORD_TABS, PROTOCOL_VERSION, matchesRecord } from "./memory-protocol.js";
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,9 +20,9 @@ export class DatabaseMemory extends MemoryBackend {
     return this.preparing;
   }
   async validate() {
-    const result = await this.execute("schema", { protocol: MEMORY_PROTOCOL, columns: MEMORY_COLUMNS, agents: AGENT_COLUMNS, tables: [...RECORD_TABS, "agents", "_eco"] });
+    const result = await this.execute("schema", { protocol: MEMORY_PROTOCOL, columns: MEMORY_COLUMNS, agents: AGENT_COLUMNS, routines: ROUTINE_COLUMNS, tables: [...MEMORY_TABLES, "_eco"] });
     const protocol = Object.fromEntries(Array.isArray(result) ? result.map(row => [row.clave, row.valor]) : result.protocol || []);
-    if (protocol.protocolo !== "eco-memoria" || protocol.version !== PROTOCOL_VERSION || protocol.tablas !== RECORD_TABS.join(",") || protocol.columnas !== MEMORY_COLUMNS.join(",") || protocol.agents !== AGENT_COLUMNS.join(",")) throw new Error("La base no usa eco-memoria v3. Crea las tablas y el protocolo con la habilidad de bases de datos.");
+    if (protocol.protocolo !== "eco-memoria" || protocol.version !== PROTOCOL_VERSION || protocol.tablas !== MEMORY_TABLES.join(",") || protocol.columnas !== MEMORY_COLUMNS.join(",") || protocol.agents !== AGENT_COLUMNS.join(",") || protocol.routines !== ROUTINE_COLUMNS.join(",")) throw new Error("La base no usa eco-memoria v3. Crea las tablas y el protocolo con la habilidad de bases de datos.");
     return { protocolo: "eco-memoria", version: PROTOCOL_VERSION };
   }
   async connect() { return { ...this.config, ...await this.ensure() }; }
@@ -89,6 +89,7 @@ export class DatabaseMemory extends MemoryBackend {
   async append(args) {
     if (isSecurityCommand(args?.contenido)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
     if (!Object.hasOwn(TYPE_TABS, args.tipo) || !String(args.contenido || "").trim() || String(args.contenido).length > 45000) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
+    if (args.tipo === "acuse" && !UUID.test(args.responde_a || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con responde_a.");
     const id = args.id || crypto.randomUUID();
     if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
     const existing = (await this.search({ id })).records[0];
@@ -118,6 +119,26 @@ export class DatabaseMemory extends MemoryBackend {
     this.writing = pending.catch(() => {});
     return pending;
   }
+  async routines(action = "listar", changes = {}) {
+    await this.ensure();
+    if (action === "listar") {
+      const values = await this.execute("routines", { action, owner: this.config.eco });
+      if (!Array.isArray(values)) throw new Error("Directorio de rutinas inválido.");
+      return { rutinas: values.filter(row => row.agente_id === this.config.eco), contenido_no_confiable: true };
+    }
+    if (action !== "actualizar") throw new Error("Acción de rutina inválida.");
+    const pending = this.writing.then(async () => {
+      routineRecord(this.config, { nombre: "Rutina", ...changes });
+      const previous = await this.execute("routines", { action: "obtener", id: changes.id });
+      if (!Array.isArray(previous) || previous.length > 1) throw new Error("Id de rutina inválido o repetido.");
+      const record = routineRecord(this.config, changes, previous[0] || {});
+      await this.execute("routines", { action: "actualizar", record, owner: this.config.eco });
+      return { ok: true, rutina: record };
+    });
+    this.writing = pending.catch(() => {});
+    return pending;
+  }
+
 }
 
 export class SupabaseMemory extends DatabaseMemory {
@@ -128,7 +149,7 @@ export class SupabaseMemory extends DatabaseMemory {
   }
   async call(method, table, query = {}, body = null, upsert = false) {
     if (isWiping()) throw new Error("Memoria detenida");
-    if (![...RECORD_TABS, "agents", "_eco"].includes(table)) throw new Error("Tabla no compatible.");
+    if (![...MEMORY_TABLES, "_eco"].includes(table)) throw new Error("Tabla no compatible.");
     const result = await this.request(method, "/rest/v1/" + table, query, body, upsert);
     if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconecta las credenciales de la base de datos." : "No se pudo consultar la base de datos. Revisa tablas, permisos y políticas de acceso.");
     if (result.redactMemory) this.redactMemory = result.redactMemory;
@@ -136,13 +157,30 @@ export class SupabaseMemory extends DatabaseMemory {
   }
   async validate() {
     const result = await super.validate();
-    for (const table of [...RECORD_TABS, "agents"]) await this.call("GET", table, { select: (table === "agents" ? AGENT_COLUMNS : MEMORY_COLUMNS).join(","), limit: "0" });
+    for (const table of MEMORY_TABLES) await this.call("GET", table, { select: (table === "agents" ? AGENT_COLUMNS : table === "routines" ? ROUTINE_COLUMNS : MEMORY_COLUMNS).join(","), limit: "0" });
     return result;
   }
   async query(action, args) {
     if (action === "schema") return this.call("GET", "_eco", { select: "clave,valor" });
     if (action === "save") return this.call("POST", args.table, {}, { ...args.record, etiquetas: args.record.etiquetas.split(",").map(tag => tag.trim()).filter(Boolean) });
     if (action === "redact") return this.call("PATCH", "messages", { id: "eq." + args.id }, { contenido: "[orden de seguridad retirada]" });
+    if (action === "routines") {
+      if (args.action === "actualizar") return this.call("POST", "routines", { on_conflict: "id" }, args.record, true);
+      const records = [];
+      let after = "";
+      while (true) {
+        const query = { select: ROUTINE_COLUMNS.join(","), order: "id.asc", limit: String(PAGE) };
+        if (args.owner) query.agente_id = "eq." + args.owner;
+        if (args.id) query.id = "eq." + args.id;
+        else if (after) query.id = "gt." + after;
+        const batch = await this.call("GET", "routines", query);
+        if (!Array.isArray(batch)) throw new Error("Directorio de rutinas inválido.");
+        records.push(...batch);
+        if (args.id || batch.length < PAGE) return records;
+        if (after === batch.at(-1).id) throw new Error("Cursor de rutinas inválido.");
+        after = batch.at(-1).id;
+      }
+    }
     if (action === "agents") {
       if (args.action === "actualizar") return this.call("POST", "agents", { on_conflict: "id" }, args.record, true);
       const records = [];

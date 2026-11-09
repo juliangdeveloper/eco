@@ -1,5 +1,5 @@
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
-import { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, LEGACY_TABS, recordOf, matchesRecord, MemoryBackend } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, LEGACY_TABS, recordOf, matchesRecord, MemoryBackend } from "./memory-protocol.js";
 export { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL } from "./memory-protocol.js";
 const BATCH_ROWS = 100;
 const FIRST_ROW = 2;
@@ -13,7 +13,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const SHEET_ID_PATTERN = /^[A-Za-z0-9_-]{20,}$/;
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const PROTOCOL_NAME = "eco-memoria";
-const ALL_TABS = Object.freeze(["_eco", ...RECORD_TABS, "agents"]);
+const ALL_TABS = Object.freeze(["_eco", ...MEMORY_TABLES]);
+const columnsFor = tab => tab === "agents" ? AGENT_COLUMNS : tab === "routines" ? ROUTINE_COLUMNS : MEMORY_COLUMNS;
 let queue = Promise.resolve();
 let lastRequest = 0;
 
@@ -37,13 +38,17 @@ export function validateProtocol(protocol, headers) {
   const values = Object.fromEntries(protocol);
   const version = String(values.version);
   const header = version === "1" ? headers.records || headers : null;
-  const expectedTabs = version === "2" ? Object.keys(LEGACY_TABS).slice(0, 3) : RECORD_TABS;
+  const expectedTabs = version === "2" ? ["recuerdos", "mensajes", "acuses"] : RECORD_TABS;
   const agentTab = version === "2" ? "agentes" : "agents";
-  const valid = values.protocolo === PROTOCOL_NAME && values.columnas === MEMORY_COLUMNS.join(",") && (version === "1"
+  const oldV3 = version === "3" && values.tablas === "memories,messages,acks";
+  const ackHeaders = ["acks", "acuses"].every(tab => !headers[tab] || JSON.stringify(headers[tab]) === JSON.stringify(MEMORY_COLUMNS));
+  const routineHeader = !headers.routines || JSON.stringify(headers.routines) === JSON.stringify(ROUTINE_COLUMNS);
+  const valid = values.protocolo === PROTOCOL_NAME && values.columnas === MEMORY_COLUMNS.join(",") && routineHeader && ackHeaders && (version === "1"
     ? values.tabla === "records" && JSON.stringify(header) === JSON.stringify(MEMORY_COLUMNS)
-    : ["2", PROTOCOL_VERSION].includes(version) && values.tablas === expectedTabs.join(",") && values[agentTab] === AGENT_COLUMNS.join(",") && expectedTabs.every(tab => JSON.stringify(headers[tab]) === JSON.stringify(MEMORY_COLUMNS)) && JSON.stringify(headers[agentTab]) === JSON.stringify(AGENT_COLUMNS));
+    : ["2", PROTOCOL_VERSION].includes(version) && (version === "2" ? values.tablas === expectedTabs.join(",") : oldV3 || values.tablas === MEMORY_TABLES.join(",") && values.routines === ROUTINE_COLUMNS.join(",")) && values[agentTab] === AGENT_COLUMNS.join(",") && expectedTabs.every(tab => JSON.stringify(headers[tab]) === JSON.stringify(MEMORY_COLUMNS)) && (!oldV3 || JSON.stringify(headers.acks) === JSON.stringify(MEMORY_COLUMNS)) && JSON.stringify(headers[agentTab]) === JSON.stringify(AGENT_COLUMNS));
   if (!valid) throw new Error("La hoja no usa un protocolo eco-memoria compatible o sus columnas no coinciden.");
-  return { protocolo: PROTOCOL_NAME, version, tablas: version === "1" ? ["records"] : expectedTabs };
+  return { protocolo: PROTOCOL_NAME, version, tablas: version === "1" ? ["records"] : expectedTabs, needsUpgrade: version !== "3" || oldV3 || !headers.routines || Boolean(headers.acks) || Boolean(headers.acuses) };
+
 }
 
 export class DriveMemory extends MemoryBackend {
@@ -60,6 +65,7 @@ export class DriveMemory extends MemoryBackend {
     this.importing = null;
     this.structure = null;
     this.agentWriting = Promise.resolve();
+    this.routineWriting = Promise.resolve();
   }
   async schedule(operation) {
     const execute = async () => {
@@ -95,7 +101,7 @@ export class DriveMemory extends MemoryBackend {
   async inspect() {
     const structure = await this.call("GET", this.base(), { fields: "sheets.properties" });
     const tabs = Object.fromEntries((structure.sheets || []).map(sheet => [sheet.properties.title, sheet.properties.sheetId]));
-    const names = ["records", ...RECORD_TABS, "agents", ...Object.keys(LEGACY_TABS)].filter(tab => Object.hasOwn(tabs, tab));
+    const names = [...new Set(["records", ...MEMORY_TABLES, "acuses", "acks", ...Object.keys(LEGACY_TABS)])].filter(tab => Object.hasOwn(tabs, tab));
     const result = await this.batchValues(["'_eco'!A1:B30", ...names.map(tab => "'" + tab + "'!A1:K1")]);
     const headers = Object.fromEntries(names.map((tab, index) => [tab, result[index + 1][0] || []]));
     return { ...validateProtocol(result[0], headers), tabs };
@@ -113,17 +119,13 @@ export class DriveMemory extends MemoryBackend {
     if (!this.config.sheet) {
       const created = await this.call("POST", "/v4/spreadsheets", {}, {
         properties: { title: "Eco · Memoria" },
-        sheets: ALL_TABS.map((title, sheetId) => ({ properties: { title, sheetId, gridProperties: { frozenRowCount: 1 } }, data: [{ startRow: 0, startColumn: 0, rowData: rows(title === "_eco" ? MEMORY_PROTOCOL : [title === "agents" ? AGENT_COLUMNS : MEMORY_COLUMNS]) }] }))
+        sheets: ALL_TABS.map((title, sheetId) => ({ properties: { title, sheetId, gridProperties: { frozenRowCount: 1 } }, data: [{ startRow: 0, startColumn: 0, rowData: rows(title === "_eco" ? MEMORY_PROTOCOL : [columnsFor(title)]) }] }))
       });
       this.config.sheet = created.spreadsheetId;
     }
     let schema = await this.inspect();
-    if (schema.version === "2") {
-      if (Object.values(LEGACY_TABS).some(tab => Object.hasOwn(schema.tabs, tab))) throw new Error("Hay pestañas v3 en una hoja v2. Revisa el esquema antes de migrar.");
-      const requests = Object.entries(LEGACY_TABS).map(([previous, title]) => ({ updateSheetProperties: { properties: { sheetId: schema.tabs[previous], title }, fields: "title" } }));
-      requests.push({ updateCells: { range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 30, startColumnIndex: 0, endColumnIndex: 2 }, rows: rows(MEMORY_PROTOCOL), fields: "userEnteredValue" } });
-      try { await this.batch(requests); }
-      catch (error) { if ((await this.inspect()).version !== PROTOCOL_VERSION) throw error; }
+    if (schema.version !== "1" && schema.needsUpgrade) {
+      await this.upgrade(schema);
       schema = await this.inspect();
     }
     if (schema.version === "1") {
@@ -136,13 +138,13 @@ export class DriveMemory extends MemoryBackend {
         const ids = new Set(Object.values(schema.tabs));
         let nextId = 1;
         const targetIds = {};
-        for (const tab of [...RECORD_TABS, "agents"]) {
+        for (const tab of MEMORY_TABLES.filter(tab => !Object.hasOwn(schema.tabs, tab))) {
           while (ids.has(nextId)) nextId++;
           const sheetId = nextId++;
           ids.add(sheetId);
           targetIds[tab] = sheetId;
           requests.push({ addSheet: { properties: { title: tab, sheetId, gridProperties: { frozenRowCount: 1 } } } });
-          requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([tab === "agents" ? AGENT_COLUMNS : MEMORY_COLUMNS]), fields: "userEnteredValue" } });
+          requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
         }
         const seen = new Set();
         for (const [index, value] of legacy.entries()) {
@@ -162,9 +164,49 @@ export class DriveMemory extends MemoryBackend {
         schema = await this.inspect();
       }
     }
+    if (schema.needsUpgrade) throw new Error("La migración del protocolo no se completó.");
     this.structure = schema;
     this.config.initialize = false;
     return schema;
+  }
+  async upgrade(schema) {
+    const requests = [];
+    if (schema.version === "2") {
+      if (Object.values(LEGACY_TABS).some(tab => Object.hasOwn(schema.tabs, tab))) throw new Error("Hay pestañas v3 en una hoja v2. Revisa el esquema antes de migrar.");
+      for (const [previous, title] of Object.entries(LEGACY_TABS)) requests.push({ updateSheetProperties: { properties: { sheetId: schema.tabs[previous], title }, fields: "title" } });
+    }
+    const sources = ["acuses", "acks"].filter(tab => Object.hasOwn(schema.tabs, tab));
+    if (sources.length > 1) throw new Error("Hay dos pestañas antiguas de acuses. Revisa sus datos antes de migrar.");
+    const source = sources[0] || "";
+    if (source) {
+      const target = schema.version === "2" ? "mensajes" : "messages";
+      const [legacy, existing] = await this.batchValues([rangeFor(source), rangeFor(target)]);
+      const known = new Map(existing.filter(value => value[0]).map(value => [value[0], recordOf(value)]));
+      const transferred = [];
+      for (const value of legacy) {
+        if (!value.some(cell => String(cell ?? "").length)) continue;
+        const record = recordOf(value);
+        if (!UUID_PATTERN.test(record.id) || !["acuse", "mensaje"].includes(record.tipo)) throw new Error("Hay acuses con id o tipo inválido. Conserva los datos y revisa la pestaña antes de migrar.");
+        if (known.has(record.id)) {
+          if (JSON.stringify(known.get(record.id)) !== JSON.stringify(record)) throw new Error("Hay un UUID de acuse con contenido diferente en messages.");
+          continue;
+        }
+        known.set(record.id, record);
+        transferred.push(value);
+      }
+      if (transferred.length) requests.push({ appendCells: { sheetId: schema.tabs[target], rows: rows(transferred), fields: "userEnteredValue" } });
+      requests.push({ deleteSheet: { sheetId: schema.tabs[source] } });
+    }
+    if (!Object.hasOwn(schema.tabs, "routines")) {
+      const ids = new Set(Object.values(schema.tabs));
+      let sheetId = 1;
+      while (ids.has(sheetId)) sheetId++;
+      requests.push({ addSheet: { properties: { title: "routines", sheetId, gridProperties: { frozenRowCount: 1 } } } });
+      requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([ROUTINE_COLUMNS]), fields: "userEnteredValue" } });
+    }
+    requests.push({ updateCells: { range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 30, startColumnIndex: 0, endColumnIndex: 2 }, rows: rows(MEMORY_PROTOCOL), fields: "userEnteredValue" } });
+    try { await this.batch(requests); }
+    catch (error) { if ((await this.inspect()).needsUpgrade) throw error; }
   }
   async connect() {
     await this.ensure();
@@ -215,6 +257,8 @@ export class DriveMemory extends MemoryBackend {
       if (state.tabs[previous] && !state.tabs[tab]) state.tabs[tab] = state.tabs[previous];
       delete state.tabs[previous];
     }
+    delete state.tabs.acuses;
+    delete state.tabs.acks;
     const starts = Object.fromEntries(tabs.map(tab => [tab, Math.max(FIRST_ROW, Number(state.tabs[tab]?.row) || FIRST_ROW)]));
     const ends = Object.fromEntries(tabs.map(tab => [tab, starts[tab] + BATCH_ROWS - 1]));
     const batches = await this.collect(tabs, starts, ends);
@@ -306,6 +350,7 @@ export class DriveMemory extends MemoryBackend {
   async append(args) {
     if (isSecurityCommand(args?.contenido)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
     if (!Object.hasOwn(TYPE_TABS, args.tipo) || !String(args.contenido || "").trim() || String(args.contenido).length > MAX_CONTENT) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
+    if (args.tipo === "acuse" && !UUID_PATTERN.test(args.responde_a || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con responde_a.");
     const id = args.id || crypto.randomUUID();
     if (!UUID_PATTERN.test(id)) throw new Error("El id debe ser un UUID.");
     const existing = (await this.search({ id }, RECORD_TABS, true)).records;
@@ -351,4 +396,38 @@ export class DriveMemory extends MemoryBackend {
     this.agentWriting = pending.catch(() => {});
     return pending;
   }
+  async routines(action = "listar", changes = {}) {
+    await this.ensure();
+    if (action === "listar") {
+      const values = await this.values("'routines'!A2:J");
+      return { rutinas: values.filter(value => value[0] && value[3] === this.config.eco).map(value => Object.fromEntries(ROUTINE_COLUMNS.map((key, index) => [key, String(value[index] ?? "")]))), contenido_no_confiable: true };
+    }
+    if (action !== "actualizar") throw new Error("Acción de rutina inválida.");
+    const pending = this.routineWriting.then(async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const values = await this.values("'routines'!A2:J");
+        const matches = values.map((value, index) => ({ value, index })).filter(item => item.value[0] === changes.id);
+        if (matches.length > 1) throw new Error("El id de rutina está repetido.");
+        const index = matches[0]?.index ?? -1;
+        const previous = index < 0 ? {} : Object.fromEntries(ROUTINE_COLUMNS.map((key, column) => [key, String(values[index][column] ?? "")]));
+        const record = routineRecord(this.config, changes, previous);
+        const data = [ROUTINE_COLUMNS.map(key => record[key])];
+        if (index >= 0) await this.call("PUT", this.path("'routines'!A" + (index + FIRST_ROW) + ":J" + (index + FIRST_ROW)), { valueInputOption: "RAW" }, { values: data });
+        else {
+          const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(record.id));
+          const name = "eco_routine_" + [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
+          try {
+            await this.batch([
+              { addNamedRange: { namedRange: { namedRangeId: name, name, range: { sheetId: this.structure.tabs.routines, startColumnIndex: 0, endColumnIndex: ROUTINE_COLUMNS.length } } } },
+              { appendCells: { sheetId: this.structure.tabs.routines, rows: rows(data), fields: "userEnteredValue" } }
+            ]);
+          } catch (error) { if (attempt) throw error; continue; }
+        }
+        return { ok: true, rutina: record };
+      }
+    });
+    this.routineWriting = pending.catch(() => {});
+    return pending;
+  }
+
 }
