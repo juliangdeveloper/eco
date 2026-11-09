@@ -1,10 +1,13 @@
+import { featureDefinitions, featureValue } from "./environment.js";
 import { isWiping, securityState } from "./security.js";
-import { APP_VERSION } from "./config.js";
-import { json } from "./storage.js";
+import { APP_VERSION, DEFAULT_MODEL } from "./config.js";
+import { json, setting } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
-import { DriveMemory, sheetId, validateProtocol } from "./memory-drive.js";
+import { DriveMemory, sheetId } from "./memory-drive.js";
 
+const PRESENCE_INTERVAL_MS = 180000;
+const CAPABILITY_LABELS = { mediaDevices: "cámara y micrófono", geolocation: "ubicación", bluetooth: "Bluetooth", usb: "USB", serial: "serial", hid: "HID", nfc: "NFC", clipboard: "portapapeles" };
 const CONFIG_KEY = "persistentMemory";
 const CONNECTOR_ID = "eco-memory-drive";
 const SHEET_TITLE = "Eco · Memoria";
@@ -44,6 +47,10 @@ const DRIVE_FILES_CONNECTOR = Object.freeze({
 const skillTexts = new Map();
 let activeAdapter = null;
 let activeIdentity = "";
+let presenceTimer;
+let presencePending = null;
+let presenceIdentity = "";
+let presenceUpdated = 0;
 
 function identityOf(config) {
   return [config.backend, config.sheet, config.eco, config.usuario].join(":");
@@ -80,6 +87,9 @@ export async function memoryCall(action, args) {
   const config = json(CONFIG_KEY);
   if (!config?.sheet || !ADAPTERS[config.backend] || await connectorStatus(ADAPTERS[config.backend].connector.id) !== STATUS.CONNECTED) throw new Error("La memoria sigue local. Conecta Google Drive o inicia sesión de nuevo.");
   const destination = adapter(config);
+  await destination.ensure();
+  if (action === "reglas") return destination.search(args, ["recuerdos"]);
+  if (action === "agentes") return destination.agents(args?.accion || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "accion")), agentIdentity());
   if (action === "guardar") return destination.save(args);
   if (action === "buscar") return destination.search(args);
   if (action === "leer_nuevos") return destination.readNew();
@@ -96,19 +106,19 @@ export async function memoryMentions(cursor) {
   const config = await connectedConfig();
   if (!config) return null;
   const identity = identityOf(config);
-  let position = cursor?.identity === identity ? cursor.position : json("memoryCursor:" + identity);
-  const reader = ADAPTERS[config.backend].create({ config, request: memoryRequest(ADAPTERS[config.backend]), loadCursor: () => position, saveCursor: (value) => { position = value; } });
+  let position = cursor?.identity === identity ? cursor.position : null;
+  const reader = adapter(config);
   const mention = "@" + config.eco;
   const records = [];
   for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
-    const result = await reader.readNew();
+    const result = await reader.readNew(["mensajes"], { load: () => position, save: value => { position = value; } });
     records.push(...result.records.filter((record) => record.eco_autor !== config.eco && (record.para === config.eco || record.para === BROADCAST || record.contenido.includes(mention))));
     if (!result.hay_mas) break;
   }
   return { records, cursor: { identity, position } };
 }
 
-async function findExistingSheet(definition) {
+export async function findExistingSheet(definition = ADAPTERS["google-drive"]) {
   const query = { q: "name = '" + SHEET_TITLE + "' and mimeType = '" + SHEET_MIME + "' and trashed = false", fields: "files(id,modifiedTime)", orderBy: "modifiedTime desc", pageSize: MAX_CANDIDATES };
   const listing = await connectorFetch(DRIVE_FILES_CONNECTOR.id, "GET", "/drive/v3/files", query, null, true);
   if (!listing.ok || !Array.isArray(listing.data?.files)) return "";
@@ -116,8 +126,7 @@ async function findExistingSheet(definition) {
   for (const file of listing.data.files) {
     try {
       const probe = definition.create({ config: { sheet: file.id }, request: memoryRequest(definition), loadCursor: () => null, saveCursor: () => {} });
-      validateProtocol(await probe.values("'_eco'!A1:B30"), (await probe.values("'records'!A1:K1"))[0]);
-      const rows = (await probe.values("'records'!A:A")).length;
+      const rows = (await probe.describe()).count;
       if (!best || rows > best.rows) best = { id: file.id, rows };
     } catch {
       continue;
@@ -137,6 +146,8 @@ export async function configureMemory(action) {
     json(CONFIG_KEY, null);
     activeAdapter = null;
     activeIdentity = "";
+    presenceIdentity = "";
+    presenceUpdated = 0;
     return { ok: true, estado: "Memoria local; la hoja no se borró y el acceso de Google sigue guardado en Conectores." };
   }
   const definition = ADAPTERS["google-drive"];
@@ -206,6 +217,7 @@ export async function configureMemory(action) {
         destination = adapter(config);
         const connected = await destination.connect();
         json(CONFIG_KEY, config);
+        await refreshMemoryPresence(true);
         const anchor = element("a", "Abrir Eco · Memoria");
         anchor.href = connected.url;
         anchor.target = "_blank";
@@ -237,19 +249,44 @@ export async function checkSecurityMemory() {
     const config = await connectedConfig();
     if (!config || isWiping()) return;
     const cursorKey = "securityMemoryCursor:" + identityOf(config);
-    const reader = ADAPTERS[config.backend].create({ config, request: memoryRequest(ADAPTERS[config.backend]), loadCursor: () => json(cursorKey), saveCursor: value => json(cursorKey, value) });
+    const reader = adapter(config);
     for (let batch = 0; batch < MAX_MENTION_BATCHES && !isWiping(); batch++) {
-      if (!(await reader.readNew()).hay_mas) break;
+      if (!(await reader.readNew(["mensajes"], { load: () => json(cursorKey), save: value => json(cursorKey, value) })).hay_mas) break;
     }
   } catch {} finally { securityChecking = false; }
 }
 
+function agentIdentity() {
+  return {
+    modelo: setting("model") || DEFAULT_MODEL,
+    version: APP_VERSION,
+    perifericos: featureDefinitions().filter(entry => CAPABILITY_LABELS[entry.name] && featureValue(entry.path)).map(entry => CAPABILITY_LABELS[entry.name]).join(", ") || "Sin periféricos expuestos"
+  };
+}
+
+export async function refreshMemoryPresence(force = false) {
+  const config = await connectedConfig();
+  if (!config || isWiping()) return;
+  const identity = identityOf(config);
+  if (!force && presenceIdentity === identity && Date.now() - presenceUpdated < PRESENCE_INTERVAL_MS) return;
+  if (presencePending) return presencePending;
+  presencePending = adapter(config).agents("actualizar", {}, agentIdentity()).then(result => {
+    presenceIdentity = identity;
+    presenceUpdated = Date.now();
+    return result;
+  }).finally(() => { presencePending = null; });
+  return presencePending;
+}
+
 export function startSecurityMemory() {
   clearInterval(securityTimer);
+  clearInterval(presenceTimer);
+  presenceTimer = setInterval(() => refreshMemoryPresence().catch(() => {}), PRESENCE_INTERVAL_MS);
+  refreshMemoryPresence().catch(() => {});
   securityTimer = setInterval(checkSecurityMemory, 15000);
   for (const event of ["online", "focus", "eco-credentials-changed", "eco-security-changed"]) window.addEventListener(event, checkSecurityMemory);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkSecurityMemory(); });
   checkSecurityMemory();
 }
 
-export function stopSecurityMemory() { clearInterval(securityTimer); activeAdapter = null; activeIdentity = ""; skillTexts.clear(); }
+export function stopSecurityMemory() { clearInterval(securityTimer); clearInterval(presenceTimer); presenceUpdated = 0; presenceIdentity = ""; activeAdapter = null; activeIdentity = ""; skillTexts.clear(); }

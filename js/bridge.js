@@ -110,7 +110,7 @@ window.ecoBridge = {
   },
   async memoryContext(task, project) {
     if (!await passiveMemory()) return JSON.stringify({ estado: "Memoria local" });
-    const result = await memoryCall("buscar", {});
+    const result = await memoryCall("reglas", {});
     const words = (String(task).toLocaleLowerCase().match(/[\p{L}\p{N}_-]{4,}/gu) || []).filter((word) => !TASK_STOP_WORDS.has(word));
     const projectName = String(project).trim().toLocaleLowerCase();
     const superseded = new Set(result.records.map((row) => row.reemplaza_a).filter(Boolean));

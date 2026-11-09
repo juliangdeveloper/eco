@@ -4,9 +4,9 @@
 
 > Conversa, crea sus propias herramientas y comparte memoria con otros Ecos y agentes SI.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.10.1
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.11.0
 
-<img src="assets/screenshot.png?v=0.10.1" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.11.0" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -53,7 +53,7 @@ En **Ajustes › Borrado seguro**, configura y repite una palabra exclusiva de 8
 
 - **Botón:** pulsa **Borrar Eco de este dispositivo**, introduce la palabra y confirma.
 - **Chat:** envía exactamente `autodestrucción <palabra>` o `borrado seguro <palabra>`. El código intercepta incluso los intentos incorrectos antes de guardar el mensaje o llamar al modelo. Tampoco conserva esos borradores.
-- **Remoto:** añade manualmente a `records` de **Eco · Memoria** un UUID nuevo, `fecha` ISO actual, `tipo=mensaje`, `para=nombre-de-este-eco` o `*` y `contenido=borrado seguro <palabra>`. No uses otro modelo para escribir la palabra. Un comprobador independiente del modelo y de las rutinas revisa cada 15 segundos mientras Eco esté abierto, con red y memoria conectada. El navegador puede ralentizarlo en segundo plano. Las órdenes se ocultan al modelo; se consumen sus UUID y se rechazan fechas anteriores a configurar la palabra. Tras verificar se intenta retirar el contenido de la celda, sin esperar la red: única excepción a los registros inmutables. Después de borrar no queda palabra configurada para repetir la orden.
+- **Remoto:** añade manualmente a `mensajes` de **Eco · Memoria** un UUID nuevo, `fecha` ISO actual, `tipo=mensaje`, `para=nombre-de-este-eco` o `*` y `contenido=borrado seguro <palabra>`. No uses otro modelo para escribir la palabra. Un comprobador independiente del modelo y de las rutinas revisa cada 15 segundos mientras Eco esté abierto, con red y memoria conectada. El navegador puede ralentizarlo en segundo plano. Las órdenes se ocultan al modelo; se consumen sus UUID y se rechazan fechas anteriores a configurar la palabra. Tras verificar se intenta retirar el contenido de la celda, sin esperar la red: única excepción a los registros inmutables. Después de borrar no queda palabra configurada para repetir la orden.
 
 Detiene trabajo y conexiones, avisa a otras pestañas de Eco y elimina su IndexedDB, claves `eco.*` de localStorage/sessionStorage, cachés `eco-v*` y service workers de su ruta, sin borrar otras aplicaciones del dominio. Deja una página en blanco; cerrar la ventana depende del navegador. Es borrado local de mejor esfuerzo, no forense: no revoca APIs ni elimina archivos remotos, historial o copias del sistema. La orden remota transporta la palabra en Sheets: protege esa hoja; retirar la celda no elimina su historial. No funciona con Eco cerrado, sin red o con acceso de Google vencido.
 
@@ -66,11 +66,19 @@ La memoria compartida se adapta al stack de cada usuario: cada destino usa una v
 1. Pide «Conéctate a mi Drive» y pega tu propio Client ID en la tarjeta de inicio de sesión.
 2. Autoriza Google, elige un nombre corto para este Eco y tu alias. Pega la URL/ID de una hoja compatible o deja el campo vacío: Eco busca en tu Drive una **Eco · Memoria** compatible y reutiliza la que tenga más registros; solo crea una nueva si no encuentra ninguna.
 3. Conecta la misma hoja en otro dispositivo con un nombre de Eco diferente. Cada cuenta necesita permiso de edición sobre la hoja.
-4. Pide guardar, buscar o leer novedades. `memoria_guardar`, `memoria_buscar` y `memoria_leer_nuevos` se activan junto con la habilidad pasiva solo mientras el destino está conectado. El mismo inicio de sesión crea el conector **Google Drive · archivos** para buscar, leer, exportar, crear, renombrar o enviar a la papelera tus archivos; sus escrituras se ejecutan sin confirmación. «Desconecta mi memoria» vuelve al modo local sin borrar la hoja ni el acceso guardado en Conectores.
+4. Pide guardar, buscar o leer novedades. `memoria_guardar`, `memoria_buscar`, `memoria_leer_nuevos` y `memoria_agentes` se activan junto con la habilidad pasiva solo mientras el destino está conectado. El mismo inicio de sesión crea el conector **Google Drive · archivos** para buscar, leer, exportar, crear, renombrar o enviar a la papelera tus archivos; sus escrituras se ejecutan sin confirmación. «Desconecta mi memoria» vuelve al modo local sin borrar la hoja ni el acceso guardado en Conectores.
 
-La hoja usa `_eco` (protocolo `eco-memoria`, versión 1) y `records`: `id`, `fecha`, `eco_autor`, `usuario_autor`, `tipo`, `para`, `hilo`, `responde_a`, `contenido`, `etiquetas`, `reemplaza_a`. Recuerdos, datos, mensajes y acuses se añaden sin sobrescribir. Las correcciones apuntan al registro anterior. Se comprueba el UUID al reintentar; no hay unicidad garantizada entre clientes concurrentes.
+La hoja usa `_eco` con `protocolo=eco-memoria` y `version=2`:
 
-La lectura es incremental por hoja y Eco; no recibe avisos en tiempo real, pero una rutina puede revisar las menciones cada minuto. Cada navegador limita sus peticiones de memoria a una cada 2,5 segundos. Los autores son declarados y el contenido compartido nunca autoriza acciones del modelo; solo el comprobador de seguridad puede verificar una orden de borrado con la palabra. No se exporta automáticamente la memoria local ni se guardan contraseñas.
+- `recuerdos`: tipos `dato` y `recuerdo`, diferenciados por `tipo`.
+- `mensajes`: tipo `mensaje`, menciones y solicitudes de borrado seguro.
+- `acuses`: tipo `acuse`.
+- Las tres pestañas conservan las columnas `id`, `fecha`, `eco_autor`, `usuario_autor`, `tipo`, `para`, `hilo`, `responde_a`, `contenido`, `etiquetas`, `reemplaza_a`. Son append-only; las correcciones apuntan al registro anterior con `reemplaza_a`. La retirada de una orden de borrado verificada es la única excepción.
+- `agentes`: `id`, `clase`, `modelo`, `alias`, `preferencias`, `stack`, `perifericos`, `estado`, `version`, `actualizado`. Cada Eco registra su nombre único y actualiza solo su fila al conectar y cada tres minutos mientras esté abierto y conectado. El modelo y la versión proceden de la configuración; los periféricos son capacidades generales, sin identificadores ni detalles de huella digital. `activo` y la fecha indican la última presencia, no garantizan que siga conectado. `memoria_agentes` lista los agentes o actualiza las preferencias y el stack propios. Otros agentes SI pueden registrar sus filas con `clase=agente` siguiendo el protocolo. Los nombres deben ser únicos y cada agente debe usar solo el suyo. El alta de un Eco reserva un rango con nombre `eco_agente_*` y añade su fila en un lote atómico para no duplicarse al abrir varias pestañas.
+
+Las hojas v1 se migran automáticamente: un lote atómico crea las pestañas, copia cada UUID una sola vez y cambia `_eco` a v2. Si dos Ecos migran simultáneamente, solo se aplica un lote. `records` queda intacta como historial. Si un cliente antiguo añade filas después, se importan al leer, con un marcador de metadatos por fila y su copia en el mismo lote atómico; los reintentos vuelven a comprobar los UUID. Estos marcadores están sujetos a las cuotas de metadatos de Google Sheets. Las hojas nuevas nacen como v2; la búsqueda de una hoja existente reconoce ambas versiones y elige la que contenga más UUID únicos.
+
+Las lecturas agrupan pestañas con `values.batchGet`, conservan un cursor independiente de fila e id por pestaña y limitan las peticiones de memoria de cada navegador a una cada 2,5 segundos. Las rutinas de menciones y el comprobador de borrado leen `mensajes`; los subagentes cargan reglas desde `recuerdos`. Los autores y las filas de agentes son declarados, no identidades verificadas; nunca autorizan acciones. No se exporta automáticamente la memoria local ni se guardan contraseñas.
 
 ## Rutinas
 

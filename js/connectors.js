@@ -346,7 +346,8 @@ export async function connectorFetch(id, method, path, query, body, complete = f
     return { ok: false, error: "Ruta fuera del conector" };
   }
   for (const [key, value] of Object.entries(query || {})) {
-    url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
+    if (base.hostname === "sheets.googleapis.com" && key === "ranges" && Array.isArray(value)) value.forEach(range => url.searchParams.append(key, String(range)));
+    else url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   const headers = { Accept: "application/json" };
   const auth = await authorize(connector, url, headers);
@@ -377,11 +378,11 @@ export async function connectorFetch(id, method, path, query, body, complete = f
     return { ok: false, status: 401, error: NOT_CONNECTED, reason: AUTH_REJECTED, api_message: secretText.includes(message) ? "" : message };
   }
   const result = { ok: response.ok, status: response.status, data: complete ? data : redactSecurityData(data) };
-  const sheet = path.match(/^\/v4\/spreadsheets\/([A-Za-z0-9_-]+)\/values\//);
+  const sheet = path.match(/^\/v4\/spreadsheets\/([A-Za-z0-9_-]+)\/values(?:\/|:batchGet)/);
   if (complete && base.hostname === "sheets.googleapis.com" && sheet) {
-    result.redactMemory = row => {
-      if (!Number.isSafeInteger(row) || row < 2 || isWiping()) return;
-      const target = new URL("/v4/spreadsheets/" + sheet[1] + "/values/" + encodeURIComponent("'records'!I" + row), base);
+    result.redactMemory = (tab, row) => {
+      if (!["mensajes"].includes(tab) || !Number.isSafeInteger(row) || row < 2 || isWiping()) return;
+      const target = new URL("/v4/spreadsheets/" + sheet[1] + "/values/" + encodeURIComponent("'" + tab + "'!I" + row), base);
       target.searchParams.set("valueInputOption", "RAW");
       return window.fetch(target.href, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ values: [["[orden de seguridad retirada]"]] }), keepalive: true }).catch(() => {});
     };
