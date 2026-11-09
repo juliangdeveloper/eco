@@ -4,9 +4,9 @@
 
 > Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.9.4
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.10.0
 
-<img src="assets/screenshot.png?v=0.9.4" alt="Ajustes de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.10.0" alt="Ajustes de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -34,6 +34,8 @@ El estado se guarda en la conversación. Tras `eco_actualizar` o **Actualizar**,
 ## Herramientas del dispositivo
 
 Eco descubre APIs, permisos, pantalla y restricciones del navegador con `entorno_descubrir`; `almacenamiento_local_leer` solo muestra configuración conocida y filtrada; oculta el texto libre de memoria/perfil y nunca lee claves o el vault. Lee documentación oficial con `documentacion_dispositivo_leer` (MDN se obtiene de su repositorio oficial si hace falta CORS) y crea herramientas con nombre, descripción, esquema JSON y JavaScript mediante `herramienta_dispositivo_gestionar`. Se pueden listar, ver, actualizar y borrar; quedan en IndexedDB solo en ese navegador. Aparecen como `dispositivo_nombre` para los subagentes. No hay herramientas de cámara, GPS u otros periféricos predefinidas.
+
+La capacidad de almacenamiento permite consultar `navigator.storage.estimate` y `navigator.storage.persisted`, sin modificar la persistencia ni abrir archivos.
 
 Crear, actualizar o borrar herramientas no pide aprobación. Eco reutiliza las existentes y las actualiza si no cumplen la tarea. El código corre en un worker de iframe opaco sin almacenamiento, DOM, red ni credenciales. Usa `device.call/get/construct/listen` con referencias efímeras y datos JSON; argumentos en lista o un valor único. El acceso al dispositivo es automático. Solo aparece **Continuar** cuando el navegador exige un toque o rechaza el acceso automático por falta de activación. Los permisos propios del navegador siguen siendo obligatorios; Eco no puede saltarlos. Si el acceso está bloqueado, indica cómo activarlo en Safari.
 
@@ -82,7 +84,7 @@ La tarjeta incluye enlaces en pestaña nueva y botones para copiar los valores e
 
 ## Stack y ejecución local
 
-JavaScript ES, HTML/CSS, Pyodide/Python, OpenRouter, IndexedDB y service worker. Ejecuta `python3 -m http.server` y abre la dirección local.
+JavaScript ES, HTML/CSS, Pyodide 314.0.7/Python 3.14.2, OpenRouter, IndexedDB y service worker. Ejecuta `python3 -m http.server` y abre la dirección local.
 
 ## Licencia
 

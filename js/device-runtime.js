@@ -13,6 +13,7 @@ const FRAME_TIMEOUT_MS = 10000;
 const FRAME_SETTLE_MS = 300;
 const ACTIVATION_METHODS = new Set(["requestDevice", "requestPort", "requestPermission", "requestFullscreen", "showOpenFilePicker", "showSaveFilePicker", "showDirectoryPicker"]);
 const ACTIVATION_FEATURES = new Set(["nfc"]);
+const STORAGE_READ_METHODS = new Set(["estimate", "persisted"]);
 const executions = new Set();
 const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
 const CALL_SIGNATURE = "Usa device.call(ruta, [args])";
@@ -171,7 +172,7 @@ export async function executeDeviceTool(tool, params, signal) {
           if (error?.name) wrapped.name = error.name;
           fail(wrapped);
         };
-        if (entry.feature.name === "storage" && message.kind !== "get" && !SAFE_METHODS.storage.has(message.path.split(".").pop())) throw new Error("Solo se permite consultar el espacio de almacenamiento");
+        if (entry.feature.name === "storage" && message.kind !== "get" && !STORAGE_READ_METHODS.has(message.path.split(".").pop())) throw new Error("Solo se permite consultar el espacio de almacenamiento");
         const args = decode(message.args, respond, reject);
         if (message.kind === "capture") {
           if (!(entry.value instanceof MediaStream)) throw new Error("device.capture necesita la referencia de un MediaStream de esta ejecución");
