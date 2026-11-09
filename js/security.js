@@ -30,9 +30,21 @@ function activityNonce() {
   try { const value = localStorage.getItem(CHANNEL_KEY) || crypto.randomUUID(); localStorage.setItem(CHANNEL_KEY, value); return value; } catch { return crypto.randomUUID(); }
 }
 
+const MEMORY_KEY = "eco.persistentMemory";
+export function memoryConfigured() {
+  try {
+    const config = JSON.parse(localStorage.getItem(MEMORY_KEY) || "null");
+    return Boolean(config && (config.backend === "google-drive" ? config.sheet : ["supabase", "database"].includes(config.backend) && config.connector));
+  } catch { return false; }
+}
+
 export function checkLocalActivity() {
   return serial(async () => {
     if (wiping) return true;
+    if (!memoryConfigured()) {
+      try { localStorage.removeItem(ACTIVITY_KEY); } catch {}
+      return trackOffline();
+    }
     const now = Date.now();
     let previous = null;
     try { previous = localStorage.getItem(ACTIVITY_KEY); } catch {}

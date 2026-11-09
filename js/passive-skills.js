@@ -1,5 +1,5 @@
 import { featureDefinitions, featureValue } from "./environment.js";
-import { isWiping, securityState, setMemoryHealth } from "./security.js";
+import { isWiping, memoryConfigured, securityState, setMemoryHealth } from "./security.js";
 import { APP_VERSION, DEFAULT_MODEL } from "./config.js";
 import { json, setting } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
@@ -340,7 +340,7 @@ export async function refreshMemoryPresence(force = false) {
 
 async function memoryHealth() {
   const config = json(CONFIG_KEY);
-  if (!config || !ADAPTERS[config.backend] || !(config.backend === "google-drive" ? config.sheet : config.connector)) return null;
+  if (!memoryConfigured() || !ADAPTERS[config.backend]) return null;
   return !navigator.onLine || await connectorStatus(config.backend === "google-drive" ? CONNECTOR_ID : config.connector) !== STATUS.CONNECTED;
 }
 
