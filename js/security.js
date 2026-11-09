@@ -46,7 +46,8 @@ const MEMORY_KEY = "eco.persistentMemory";
 export function memoryConfigured() {
   try {
     const config = JSON.parse(localStorage.getItem(MEMORY_KEY) || "null");
-    return Boolean(config && (config.backend === "google-drive" ? config.sheet : ["supabase", "database", "obsidian"].includes(config.backend) && config.connector));
+    const valid = item => Boolean(item && (item.backend === "google-drive" ? item.sheet : ["supabase", "database", "obsidian"].includes(item.backend) && item.connector));
+    return Boolean(config && (valid(config) || Array.isArray(config.mirrors) && config.mirrors.some(valid)));
   } catch { return false; }
 }
 

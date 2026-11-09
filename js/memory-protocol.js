@@ -30,10 +30,10 @@ export const normalizeValues = values => values.map((value, index) => index === 
 export const normalizeRecord = row => Object.fromEntries(MEMORY_COLUMNS.map((key, index) => [key, key === "type" ? normalizeType(row[key] ?? row[LEGACY_MEMORY_COLUMNS[index]] ?? "") : Array.isArray(row[key] ?? row[LEGACY_MEMORY_COLUMNS[index]]) ? (row[key] ?? row[LEGACY_MEMORY_COLUMNS[index]]).join(",") : String(row[key] ?? row[LEGACY_MEMORY_COLUMNS[index]] ?? "")]));
 export const recordOf = values => Object.fromEntries(MEMORY_COLUMNS.map((key, index) => [key, String((index === 4 ? normalizeType(values[index]) : values[index]) ?? "")]));
 export const matchesRecord = (record, filters) => (!filters.type || record.type === filters.type) && (!filters.content || record.content.toLocaleLowerCase().includes(String(filters.content).toLocaleLowerCase())) && (!filters.tags || record.tags.split(",").map(tag => tag.trim()).includes(filters.tags)) && (!filters.eco_author || record.eco_author === filters.eco_author) && (!filters.thread || record.thread === filters.thread) && (!filters.id || record.id === filters.id);
-export function replacementCheck(args, target) {
+export function replacementCheck(args, target, strict = true) {
   if (!args.replaces) return false;
   if (args.type === "memory" || target?.type === "memory") throw new Error("Los registros memory nunca se editan ni se borran; añade uno nuevo.");
-  if (args.type !== "fact") return false;
+  if (args.type !== "fact" || !strict && !target) return false;
   if (!target || target.type !== "fact" || target.id === args.id) throw new Error("replaces debe ser el id de un fact existente.");
   return true;
 }

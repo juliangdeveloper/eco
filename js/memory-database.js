@@ -161,8 +161,8 @@ export class DatabaseMemory extends MemoryBackend {
     if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con reply_to.");
     if (args.type === "ack") {
       const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"])).records[0];
-      if (!original) throw new Error("La confirmación debe apuntar a un mensaje existente en messages.");
-      args = { ...args, to: args.to || original.eco_author, thread: args.thread || original.thread };
+      if (!original && !args.copia) throw new Error("La confirmación debe apuntar a un mensaje existente en messages.");
+      args = { ...args, to: args.to || original?.eco_author || "", thread: args.thread || original?.thread || "" };
     }
     const id = args.id || crypto.randomUUID();
     if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
@@ -172,7 +172,7 @@ export class DatabaseMemory extends MemoryBackend {
       if (existing.type === "fact" && UUID.test(args.replaces || "")) await this.execute("remove", { table: "memories", id: args.replaces }).catch(() => {});
       return { ok: true, id, duplicado: true };
     }
-    const replacing = replacementCheck({ ...args, id }, args.replaces && UUID.test(args.replaces) ? (await this.search({ id: args.replaces })).records[0] : null);
+    const replacing = replacementCheck({ ...args, id }, args.replaces && UUID.test(args.replaces) ? (await this.search({ id: args.replaces })).records[0] : null, !args.copia);
     const record = Object.fromEntries(MEMORY_COLUMNS.filter(key => key !== "date").map(key => [key, String(args[key] || "")]));
     record.tags = tags(record.tags);
     Object.assign(record, { id, eco_author: this.config.eco, user_author: this.config.usuario });

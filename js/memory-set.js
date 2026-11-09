@@ -1,0 +1,154 @@
+import { TYPE_TABS } from "./memory-protocol.js";
+import { isSecurityCommand, isWiping } from "./security.js";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const QUEUE_LIMIT = 2000;
+const FALLBACK_MARGIN_MS = 10 * 60 * 1000;
+const entryKey = entry => entry.op + ":" + (entry.op === "save" ? entry.args.id : entry.changes.id);
+const COPY_NOTICE = "Leído de una copia porque la memoria principal no responde.";
+
+export class MemorySet {
+  constructor({ members, status, queue, store }) {
+    this.members = members;
+    this.status = status;
+    this.queue = queue;
+    this.store = store;
+    this.flushing = null;
+  }
+  get primary() { return this.members[0]; }
+  get mirrors() { return this.members.slice(1); }
+  failedConnection(member, start) {
+    if (!member.connected) return true;
+    const state = this.status(member.key);
+    return state.fail !== undefined && state.fail >= start && state.fail >= (state.ok ?? -Infinity);
+  }
+  async attempt(member, run) {
+    if (!member.connected) return { failed: true, error: new Error("Sin conexión con " + member.label + ".") };
+    const start = performance.now();
+    try {
+      const value = await run(member.adapter);
+      if (value?.error) return { failed: true, error: new Error(value.error) };
+      return { value };
+    } catch (error) {
+      if (this.failedConnection(member, start)) return { failed: true, error };
+      return { rejected: true, error };
+    }
+  }
+  async read(run, note = true) {
+    let first = null;
+    for (const member of this.members) {
+      const outcome = await this.attempt(member, run);
+      if (outcome.value !== undefined) {
+        if (member === this.primary || !note || !outcome.value || typeof outcome.value !== "object") return outcome.value;
+        return { ...outcome.value, aviso: COPY_NOTICE };
+      }
+      if (outcome.rejected) throw outcome.error;
+      first ||= outcome.error;
+      if (isWiping()) break;
+    }
+    throw first || new Error("La memoria sigue local. Conecta un destino o renueva sus credenciales.");
+  }
+  ensure() { return this.read(adapter => adapter.ensure(), false); }
+  connect() { return this.read(adapter => adapter.connect(), false); }
+  search(filters = {}, tabs) { return this.read(adapter => tabs ? adapter.search(filters, tabs) : adapter.search(filters)); }
+  schema(action, changes, key) {
+    const member = key ? this.members.find(item => item.key === key) : this.primary;
+    if (!member) throw new Error("Esa memoria no está conectada.");
+    return member.adapter.schema(action, changes);
+  }
+  async readNew(tabs, cursors, scope = "") {
+    let first = null;
+    for (const member of this.members) {
+      const own = member === this.primary ? cursors : scope ? { load: () => this.store.load(scope + ":" + member.identity), save: value => this.store.save(scope + ":" + member.identity, value) } : undefined;
+      const outcome = await this.attempt(member, adapter => tabs ? adapter.readNew(tabs, own) : adapter.readNew());
+      if (outcome.value) {
+        if (member === this.primary) { this.store.save("memoryPrimaryRead", Date.now()); return outcome.value; }
+        const since = Number(this.store.load("memoryPrimaryRead")) || 0;
+        const records = outcome.value.records.filter(record => !since || Date.parse(record.date) >= since - FALLBACK_MARGIN_MS);
+        return { ...outcome.value, records, aviso: COPY_NOTICE };
+      }
+      if (outcome.rejected) throw outcome.error;
+      first ||= outcome.error;
+      if (isWiping()) break;
+    }
+    throw first || new Error("La memoria sigue local.");
+  }
+  check(args) {
+    if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
+    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
+    if (!UUID.test(args.id)) throw new Error("El id debe ser un UUID.");
+    if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("El acuse necesita reply_to con el UUID original.");
+    if (args.type === "memory" && args.replaces) throw new Error("Los registros memory nunca se editan ni se borran; añade uno nuevo.");
+  }
+  enqueue(member, entry) {
+    let list = this.queue.load(member.key);
+    const previous = entry.op === "routine" && list.find(item => entryKey(item) === entryKey(entry));
+    if (previous) { entry = { ...entry, changes: { ...previous.changes, ...entry.changes } }; list = list.filter(item => item !== previous); }
+    if (entry.op === "save" && list.some(item => entryKey(item) === entryKey(entry))) return;
+    list.push(entry);
+    if (list.length > QUEUE_LIMIT) throw new Error("La cola local de copias está llena; reconecta las memorias.");
+    this.queue.save(member.key, list);
+  }
+  run(entry, adapter) {
+    return entry.op === "save" ? adapter.save({ ...entry.args, copia: true }) : adapter.routines("actualizar", entry.changes);
+  }
+  async replicate(entry, primaryRun) {
+    const primary = this.primary;
+    const main = await this.attempt(primary, primaryRun);
+    if (main.rejected) throw main.error;
+    if (main.failed) this.enqueue(primary, entry);
+    let copied = 0, pending = 0;
+    await Promise.all(this.mirrors.map(async member => {
+      const outcome = await this.attempt(member, adapter => this.run(entry, adapter));
+      if (outcome.failed) { this.enqueue(member, entry); pending++; }
+      else if (outcome.value !== undefined) copied++;
+    }));
+    return { main, copied, pending };
+  }
+  async save(input = {}) {
+    const { copia, ...fields } = input;
+    const args = { ...fields, id: fields.id || crypto.randomUUID() };
+    this.check(args);
+    const entry = { op: "save", args };
+    const { main, copied, pending } = await this.replicate(entry, adapter => adapter.save(args));
+    if (main.value) return pending ? { ...main.value, copias_pendientes: pending } : main.value;
+    if (copied) return { ok: true, id: args.id, aviso: "La memoria principal no responde; el registro quedó en una copia y se enviará a la principal con el mismo id." };
+    return { ok: true, id: args.id, en_cola: true, aviso: "Ninguna memoria responde; el registro quedó en cola en este dispositivo y se enviará con el mismo id." };
+  }
+  async agents(action = "listar", changes = {}, identity = {}) {
+    if (action === "listar") return this.read(adapter => adapter.agents(action, changes, identity));
+    const outcomes = await Promise.all(this.members.map(member => this.attempt(member, adapter => adapter.agents(action, changes, identity))));
+    const done = outcomes.find(outcome => outcome.value);
+    if (done) return done.value;
+    throw outcomes.find(outcome => outcome.rejected)?.error || outcomes[0].error;
+  }
+  async routines(action = "listar", changes = {}) {
+    if (action === "listar") return this.read(adapter => adapter.routines(action, changes));
+    const { main, copied, pending } = await this.replicate({ op: "routine", changes }, adapter => adapter.routines(action, changes));
+    if (main.value) return pending ? { ...main.value, copias_pendientes: pending } : main.value;
+    return { ok: true, en_cola: true, copias: copied, aviso: "La memoria principal no responde; la rutina se enviará cuando vuelva." };
+  }
+  pending() { return Object.fromEntries(this.members.map(member => [member.key, this.queue.load(member.key).length])); }
+  flush() {
+    if (!this.flushing) this.flushing = this.drain().finally(() => { this.flushing = null; });
+    return this.flushing;
+  }
+  async drain() {
+    let sent = 0, dropped = 0;
+    for (const member of this.members) {
+      let list = this.queue.load(member.key);
+      if (!list.length || !member.connected) continue;
+      while (list.length && !isWiping()) {
+        const outcome = await this.attempt(member, adapter => this.run(list[0], adapter));
+        if (outcome.failed) break;
+        if (outcome.rejected) dropped++; else sent++;
+        const done = entryKey(list[0]);
+        const stored = this.queue.load(member.key), index = stored.findIndex(item => entryKey(item) === done);
+        if (index >= 0) stored.splice(index, 1);
+        this.queue.save(member.key, stored);
+        list = stored;
+      }
+    }
+    return { enviados: sent, descartados: dropped };
+  }
+}

@@ -57,11 +57,11 @@ export function databaseSQL(action, args) {
 }
 
 const reachable = result => result?.ok ? true : result?.status && ![401, 403, 404, 408, 429].includes(result.status) && result.status < 500 ? null : false;
-async function observed(pending) {
+async function observed(pending, report = reportMemoryConnection) {
   let result;
-  try { result = await pending; } catch (error) { reportMemoryConnection(false); throw error; }
+  try { result = await pending; } catch (error) { report(false); throw error; }
   const state = reachable(result);
-  if (state !== null) reportMemoryConnection(state);
+  if (state !== null) report(state);
   return result;
 }
 
@@ -74,31 +74,31 @@ function listOf(data) {
 }
 const missing = result => result?.status === 404 ? { ...result, ok: true, missing: true } : result;
 
-function obsidianFiles(config) {
+function obsidianFiles(config, report) {
   const id = config.connector, names = config.arguments || {}, extra = config.operation_args || {};
   const fail = () => { throw new Error("Falló la operación de la bóveda. Revisa el conector y sus permisos."); };
   const tool = async (action, args) => {
     if (isWiping()) throw new Error("Memoria detenida");
     const name = config.operations?.[action];
     if (!name) throw new Error("Falta la herramienta de bóveda para " + action);
-    const result = await observed(callMcpTool(id, name, { ...(extra[action] || {}), ...args }).then(value => !value.ok && !value.error && value.status === undefined ? { ...value, status: 422 } : value));
+    const result = await observed(callMcpTool(id, name, { ...(extra[action] || {}), ...args }).then(value => !value.ok && !value.error && value.status === undefined ? { ...value, status: 422 } : value), report);
     return result;
   };
   const rest = async (method, path, body, accept) => {
     if (isWiping()) throw new Error("Memoria detenida");
-    return observed(connectorFetch(id, method, path, {}, body, true, undefined, { accept, text: true }).then(missing));
+    return observed(connectorFetch(id, method, path, {}, body, true, undefined, { accept, text: true }).then(missing), report);
   };
   const kind = async () => (await getConnector(id))?.kind === "mcp";
   return {
     async list(dir) {
-      if (await kind()) { const result = await tool("list", { [names.path || "path"]: dir }); if (!result.ok) return []; return listOf(result.data); }
+      if (await kind()) { const result = await tool("list", { [names.path || "path"]: dir }); if (!result.ok) { if (result.status === 422) return []; fail(); } return listOf(result.data); }
       const result = await rest("GET", dir ? vaultPath(dir) + "/" : "/vault/", null, "application/json");
       if (result.missing) return [];
       if (!result.ok) fail();
       return listOf(result.data);
     },
     async read(path) {
-      if (await kind()) { const result = await tool("read", { [names.path || "path"]: path }); if (!result.ok) return null; return textOf(result.data); }
+      if (await kind()) { const result = await tool("read", { [names.path || "path"]: path }); if (!result.ok) { if (result.status === 422) return null; fail(); } return textOf(result.data); }
       const result = await rest("GET", vaultPath(path), null, "text/markdown");
       if (result.missing) return null;
       if (!result.ok) fail();
@@ -117,8 +117,8 @@ function obsidianFiles(config) {
   };
 }
 
-export function memoryDependencies(config) {
-  if (config.backend === "obsidian") return { files: obsidianFiles(config) };
+export function memoryDependencies(config, report = reportMemoryConnection) {
+  if (config.backend === "obsidian") return { files: obsidianFiles(config, report) };
   const id = config.backend === "google-drive" ? "eco-memory-drive" : config.connector;
   const invoke = async (action, args) => {
     if (isWiping()) throw new Error("Memoria detenida");
@@ -128,18 +128,18 @@ export function memoryDependencies(config) {
     if (!name) throw new Error("Falta la operación de memoria " + action);
     const payload = config.mode === "sql" ? { [config.sql_argument || "query"]: databaseSQL(action, args) } : { ...args, action, ...(["agents", "routines"].includes(action) ? { operation: args.action } : {}) };
     let result;
-    if (connector.kind === "mcp") result = await observed(callMcpTool(id, name, payload));
+    if (connector.kind === "mcp") result = await observed(callMcpTool(id, name, payload), report);
     else {
       const operation = connector.operations.find(item => item.name === name);
       if (!operation || operation.method !== "POST" || operation.path.includes("{")) throw new Error("La operación de base de datos debe ser POST con ruta fija.");
-      result = await observed(connectorFetch(id, "POST", operation.path, {}, payload, true));
+      result = await observed(connectorFetch(id, "POST", operation.path, {}, payload, true), report);
     }
     if (!result.ok) throw new Error("Falló la operación de memoria " + action + ". Revisa el conector y sus permisos.");
     if (action === "schema" && ["add", "map"].includes(args.stage) || ["save", "redact", "remove"].includes(action) || ["agents", "routines"].includes(action) && args.action === "actualizar") return { ok: true };
     return unpack(result.data);
   };
   return {
-    request: (method, path, query, body, upsert) => observed(connectorFetch(id, method, path, query, body, true, undefined, { upsert, ...(path === "/rest/v1/" ? { accept: "application/openapi+json" } : {}) })),
+    request: (method, path, query, body, upsert) => observed(connectorFetch(id, method, path, query, body, true, undefined, { upsert, ...(path === "/rest/v1/" ? { accept: "application/openapi+json" } : {}) }), report),
     visualization: (sheet, query) => connectorVisualization(id, sheet, query),
     execute: invoke
   };

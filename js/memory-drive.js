@@ -221,16 +221,17 @@ export class DriveMemory extends MemoryBackend {
     if (args.type === "ack") {
       if (!UUID.test(args.reply_to || "")) throw new Error("El acuse necesita reply_to con el UUID original.");
       const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"], true)).records[0];
-      if (!original) throw new Error("El mensaje original no existe.");
-      args = { ...args, to: args.to || original.eco_author, thread: args.thread || original.thread };
+      if (!original && !args.copia) throw new Error("El mensaje original no existe.");
+      args = { ...args, to: args.to || original?.eco_author || "", thread: args.thread || original?.thread || "" };
     }
     const id = args.id || crypto.randomUUID();
     if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
     const existing = (await this.search({ id }, RECORD_TABS, true)).records[0];
     if (existing) { if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || ""))) throw new Error("El UUID ya pertenece a otro registro."); if (existing.type === "fact" && args.replaces) await this.removeFact(args.replaces).catch(() => false); return { ok: true, id, duplicado: true }; }
-    const replacing = replacementCheck({ ...args, id }, args.replaces ? (await this.search({ id: args.replaces }, RECORD_TABS, true)).records[0] : null);
+    const replacing = replacementCheck({ ...args, id }, args.replaces ? (await this.search({ id: args.replaces }, RECORD_TABS, true)).records[0] : null, !args.copia);
     const table = requireTable(this.structure, TYPE_TABS[args.type]);
-    const record = { ...args, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
+    const { copia, ...fields } = args;
+    const record = { ...fields, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
     try { await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, record)] }); }
     catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id." }; }
     if (!replacing) return { ok: true, id };

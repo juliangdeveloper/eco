@@ -1,13 +1,15 @@
 import { featureDefinitions, featureValue } from "./environment.js";
-import { isWiping, memoryConfigured, securityState, setMemoryHealth } from "./security.js";
+import { isWiping, memoryConfigured, reportMemoryConnection, securityState, setMemoryHealth } from "./security.js";
 import { APP_VERSION, DEFAULT_MODEL } from "./config.js";
 import { json, setting } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
 import { sheetId } from "./memory-drive.js";
 import { MEMORY_BACKENDS, OBSIDIAN_ACTIONS, memoryDependencies } from "./memory-backends.js";
+import { MemorySet } from "./memory-set.js";
 
 const PRESENCE_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const PROBE_STALE_MS = 5 * 60 * 1000;
 const CAPABILITY_LABELS = { mediaDevices: "cámara y micrófono", geolocation: "ubicación", bluetooth: "Bluetooth", usb: "USB", serial: "serial", hid: "HID", nfc: "NFC", clipboard: "portapapeles" };
 const CONFIG_KEY = "persistentMemory";
 const CONNECTOR_ID = "eco-memory-drive";
@@ -46,9 +48,13 @@ const DRIVE_FILES_CONNECTOR = Object.freeze({
     { name: "actualizar_archivo", description: "Renombra, mueve a la papelera (trashed true) o cambia la descripción. Para mover usa addParents y removeParents.", method: "PATCH", path: "/drive/v3/files/{fileId}", params: { fileId: { type: "string", in: "path", required: true }, name: { type: "string", in: "body" }, trashed: { type: "boolean", in: "body" }, description: { type: "string", in: "body" }, addParents: { type: "string", in: "query" }, removeParents: { type: "string", in: "query" } } }
   ]
 });
+const SHARED_SKILL = "assets/skills/memoria-varias.txt";
+const QUEUE_PREFIX = "memoryQueue:";
+const BACKEND_LABELS = Object.freeze({ "google-drive": "Hoja de Google", supabase: "Supabase", database: "Base de datos", obsidian: "Obsidian" });
 const skillTexts = new Map();
-let activeAdapter = null;
-let activeIdentity = "";
+const adapters = new Map();
+const memberStatus = new Map();
+let flushing = null;
 let presenceTimer;
 let presencePending = null;
 let presenceIdentity = "";
@@ -64,60 +70,130 @@ function memoryRequest() {
   return memoryDependencies({ backend: "google-drive" }).request;
 }
 
+export function memoryKey(config) {
+  return [config.backend, config.backend === "google-drive" ? config.sheet : config.connector, config.backend === "obsidian" ? config.folder || "Eco" : ""].filter(Boolean).join(":");
+}
+
+const connectorOf = config => config.backend === "google-drive" ? CONNECTOR_ID : config.connector;
+
+function memberConfigs() {
+  const state = json(CONFIG_KEY);
+  if (!state || typeof state !== "object") return [];
+  const { mirrors, ...primary } = state;
+  return [primary, ...(Array.isArray(mirrors) ? mirrors : [])].filter(config => config && ADAPTERS[config.backend] && (config.backend === "google-drive" ? config.sheet : config.connector));
+}
+
+function saveMembers(list) {
+  json(CONFIG_KEY, list.length ? { ...list[0], ...(list.length > 1 ? { mirrors: list.slice(1) } : {}) } : null);
+  presenceIdentity = "";
+}
+
+function roleFor(config, rol) {
+  const others = memberConfigs().filter(item => memoryKey(item) !== memoryKey(config));
+  const current = memberConfigs().findIndex(item => memoryKey(item) === memoryKey(config));
+  if (!others.length || rol === "principal" || current === 0 && rol !== "copia") return "principal";
+  return "copia";
+}
+
+function nameFor(config, role) {
+  if (role !== "copia") return config;
+  const primary = memberConfigs().find(item => memoryKey(item) !== memoryKey(config));
+  return { ...config, eco: primary.eco, usuario: primary.usuario };
+}
+
+function placeMemory(config, role) {
+  const list = memberConfigs(), key = memoryKey(config), current = list.findIndex(item => memoryKey(item) === key);
+  if (current >= 0) list.splice(current, 1);
+  if (role === "principal" || !list.length) {
+    list.unshift(config);
+    for (const item of list) Object.assign(item, { eco: config.eco, usuario: config.usuario });
+  } else list.splice(current > 0 ? current : list.length, 0, { ...config, eco: list[0].eco, usuario: list[0].usuario });
+  saveMembers(list);
+  return list[0] === config ? "principal" : "copia";
+}
+
+function reporter(key) {
+  return ok => {
+    memberStatus.set(key, { ...memberStatus.get(key), [ok ? "ok" : "fail"]: performance.now(), last: ok });
+    if (ok) return reportMemoryConnection(true);
+    if (memberConfigs().every(config => memberStatus.get(memoryKey(config))?.last !== true)) reportMemoryConnection(false);
+  };
+}
+
 function adapter(config) {
   const definition = ADAPTERS[config.backend];
   if (!definition) throw new Error("Destino de memoria no compatible.");
   const identity = identityOf(config);
-  if (activeIdentity !== identity) {
+  if (!adapters.has(identity)) {
     const cursorKey = "memoryCursor:" + identity;
-    activeAdapter = definition.create({ config, ...memoryDependencies(config), loadCursor: () => json(cursorKey), saveCursor: (cursor) => json(cursorKey, cursor) });
-    activeIdentity = identity;
+    adapters.set(identity, definition.create({ config, ...memoryDependencies(config, reporter(memoryKey(config))), loadCursor: () => json(cursorKey), saveCursor: (cursor) => json(cursorKey, cursor) }));
   }
-  return activeAdapter;
+  return adapters.get(identity);
+}
+
+const queueStore = { load: key => json(QUEUE_PREFIX + key) || [], save: (key, list) => json(QUEUE_PREFIX + key, list.length ? list : null) };
+
+async function memorySet() {
+  const configs = memberConfigs();
+  if (!configs.length) return null;
+  const members = await Promise.all(configs.map(async config => ({ key: memoryKey(config), identity: identityOf(config), label: BACKEND_LABELS[config.backend], config, connected: await connectorStatus(connectorOf(config)) === STATUS.CONNECTED, adapter: adapter(config) })));
+  if (!members.some(member => member.connected)) return null;
+  return new MemorySet({ members, status: key => memberStatus.get(key) || {}, queue: queueStore, store: { load: key => json(key), save: (key, value) => json(key, value) } });
+}
+
+function flushQueues(set) {
+  if (!flushing && Object.values(set.pending()).some(Boolean)) flushing = set.flush().catch(() => {}).finally(() => { flushing = null; });
+  return flushing;
+}
+
+export async function memoryOverview(detailed = false) {
+  return Promise.all(memberConfigs().map(async (config, index) => ({ ...(detailed ? { memoria: memoryKey(config), backend: config.backend } : {}), nombre: BACKEND_LABELS[config.backend], rol: index ? "copia" : "principal", conectada: await connectorStatus(connectorOf(config)) === STATUS.CONNECTED, pendientes: queueStore.load(memoryKey(config)).length })));
+}
+
+async function skillText(path) {
+  if (!skillTexts.has(path)) {
+    const response = await fetch(path + "?v=" + APP_VERSION);
+    if (!response.ok) throw new Error("No se pudo cargar la habilidad de memoria.");
+    skillTexts.set(path, await response.text());
+  }
+  return skillTexts.get(path);
 }
 
 export async function passiveMemory() {
-  const config = await connectedConfig();
-  if (!config) return null;
-  if (!skillTexts.has(config.backend)) {
-    const response = await fetch(ADAPTERS[config.backend].skill + "?v=" + APP_VERSION);
-    if (!response.ok) throw new Error("No se pudo cargar la habilidad de memoria.");
-    skillTexts.set(config.backend, await response.text());
-  }
-  return { name: ADAPTERS[config.backend].name, instructions: skillTexts.get(config.backend), eco: config.eco, usuario: config.usuario };
+  const set = await memorySet();
+  if (!set) return null;
+  const paths = [...new Set(set.members.map(member => ADAPTERS[member.config.backend].skill))];
+  const texts = [];
+  for (const path of [...paths, SHARED_SKILL]) texts.push(await skillText(path));
+  const listing = "Memorias conectadas:\n" + set.members.map((member, index) => "- " + member.label + " · " + (index ? "copia" : "principal") + (member.connected ? "" : " · sin conexión") + " · memoria=" + member.key).join("\n");
+  const primary = set.primary.config;
+  return { name: set.mirrors.length ? "Memorias persistentes" : ADAPTERS[primary.backend].name, instructions: texts.join("\n\n") + "\n\n" + listing, eco: primary.eco, usuario: primary.usuario };
 }
 
 export async function memoryCall(action, args) {
-  const config = await connectedConfig();
-  if (!config) throw new Error("La memoria sigue local. Conecta un destino o renueva sus credenciales.");
-  const destination = adapter(config);
-  await destination.ensure();
-  if (action === "esquema") return destination.schema(args?.action || "ver", args?.mapa || {});
-  if (action === "reglas") return destination.search(args, ["memories"]);
-  if (action === "agentes") return destination.agents(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")), agentIdentity());
-  if (action === "rutinas") return destination.routines(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")));
-  if (action === "guardar") return destination.save(args);
-  if (action === "buscar") return destination.search(args);
-  if (action === "leer_nuevos") return destination.readNew();
+  const set = await memorySet();
+  if (!set) throw new Error("La memoria sigue local. Conecta un destino o renueva sus credenciales.");
+  flushQueues(set);
+  if (action === "esquema") return set.schema(args?.action || "ver", args?.mapa || {}, args?.memoria);
+  if (action === "reglas") return set.search(args, ["memories"]);
+  if (action === "agentes") return set.agents(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")), agentIdentity());
+  if (action === "rutinas") return set.routines(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")));
+  if (action === "guardar") return set.save(args);
+  if (action === "buscar") return set.search(args);
+  if (action === "leer_nuevos") return set.readNew();
   throw new Error("Operación de memoria no compatible.");
 }
 
-async function connectedConfig() {
-  const config = json(CONFIG_KEY);
-  if (!config || !ADAPTERS[config.backend] || !(config.backend === "google-drive" ? config.sheet : config.connector) || await connectorStatus(config.backend === "google-drive" ? CONNECTOR_ID : config.connector) !== STATUS.CONNECTED) return null;
-  return config;
-}
-
 export async function memoryMentions(cursor) {
-  const config = await connectedConfig();
-  if (!config) return null;
-  const identity = identityOf(config);
+  const set = await memorySet();
+  if (!set) return null;
+  const config = set.primary.config;
+  const identity = set.primary.identity;
   let position = cursor?.identity === identity ? cursor.position : null;
-  const reader = adapter(config);
   const mention = "@" + config.eco;
   const records = [];
   for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
-    const result = await reader.readNew(["messages", "acks"], { load: () => position, save: value => { position = value; } });
+    const result = await set.readNew(["messages", "acks"], { load: () => position, save: value => { position = value; } }, "mentionCursor");
     records.push(...result.records.filter((record) => ["message", "ack"].includes(record.type) && record.eco_author !== config.eco && (record.to === config.eco || record.to === BROADCAST || record.content.includes(mention))));
     if (!result.hay_mas) break;
   }
@@ -152,12 +228,22 @@ export async function configureMemory(input) {
   const action = options.accion || "conectar";
   if (action === "desconectar") {
     json(CONFIG_KEY, null);
-    activeAdapter = null;
-    activeIdentity = "";
+    adapters.clear();
     presenceIdentity = "";
     presenceUpdated = 0;
     return { ok: true, estado: "Memoria local; los datos remotos y las credenciales siguen intactos." };
   }
+  if (action === "listar") return { ok: true, memorias: await memoryOverview(true) };
+  if (action === "principal" || action === "quitar") {
+    const list = memberConfigs(), index = list.findIndex(item => memoryKey(item) === options.memoria);
+    if (index < 0) return { ok: false, error: "No hay una memoria con ese id; usa accion=listar.", memorias: await memoryOverview(true) };
+    const [chosen] = list.splice(index, 1);
+    if (action === "principal") { list.unshift(chosen); saveMembers(list); return { ok: true, principal: options.memoria, memorias: await memoryOverview(true) }; }
+    saveMembers(list);
+    adapters.delete(identityOf(chosen));
+    return { ok: true, quitada: options.memoria, estado: "Eco dejó de usar esa memoria; sus datos y credenciales siguen intactos.", memorias: await memoryOverview(true) };
+  }
+  if (action !== "conectar") throw new Error("Acción de memoria no compatible.");
   if (options.backend === "obsidian") return configureObsidian(options);
   if (options.backend && options.backend !== "google-drive") return configureDatabase(options);
   const definition = ADAPTERS["google-drive"];
@@ -224,10 +310,12 @@ export async function configureMemory(input) {
           config.sheet = await findExistingSheet(definition);
           origin = config.sheet ? "reutilizada" : "creada";
         }
+        const role = roleFor(config, options.rol);
+        config = nameFor(config, role);
         destination = adapter(config);
         const connected = await destination.connect();
-        json(CONFIG_KEY, config);
-        await refreshMemoryPresence(true);
+        placeMemory(config, role);
+        await refreshMemoryPresence(true).catch(() => {});
         const anchor = element("a", "Abrir Eco · Memoria");
         anchor.href = connected.url;
         anchor.target = "_blank";
@@ -235,7 +323,7 @@ export async function configureMemory(input) {
         const summary = origin === "reutilizada" ? " · hoja existente" : origin === "creada" ? " · hoja nueva" : "";
         card.replaceChildren(element("span", "Memoria conectada · " + config.eco + summary), anchor);
         card.classList.add("done");
-        resolve({ ok: true, eco: config.eco, url: connected.url, hoja: origin || "indicada", estado: origin === "reutilizada" ? "Memoria conectada a tu Eco · Memoria existente." : origin === "creada" ? "Memoria conectada a una Eco · Memoria nueva." : "Memoria conectada a la hoja indicada." });
+        resolve({ ok: true, eco: config.eco, rol: role, memoria: memoryKey(config), url: connected.url, hoja: origin || "indicada", estado: origin === "reutilizada" ? "Memoria conectada a tu Eco · Memoria existente." : origin === "creada" ? "Memoria conectada a una Eco · Memoria nueva." : "Memoria conectada a la hoja indicada." });
       } catch (failure) {
         if (config?.sheet) inputs.sheet.value = config.sheet;
         pendingConfig = config;
@@ -249,21 +337,7 @@ export async function configureMemory(input) {
 }
 
 export async function databaseMemoryGuide() {
-  if (!skillTexts.has("database")) {
-    const response = await fetch(ADAPTERS.database.skill + "?v=" + APP_VERSION);
-    if (!response.ok) throw new Error("No se pudo cargar la habilidad de bases de datos.");
-    skillTexts.set("database", await response.text());
-  }
-  return skillTexts.get("database");
-}
-
-async function skillText(backend) {
-  if (!skillTexts.has(backend)) {
-    const response = await fetch(ADAPTERS[backend].skill + "?v=" + APP_VERSION);
-    if (!response.ok) throw new Error("No se pudo cargar la habilidad de memoria.");
-    skillTexts.set(backend, await response.text());
-  }
-  return skillTexts.get(backend);
+  return skillText(ADAPTERS.database.skill);
 }
 
 async function configureObsidian(options) {
@@ -273,29 +347,29 @@ async function configureObsidian(options) {
   const config = { backend: "obsidian", connector: String(options.connector || ""), folder, eco: options.eco || previous.eco || "eco-" + crypto.randomUUID().slice(0, 6), usuario: options.usuario || previous.usuario || "usuario" };
   if (!NAME_PATTERN.test(config.eco) || !NAME_PATTERN.test(config.usuario)) throw new Error("Usa nombres de 1 a 40 letras minúsculas, números o guiones.");
   const connector = config.connector && await getConnector(config.connector);
-  if (!connector) return { ok: false, error: "Crea primero el conector a la bóveda e indica su id en connector.", instructions: await skillText("obsidian") };
+  if (!connector) return { ok: false, error: "Crea primero el conector a la bóveda e indica su id en connector.", instructions: await skillText(ADAPTERS.obsidian.skill) };
   if (connector.kind === "mcp") {
     const names = connector.tools?.map(tool => tool.name) || [];
     config.operations = Object.fromEntries(OBSIDIAN_ACTIONS.map(action => [action, String(options.operations?.[action] || "")]));
     const absent = OBSIDIAN_ACTIONS.filter(action => !names.includes(config.operations[action]));
-    if (absent.length) return { ok: false, error: "Indica en operations la herramienta MCP para: " + absent.join(", "), herramientas: names, instructions: await skillText("obsidian") };
+    if (absent.length) return { ok: false, error: "Indica en operations la herramienta MCP para: " + absent.join(", "), herramientas: names, instructions: await skillText(ADAPTERS.obsidian.skill) };
     const argumentsMap = Object.fromEntries(["path", "content"].filter(key => typeof options.arguments?.[key] === "string" && options.arguments[key]).map(key => [key, options.arguments[key]]));
     if (Object.keys(argumentsMap).length) config.arguments = argumentsMap;
     const fixed = Object.fromEntries(OBSIDIAN_ACTIONS.filter(action => options.operation_args?.[action] && typeof options.operation_args[action] === "object" && !Array.isArray(options.operation_args[action])).map(action => [action, options.operation_args[action]]));
     if (Object.keys(fixed).length) config.operation_args = fixed;
   }
   if (await connectorStatus(config.connector) !== STATUS.CONNECTED && await showCredentialCard(connector) !== STATUS.CONNECTED) return { ok: false, estado: "La memoria sigue local." };
+  const role = roleFor(config, options.rol);
+  const named = nameFor(config, role);
   try {
-    const destination = adapter(config);
+    const destination = adapter(named);
     await destination.connect();
     await destination.agents("actualizar", {}, agentIdentity());
   } catch (error) {
-    return { ok: false, error: error.message, instructions: await skillText("obsidian") };
+    return { ok: false, error: error.message, instructions: await skillText(ADAPTERS.obsidian.skill) };
   }
-  json(CONFIG_KEY, config);
-  presenceIdentity = identityOf(config);
-  presenceUpdated = Date.now();
-  return { ok: true, backend: config.backend, eco: config.eco, carpeta: folder, estado: "Memoria conectada a la bóveda de Obsidian." };
+  placeMemory(named, role);
+  return { ok: true, backend: config.backend, eco: named.eco, rol: role, memoria: memoryKey(named), carpeta: folder, estado: "Memoria conectada a la bóveda de Obsidian." };
 }
 
 async function configureDatabase(options) {
@@ -322,8 +396,10 @@ async function configureDatabase(options) {
     const names = connector.kind === "mcp" ? connector.tools?.map(tool => tool.name) || [] : connector.operations.map(operation => operation.name);
     for (const action of ["schema", "search", "new", "save", "agents", "routines", "redact"]) if (!names.includes(config.operations[action] || config.operation)) throw new Error("Falta una operación de memoria compatible: " + action);
   }
+  const role = roleFor(config, options.rol);
+  const named = nameFor(config, role);
   try {
-    const destination = adapter(config);
+    const destination = adapter(named);
     await destination.connect();
     await destination.agents("actualizar", {}, agentIdentity());
   }
@@ -335,10 +411,8 @@ async function configureDatabase(options) {
     }
     return result;
   }
-  json(CONFIG_KEY, config);
-  presenceIdentity = identityOf(config);
-  presenceUpdated = Date.now();
-  return { ok: true, backend: config.backend, eco: config.eco, estado: "Memoria conectada a la base de datos." };
+  placeMemory(named, role);
+  return { ok: true, backend: config.backend, eco: named.eco, rol: role, memoria: memoryKey(named), estado: "Memoria conectada a la base de datos." };
 }
 
 let securityChecking = false;
@@ -349,12 +423,16 @@ export async function checkSecurityMemory() {
   if (securityChecking || isWiping() || !security.enabled || security.lockedUntil > Date.now() || !navigator.onLine) return;
   securityChecking = true;
   try {
-    const config = await connectedConfig();
-    if (!config || isWiping()) return;
-    const cursorKey = "securityMemoryCursor:" + identityOf(config);
-    const reader = adapter(config);
-    for (let batch = 0; batch < MAX_MENTION_BATCHES && !isWiping(); batch++) {
-      if (!(await reader.readNew(["messages"], { load: () => json(cursorKey), save: value => json(cursorKey, value) })).hay_mas) break;
+    const set = await memorySet();
+    if (!set || isWiping()) return;
+    for (const member of set.members.filter(item => item.connected)) {
+      const cursorKey = "securityMemoryCursor:" + member.identity;
+      try {
+        for (let batch = 0; batch < MAX_MENTION_BATCHES && !isWiping(); batch++) {
+          if (!(await member.adapter.readNew(["messages"], { load: () => json(cursorKey), save: value => json(cursorKey, value) })).hay_mas) break;
+        }
+      } catch {}
+      if (isWiping()) return;
     }
   } catch {} finally { securityChecking = false; }
 }
@@ -368,12 +446,12 @@ function agentIdentity() {
 }
 
 export async function refreshMemoryPresence(force = false) {
-  const config = await connectedConfig();
-  if (!config || isWiping()) return;
-  const identity = identityOf(config);
+  const set = await memorySet();
+  if (!set || isWiping()) return;
+  const identity = set.members.map(member => member.identity).join("|");
   if (!force && presenceIdentity === identity && Date.now() - presenceUpdated < PRESENCE_INTERVAL_MS) return;
   if (presencePending) return presencePending;
-  presencePending = adapter(config).agents("actualizar", {}, agentIdentity()).then(result => {
+  presencePending = set.agents("actualizar", {}, agentIdentity()).then(result => {
     presenceIdentity = identity;
     presenceUpdated = Date.now();
     return result;
@@ -382,9 +460,18 @@ export async function refreshMemoryPresence(force = false) {
 }
 
 async function memoryHealth() {
-  const config = json(CONFIG_KEY);
-  if (!memoryConfigured() || !ADAPTERS[config.backend]) return null;
-  return !navigator.onLine || await connectorStatus(config.backend === "google-drive" ? CONNECTOR_ID : config.connector) !== STATUS.CONNECTED;
+  if (!memoryConfigured() || !memberConfigs().length) return null;
+  if (!navigator.onLine) return true;
+  const set = await memorySet();
+  if (!set) return true;
+  flushQueues(set);
+  if (!set.mirrors.length) return false;
+  for (const member of set.members) if (!member.connected) memberStatus.set(member.key, { ...memberStatus.get(member.key), last: false });
+  const now = performance.now();
+  const probe = set.members.filter(member => member.connected && (memberStatus.get(member.key)?.last !== true || now - Math.max(memberStatus.get(member.key)?.ok ?? 0, memberStatus.get(member.key)?.fail ?? 0) > PROBE_STALE_MS));
+  await Promise.all(probe.map(member => member.adapter.agents("listar").catch(() => {})));
+  if (set.members.every(member => memberStatus.get(member.key)?.last !== true)) reportMemoryConnection(false);
+  return false;
 }
 
 export function startSecurityMemory() {
@@ -399,4 +486,4 @@ export function startSecurityMemory() {
   checkSecurityMemory();
 }
 
-export function stopSecurityMemory() { clearInterval(securityTimer); clearInterval(presenceTimer); presenceUpdated = 0; presenceIdentity = ""; activeAdapter = null; activeIdentity = ""; skillTexts.clear(); }
+export function stopSecurityMemory() { clearInterval(securityTimer); clearInterval(presenceTimer); presenceUpdated = 0; presenceIdentity = ""; adapters.clear(); memberStatus.clear(); skillTexts.clear(); }

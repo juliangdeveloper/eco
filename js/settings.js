@@ -7,6 +7,7 @@ import { connectorStatus, deleteConnector, getConnector, listConnectors, openOAu
 import { deleteSecret } from "./vault.js";
 import { showCredentialCard } from "./credentials.js";
 import { listRoutines, manageRoutine, onRoutinesChange } from "./routines.js";
+import { memoryOverview } from "./passive-skills.js";
 
 const TEXT_SETTINGS = ["openrouterKey", "model"];
 const EMPTY_ROUTINES = "Pídele a Eco que revise algo cada cierto tiempo y aparecerá aquí.";
@@ -24,7 +25,7 @@ export function bindSettings() {
     };
   }
   byId("settingsButton").onclick = async () => {
-    await Promise.all([renderConnectors(), renderRoutines()]);
+    await Promise.all([renderConnectors(), renderRoutines(), renderMemories()]);
     renderSecurity();
     renderWipeLimits();
     byId("settings").showModal();
@@ -129,6 +130,23 @@ export async function renderRoutines() {
       manageRoutine(routine.id, "borrar");
     }));
     row.append(info, actions);
+    return row;
+  }));
+}
+
+export async function renderMemories() {
+  const rows = await memoryOverview().catch(() => []);
+  byId("memoryTitle").hidden = byId("memoryList").hidden = !rows.length;
+  byId("memoryList").replaceChildren(...rows.map((memory) => {
+    const row = document.createElement("div");
+    row.className = "connectorRow";
+    const info = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = memory.nombre;
+    const detail = document.createElement("small");
+    detail.textContent = [memory.rol === "principal" ? "Principal" : "Copia", memory.conectada ? "" : "Sin conexión", memory.pendientes ? memory.pendientes + " por copiar" : ""].filter(Boolean).join(" · ");
+    info.append(name, detail);
+    row.append(info);
     return row;
   }));
 }

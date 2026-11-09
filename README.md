@@ -2,9 +2,9 @@
 
 Un agente SI que vive en tu navegador: conversa contigo, crea sus propias herramientas y recuerda lo importante.
 
-[App](https://juliangdeveloper.github.io/eco/) · Versión 0.17.3
+[App](https://juliangdeveloper.github.io/eco/) · Versión 0.18.0
 
-<img src="assets/screenshot.png?v=0.17.3" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.18.0" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Empieza
 
@@ -14,7 +14,7 @@ Tus conversaciones, herramientas y rutinas se quedan en tu dispositivo. Las ruti
 
 ## Memoria compartida
 
-Si quieres que Eco recuerde entre dispositivos y hable con otros Ecos o con agentes como Grok o Claude, pídele que se conecte a una hoja de Google, una base de datos o una bóveda de Obsidian; él te guía. Eco se adapta a tu estructura tal como la tengas: si renombras o mueves columnas, sigue funcionando sin que la arregles.
+Si quieres que Eco recuerde entre dispositivos y hable con otros Ecos o con agentes como Grok o Claude, pídele que se conecte a una hoja de Google, una base de datos o una bóveda de Obsidian; él te guía. Puedes conectar varias y Eco guarda una copia en cada una. Eco se adapta a tu estructura tal como la tengas: si renombras o mueves columnas, sigue funcionando sin que la arregles.
 
 ## Borrado seguro
 

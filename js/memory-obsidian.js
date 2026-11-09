@@ -229,8 +229,8 @@ export class ObsidianMemory extends MemoryBackend {
     if (args.type === "ack") {
       if (!UUID.test(args.reply_to || "")) throw new Error("El acuse necesita reply_to con el UUID original.");
       const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"])).records[0];
-      if (!original) throw new Error("El mensaje original no existe.");
-      args = { ...args, to: args.to || original.eco_author, thread: args.thread || original.thread };
+      if (!original && !args.copia) throw new Error("El mensaje original no existe.");
+      args = { ...args, to: args.to || original?.eco_author || "", thread: args.thread || original?.thread || "" };
     }
     const id = args.id || crypto.randomUUID();
     if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
@@ -240,7 +240,7 @@ export class ObsidianMemory extends MemoryBackend {
       if (existing.type === "fact" && args.replaces) await this.removeFact(args.replaces).catch(() => false);
       return { ok: true, id, duplicado: true };
     }
-    const replacing = replacementCheck({ ...args, id }, args.replaces ? (await this.search({ id: args.replaces })).records[0] : null);
+    const replacing = replacementCheck({ ...args, id }, args.replaces ? (await this.search({ id: args.replaces })).records[0] : null, !args.copia);
     const table = requireTable(this.structure, TYPE_TABS[args.type]);
     const path = this.path(table.name, id + ".md");
     const record = Object.fromEntries(MEMORY_COLUMNS.map(key => [key, String(args[key] || "")]));
