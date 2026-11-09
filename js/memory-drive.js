@@ -1,5 +1,5 @@
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
-import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, LEGACY_MEMORY_COLUMNS, LEGACY_AGENT_COLUMNS, LEGACY_ROUTINE_COLUMNS, normalizeValues, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, LEGACY_TABS, recordOf, matchesRecord, MemoryBackend } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, LEGACY_MEMORY_COLUMNS, LEGACY_AGENT_COLUMNS, LEGACY_ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, LEGACY_TABS, recordOf, matchesRecord, MemoryBackend } from "./memory-protocol.js";
 export { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL } from "./memory-protocol.js";
 const BATCH_ROWS = 100;
 const FIRST_ROW = 2;
@@ -33,25 +33,22 @@ export function sheetId(value) {
 export function validateProtocol(protocol, headers) {
   const values = Object.fromEntries(protocol);
   const version = String(values.version);
+  const english = ["4", PROTOCOL_VERSION].includes(version);
   const current = version === PROTOCOL_VERSION;
-  const recordColumns = current ? MEMORY_COLUMNS : LEGACY_MEMORY_COLUMNS;
-  const agentColumns = current ? AGENT_COLUMNS : LEGACY_AGENT_COLUMNS;
-  const routineColumns = current ? ROUTINE_COLUMNS : LEGACY_ROUTINE_COLUMNS;
-  const expectedTabs = version === "1" ? ["records"] : version === "2" ? ["recuerdos", "mensajes", "acuses"] : RECORD_TABS;
+  const recordColumns = english ? MEMORY_COLUMNS : LEGACY_MEMORY_COLUMNS;
+  const agentColumns = english ? AGENT_COLUMNS : LEGACY_AGENT_COLUMNS;
+  const routineColumns = english ? ROUTINE_COLUMNS : LEGACY_ROUTINE_COLUMNS;
+  const expectedTabs = version === "1" ? ["records"] : version === "2" ? ["recuerdos", "mensajes", "acuses"] : current ? RECORD_TABS : ["memories", "messages"];
   const agentTab = version === "2" ? "agentes" : "agents";
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const protocolName = values.protocol ?? values.protocolo;
-  const columns = values.columns ?? values.columnas;
   const tables = values.tables ?? values.tablas;
-  const oldV3 = version === "3" && tables === "memories,messages,acks";
-  const valid = ["1", "2", "3", PROTOCOL_VERSION].includes(version) && protocolName === PROTOCOL_NAME && columns === recordColumns.join(",") && expectedTabs.every(tab => same(headers[tab], recordColumns)) &&
-    (version === "1" ? (values.tabla ?? values.table) === "records" :
-      (version === "2" ? tables === expectedTabs.join(",") : oldV3 || tables === MEMORY_TABLES.join(",") && values.routines === routineColumns.join(",")) &&
-      values[agentTab] === agentColumns.join(",") && same(headers[agentTab], agentColumns)) &&
+  const knownTables = version === "2" ? [expectedTabs.join(",")] : current ? [MEMORY_TABLES.join(",")] : ["memories,messages,agents,routines", "memories,messages,acks"];
+  const valid = ["1", "2", "3", "4", PROTOCOL_VERSION].includes(version) && (values.protocol ?? values.protocolo) === PROTOCOL_NAME && (values.columns ?? values.columnas) === recordColumns.join(",") && expectedTabs.every(tab => same(headers[tab], recordColumns)) &&
+    (version === "1" ? (values.tabla ?? values.table) === "records" : knownTables.includes(tables) && values[agentTab] === agentColumns.join(",") && same(headers[agentTab], agentColumns)) &&
     ["acks", "acuses"].every(tab => !headers[tab] || same(headers[tab], recordColumns)) &&
-    (!oldV3 || same(headers.acks, recordColumns)) && (!headers.routines || same(headers.routines, routineColumns));
+    (!headers.routines || same(headers.routines, routineColumns)) && (!current || values.routines === ROUTINE_COLUMNS.join(",") && same(headers.routines, ROUTINE_COLUMNS));
   if (!valid) throw new Error("La hoja no usa un protocolo eco-memoria compatible o sus columnas no coinciden.");
-  return { protocol: PROTOCOL_NAME, version, tables: expectedTabs, needsUpgrade: !current || !headers.routines || Boolean(headers.acks) || Boolean(headers.acuses) || Boolean(headers.records) };
+  return { protocol: PROTOCOL_NAME, version, tables: expectedTabs, needsUpgrade: !current || Boolean(headers.acuses) || Boolean(headers.records) };
 }
 
 export class DriveMemory extends MemoryBackend {
@@ -106,7 +103,7 @@ export class DriveMemory extends MemoryBackend {
     const names = [...new Set(["records", ...MEMORY_TABLES, "acuses", "acks", ...Object.keys(LEGACY_TABS)])].filter(tab => Object.hasOwn(tabs, tab));
     const result = await this.batchValues(["'_eco'!A1:B30", ...names.map(tab => "'" + tab + "'!A1:K1")]);
     const headers = Object.fromEntries(names.map((tab, index) => [tab, result[index + 1][0] || []]));
-    return { ...validateProtocol(result[0], headers), tabs };
+    return { ...validateProtocol(result[0], headers), tabs, grids: Object.fromEntries((structure.sheets || []).map(sheet => [sheet.properties.title, sheet.properties.gridProperties || {}])) };
   }
   async describe() {
     const schema = await this.inspect();
@@ -126,46 +123,9 @@ export class DriveMemory extends MemoryBackend {
       this.config.sheet = created.spreadsheetId;
     }
     let schema = await this.inspect();
-    if (schema.version !== "1" && schema.needsUpgrade) {
+    if (schema.needsUpgrade) {
       await this.upgrade(schema);
       schema = await this.inspect();
-    }
-    if (schema.version === "1") {
-      const legacy = await this.values(rangeFor("records"));
-      schema = await this.inspect();
-      if (schema.version === "1") {
-        const existing = RECORD_TABS.filter(tab => Object.hasOwn(schema.tabs, tab));
-        if (existing.length || Object.hasOwn(schema.tabs, "agents") || Object.keys(LEGACY_TABS).some(tab => Object.hasOwn(schema.tabs, tab))) throw new Error("Hay pestañas de memoria en una hoja v1 incompleta. Conserva los datos y revisa el esquema antes de migrar.");
-        const requests = [];
-        const ids = new Set(Object.values(schema.tabs));
-        let nextId = 1;
-        const targetIds = {};
-        for (const tab of MEMORY_TABLES.filter(tab => !Object.hasOwn(schema.tabs, tab))) {
-          while (ids.has(nextId)) nextId++;
-          const sheetId = nextId++;
-          ids.add(sheetId);
-          targetIds[tab] = sheetId;
-          requests.push({ addSheet: { properties: { title: tab, sheetId, gridProperties: { frozenRowCount: 1 } } } });
-          if (tab === "routines" && schema.version !== PROTOCOL_VERSION) requests.push({ insertDimension: { range: { sheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, inheritFromBefore: true } });
-      requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
-        }
-        const seen = new Set();
-        for (const [index, value] of legacy.entries()) {
-          if (!value[0] || seen.has(value[0])) continue;
-          const tab = TYPE_TABS[normalizeValues(value)[4]];
-          if (!tab) throw new Error("Tipo de registro v1 desconocido: " + value[4]);
-          seen.add(value[0]);
-          requests.push({ appendCells: { sheetId: targetIds[tab], rows: rows([normalizeValues(value)]), fields: "userEnteredValue" } });
-        }
-        requests.push({ deleteSheet: { sheetId: schema.tabs.records } });
-        requests.push({ updateCells: { start: { sheetId: schema.tabs._eco, rowIndex: 0, columnIndex: 0 }, rows: rows(MEMORY_PROTOCOL), fields: "userEnteredValue" } });
-        try { await this.batch(requests); }
-        catch (error) {
-          const current = await this.inspect();
-          if (current.version !== PROTOCOL_VERSION) throw error;
-        }
-        schema = await this.inspect();
-      }
     }
     if (schema.needsUpgrade) throw new Error("La migración del protocolo no se completó.");
     this.structure = schema;
@@ -174,68 +134,69 @@ export class DriveMemory extends MemoryBackend {
   }
   async upgrade(schema) {
     const requests = [];
-    if (schema.version !== PROTOCOL_VERSION) requests.push({ addNamedRange: { namedRange: { namedRangeId: "eco_memory_protocol_v4", name: "eco_memory_protocol_v4", range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 } } } });
+    if (schema.version !== PROTOCOL_VERSION) requests.push({ addNamedRange: { namedRange: { namedRangeId: "eco_memory_protocol_v5", name: "eco_memory_protocol_v5", range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 } } } });
+    const targetIds = { ...schema.tabs };
     if (schema.version === "2") {
-      if (Object.values(LEGACY_TABS).some(tab => Object.hasOwn(schema.tabs, tab))) throw new Error("Hay pestañas v3 en una hoja v2. Revisa el esquema antes de migrar.");
-      for (const [previous, title] of Object.entries(LEGACY_TABS)) requests.push({ updateSheetProperties: { properties: { sheetId: schema.tabs[previous], title }, fields: "title" } });
+      for (const [previous, title] of Object.entries(LEGACY_TABS)) {
+        if (Object.hasOwn(schema.tabs, title)) throw new Error("Hay pestañas antiguas y actuales simultáneas. Revisa el esquema antes de migrar.");
+        targetIds[title] = schema.tabs[previous];
+        requests.push({ updateSheetProperties: { properties: { sheetId: schema.tabs[previous], title }, fields: "title" } });
+      }
+      if (Object.hasOwn(schema.tabs, "acks")) throw new Error("Hay dos pestañas de confirmaciones. Revisa el esquema antes de migrar.");
+      targetIds.acks = schema.tabs.acuses;
+      requests.push({ updateSheetProperties: { properties: { sheetId: schema.tabs.acuses, title: "acks" }, fields: "title" } });
     }
-    const sources = ["acuses", "acks"].filter(tab => Object.hasOwn(schema.tabs, tab));
-    if (sources.length > 1) throw new Error("Hay dos pestañas antiguas de acuses. Revisa sus datos antes de migrar.");
-    const source = sources[0] || "";
-    const migrated = new Set();
-    if (source) {
-      const target = schema.version === "2" ? "mensajes" : "messages";
-      const [legacy, existing] = await this.batchValues([rangeFor(source), rangeFor(target)]);
-      const known = new Map(existing.filter(value => value[0]).map(value => [value[0], recordOf(value)]));
-      const transferred = [];
-      for (const value of legacy) {
-        if (!value.some(cell => String(cell ?? "").length)) continue;
-        const record = recordOf(value);
-        if (!UUID_PATTERN.test(record.id) || !["ack", "message"].includes(record.type)) throw new Error("Hay acuses con id o tipo inválido. Conserva los datos y revisa la pestaña antes de migrar.");
-        if (known.has(record.id)) {
-          if (JSON.stringify(known.get(record.id)) !== JSON.stringify(record)) throw new Error("Hay un UUID de acuse con contenido diferente en messages.");
+    const sources = [...new Set(["memories", "messages", "acks", ...Object.keys(LEGACY_TABS), "acuses", "records"])].filter(tab => Object.hasOwn(schema.tabs, tab) && !["agents", "agentes"].includes(tab));
+    const values = await this.batchValues(sources.map(tab => rangeFor(tab)));
+    const records = Object.fromEntries(RECORD_TABS.map(tab => [tab, []]));
+    const known = new Map();
+    for (const batch of values) for (const value of batch) {
+      if (!value.some(cell => String(cell ?? "").length)) continue;
+      const record = recordOf(value);
+      const tab = TYPE_TABS[record.type];
+      if (!record.id || !tab) throw new Error("Hay registros con id o tipo incompatible. Conserva los datos y revisa el esquema.");
+      if (known.has(record.id)) {
+        if (JSON.stringify(known.get(record.id)) !== JSON.stringify(record)) throw new Error("Un UUID tiene contenido diferente entre pestañas.");
+        continue;
+      }
+      known.set(record.id, record);
+      records[tab].push(MEMORY_COLUMNS.map(key => record[key]));
+    }
+    const ids = new Set(Object.values(schema.tabs));
+    for (const tab of MEMORY_TABLES) {
+      if (!Object.hasOwn(targetIds, tab)) {
+        let sheetId = 1;
+        while (ids.has(sheetId)) sheetId++;
+        ids.add(sheetId);
+        targetIds[tab] = sheetId;
+        requests.push({ addSheet: { properties: { title: tab, sheetId, gridProperties: { frozenRowCount: 1, rowCount: Math.max(1000, (records[tab]?.length || 0) + 1) } } } });
+      }
+      const sheetId = targetIds[tab];
+      if (tab === "routines" && Object.hasOwn(schema.tabs, tab) && ["1", "2", "3"].includes(schema.version)) requests.push({ insertDimension: { range: { sheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, inheritFromBefore: true } });
+      if (RECORD_TABS.includes(tab)) {
+        const previous = sources.find(source => schema.tabs[source] === sheetId);
+        const oldLength = previous ? values[sources.indexOf(previous)].length : 0;
+        if (schema.version === "4" && !schema.tabs.records && !schema.tabs.acuses) {
+          const original = previous ? values[sources.indexOf(previous)] : [];
+          const retained = new Set();
+          const removed = [];
+          for (const [index, value] of original.entries()) {
+            const record = recordOf(value);
+            if (record.id && TYPE_TABS[record.type] === tab && !retained.has(record.id)) retained.add(record.id);
+            else if (value.some(cell => String(cell ?? "").length)) removed.push(index + FIRST_ROW - 1);
+          }
+          requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([MEMORY_COLUMNS]), fields: "userEnteredValue" } });
+          for (const rowIndex of removed.reverse()) requests.push({ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 } } });
+          const added = records[tab].filter(value => !retained.has(value[0]));
+          if (added.length) requests.push({ appendCells: { sheetId, rows: rows(added), fields: "userEnteredValue" } });
           continue;
         }
-        known.set(record.id, record);
-        transferred.push(normalizeValues(value));
-        migrated.add(record.id);
-      }
-      if (transferred.length) requests.push({ appendCells: { sheetId: schema.tabs[target], rows: rows(transferred), fields: "userEnteredValue" } });
-      requests.push({ deleteSheet: { sheetId: schema.tabs[source] } });
+        if (previous && records[tab].length + 1 > (schema.grids?.[previous]?.rowCount || 1000)) requests.push({ updateSheetProperties: { properties: { sheetId, gridProperties: { rowCount: records[tab].length + 1 } }, fields: "gridProperties.rowCount" } });
+        requests.push({ updateCells: { range: { sheetId, startRowIndex: 0, endRowIndex: Math.max(oldLength, records[tab].length) + 1, startColumnIndex: 0, endColumnIndex: MEMORY_COLUMNS.length }, rows: rows([MEMORY_COLUMNS, ...records[tab]]), fields: "userEnteredValue" } });
+      } else requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
     }
-    if (Object.hasOwn(schema.tabs, "records")) {
-      const targets = RECORD_TABS.map(tab => schema.version === "2" ? Object.keys(LEGACY_TABS).find(key => LEGACY_TABS[key] === tab) : tab);
-      const [legacy, ...existing] = await this.batchValues([rangeFor("records"), ...targets.map(tab => rangeFor(tab))]);
-      const known = new Map(existing.flat().filter(value => value[0]).map(value => [value[0], recordOf(value)]));
-      for (const value of legacy) {
-        if (!value[0]) continue;
-        const record = recordOf(value);
-        const tab = TYPE_TABS[record.type];
-        if (!tab) throw new Error("Tipo de registro antiguo desconocido.");
-        if (known.has(record.id) || migrated.has(record.id)) continue;
-        known.set(record.id, record);
-        requests.push({ appendCells: { sheetId: schema.tabs[targets[RECORD_TABS.indexOf(tab)]], rows: rows([normalizeValues(value)]), fields: "userEnteredValue" } });
-      }
-      requests.push({ deleteSheet: { sheetId: schema.tabs.records } });
-    }
-    if (!Object.hasOwn(schema.tabs, "routines")) {
-      const ids = new Set(Object.values(schema.tabs));
-      let sheetId = 1;
-      while (ids.has(sheetId)) sheetId++;
-      requests.push({ addSheet: { properties: { title: "routines", sheetId, gridProperties: { frozenRowCount: 1 } } } });
-      requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([ROUTINE_COLUMNS]), fields: "userEnteredValue" } });
-    }
-    for (const tab of MEMORY_TABLES) {
-      const previous = schema.version === "2" ? Object.keys(LEGACY_TABS).find(key => LEGACY_TABS[key] === tab) || tab : tab;
-      if (!Object.hasOwn(schema.tabs, previous)) continue;
-      const sheetId = schema.tabs[previous];
-      if (tab === "routines" && schema.version !== PROTOCOL_VERSION) requests.push({ insertDimension: { range: { sheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, inheritFromBefore: true } });
-      requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
-      if (RECORD_TABS.includes(tab)) {
-        const values = await this.values("'" + previous + "'!E2:E");
-        if (values.length) requests.push({ updateCells: { start: { sheetId, rowIndex: 1, columnIndex: 4 }, rows: rows(values.map(value => [normalizeValues(["", "", "", "", value[0]])[4]])), fields: "userEnteredValue" } });
-      }
-    }
+    if (Object.hasOwn(schema.tabs, "records")) requests.push({ deleteSheet: { sheetId: schema.tabs.records } });
+    if (schema.version !== "2" && Object.hasOwn(schema.tabs, "acuses")) requests.push({ deleteSheet: { sheetId: schema.tabs.acuses } });
     requests.push({ updateCells: { range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 30, startColumnIndex: 0, endColumnIndex: 2 }, rows: rows(MEMORY_PROTOCOL), fields: "userEnteredValue" } });
     try { await this.batch(requests); }
     catch (error) { if ((await this.inspect()).needsUpgrade) throw error; }
@@ -258,13 +219,13 @@ export class DriveMemory extends MemoryBackend {
   }
   async readNew(tabs = RECORD_TABS, cursors = { load: this.loadCursor, save: this.saveCursor }) {
     const cursor = cursors.load() || {};
-    const state = [2, 3, 4].includes(cursor.version) ? { version: 4, tabs: { ...cursor.tabs } } : { version: 4, tabs: {} };
+    const state = [2, 3, 4, 5].includes(cursor.version) ? { version: 5, tabs: { ...cursor.tabs } } : { version: 5, tabs: {} };
+    if (cursor.version !== 5) { delete state.tabs.messages; delete state.tabs.mensajes; delete state.tabs.acks; }
     if (cursor.version === 2) for (const [previous, tab] of Object.entries(LEGACY_TABS)) {
       if (state.tabs[previous] && !state.tabs[tab]) state.tabs[tab] = state.tabs[previous];
       delete state.tabs[previous];
     }
     delete state.tabs.acuses;
-    delete state.tabs.acks;
     const starts = Object.fromEntries(tabs.map(tab => [tab, Math.max(FIRST_ROW, Number(state.tabs[tab]?.row) || FIRST_ROW)]));
     const ends = Object.fromEntries(tabs.map(tab => [tab, starts[tab] + BATCH_ROWS - 1]));
     const batches = await this.collect(tabs, starts, ends);
@@ -356,6 +317,11 @@ export class DriveMemory extends MemoryBackend {
     if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
     if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > MAX_CONTENT) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
     if (args.type === "ack" && !UUID_PATTERN.test(args.reply_to || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con reply_to.");
+    if (args.type === "ack") {
+      const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"])).records[0];
+      if (!original) throw new Error("La confirmación debe apuntar a un mensaje existente en messages.");
+      args = { ...args, to: args.to || original.eco_author, thread: args.thread || original.thread };
+    }
     const id = args.id || crypto.randomUUID();
     if (!UUID_PATTERN.test(id)) throw new Error("El id debe ser un UUID.");
     const existing = (await this.search({ id }, RECORD_TABS, true)).records;

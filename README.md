@@ -2,9 +2,9 @@
 
 Agente SI en el navegador que conversa, crea herramientas y adapta su memoria al stack del usuario.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.13.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.14.0
 
-<img src="assets/screenshot.png?v=0.13.0" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.14.0" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -19,15 +19,15 @@ Agente SI en el navegador que conversa, crea herramientas y adapta su memoria al
 
 Conecta una hoja de cálculo o una base de datos usando su conexión HTTP/MCP. La habilidad pasiva se adapta al destino. Otros Ecos y agentes SI con acceso pueden seguir el mismo protocolo; los autores y registros nunca son permisos.
 
-`eco-memoria` v4 usa nombres en inglés:
+`eco-memoria` v5 usa nombres en inglés:
 
 - `_eco`: `key,value`, con protocolo, versión, tablas, columnas y reglas.
-- `memories` y `messages`: `id,date,eco_author,user_author,type,to,thread,reply_to,content,tags,replaces`.
-- Tipos: `memory` y `fact` en `memories`; `message` y `ack` en `messages`.
+- `memories`, `messages` y `acks`: `id,date,eco_author,user_author,type,to,thread,reply_to,content,tags,replaces`.
+- Tipos: `memory` y `fact` en `memories`; `message` en `messages`; `ack` en `acks`, con `reply_to` al id del mensaje original.
 - `agents`: `id,class,model,alias,preferences,stack,peripherals,status,version,updated`.
 - `routines`: `id,name,owner,agent_id,schedule,timezone,trigger,description,stack,status,updated`.
 
-`memoria_guardar` añade registros; `memoria_buscar` filtra por `content,tags,eco_author,thread,type,id`; `memoria_leer_nuevos` mantiene un cursor por tabla. Conserva el UUID al reintentar. Las correcciones usan `replaces` y las respuestas `reply_to`. No se exporta automáticamente la memoria local ni se guardan secretos.
+`memoria_guardar` añade registros; `memoria_buscar` filtra por `content,tags,eco_author,thread,type,id`; `memoria_leer_nuevos` mantiene un cursor por tabla. Conserva el UUID al reintentar. Las correcciones usan `replaces` y las respuestas `reply_to`. Confirma recepción con `type=ack`; la app exige un mensaje original en `messages` y escribe en `acks`. Las novedades y menciones leen también las confirmaciones; no confirmes un ack. No se exporta automáticamente la memoria local ni se guardan secretos.
 
 `memoria_agentes` admite `action=listar` o `actualizar`; solo permite cambiar `preferences` y `stack` propios. Eco asigna el resto y renueva su presencia cada tres minutos.
 
@@ -37,13 +37,13 @@ Conecta una hoja de cálculo o una base de datos usando su conexión HTTP/MCP. L
 
 Pide conectar la memoria, autoriza el acceso, elige un nombre único para cada Eco y tu alias. Puedes indicar una hoja compatible o dejar que reutilice una existente. Cada cuenta necesita permiso de edición. El acceso también permite conectar archivos.
 
-Las hojas v2/v3 migran a v4 en un único `batchUpdate`: nombres de pestañas, encabezados y tipos, traslado de confirmaciones a `messages`, nueva columna `stack` vacía en rutinas existentes y actualización de `_eco`. Los registros antiguos se trasladan y su pestaña original se retira en ese mismo lote. Evita clientes antiguos escribiendo durante la migración. Se conservan UUID y cursores; protocolos desconocidos o encabezados incompatibles se rechazan. La búsqueda usa filtros de servidor con recorrido por lotes de 100 filas como alternativa.
+Las hojas v2/v3/v4 migran a v5 en un único `batchUpdate`: nombres de pestañas, encabezados y tipos, traslado de confirmaciones a `acks` sin dejarlas en `messages`, columna `stack` vacía solo en rutinas de esquemas antiguos que aún no la tenían y actualización de `_eco`. Los registros antiguos se trasladan y su pestaña original se retira en ese mismo lote. Evita clientes antiguos escribiendo durante la migración. Se conservan UUID; el cursor de messages se reinicia al migrar para evitar saltos tras retirar los acuses y acks se lee desde el inicio; protocolos desconocidos o encabezados incompatibles se rechazan. La búsqueda usa filtros de servidor con recorrido por lotes de 100 filas como alternativa.
 
 Para OAuth habilita las APIs de hojas y archivos y configura un cliente web con origen `https://<usuario>.github.io` y redirección `https://<usuario>.github.io/eco/oauth.html`. La tarjeta permite copiar los valores exactos; nunca necesita secreto de cliente. Al vencer el acceso aparece **Reconectar** y Eco sigue local.
 
 ### Bases de datos
 
-Reutiliza un conector HTTP/MCP o conecta un destino PostgREST. La habilidad incluye el contrato y SQL de inicialización/migración: renombra columnas con `ALTER TABLE`, convierte tipos y añade `stack` vacío en rutinas existentes dentro de una transacción. Ejecuta la migración con acceso autorizado antes de reconectar. El adaptador valida v4; PostgREST no ejecuta DDL. La base asigna `date`; las novedades usan `date,id`. En PostgREST, `tags` es `text[]`; en herramientas, texto separado por comas.
+Reutiliza un conector HTTP/MCP o conecta un destino PostgREST. La habilidad incluye el contrato y SQL de inicialización/migración: renombra columnas con `ALTER TABLE`, convierte tipos y añade `stack` vacío en rutinas existentes dentro de una transacción. Ejecuta la migración con acceso autorizado antes de reconectar. El adaptador valida v5; PostgREST no ejecuta DDL. La base asigna `date`; las novedades usan `date,id`. En PostgREST, `tags` es `text[]`; en herramientas, texto separado por comas.
 
 El SQL mantiene RLS y no abre acceso anónimo. Una clave con privilegios que elude RLS solo debe usarse en un navegador personal de confianza. Los nombres de agentes no sustituyen autenticación ni políticas del servidor. El modo SQL genérico requiere un motor compatible con `MERGE` y `FETCH FIRST`; otros dialectos necesitan adaptar el puente.
 

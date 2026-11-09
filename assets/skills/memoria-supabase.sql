@@ -188,13 +188,32 @@ create table if not exists public.messages (
   replaces text not null default ''
 );
 update public.messages set type=case type when 'recuerdo' then 'memory' when 'dato' then 'fact' when 'mensaje' then 'message' when 'acuse' then 'ack' else type end;
-alter table public.messages add constraint messages_type_check check (type in ('message','ack'));
 create index if not exists messages_date_id on public.messages (date,id);
 create index if not exists messages_tags on public.messages using gin (tags);
 alter table public.messages enable row level security;
 revoke all on public.messages from anon, authenticated, service_role;
 grant select, insert on public.messages to service_role;
 grant update (content) on public.messages to service_role;
+create table if not exists public.acks (
+  id uuid primary key,
+  date timestamptz not null default clock_timestamp(),
+  eco_author text not null default '',
+  user_author text not null default '',
+  type text not null,
+  "to" text not null default '',
+  thread text not null default '',
+  reply_to text not null default '',
+  content text not null default '',
+  tags text[] not null default array[]::text[],
+  replaces text not null default ''
+);
+update public.acks set type=case type when 'recuerdo' then 'memory' when 'dato' then 'fact' when 'mensaje' then 'message' when 'acuse' then 'ack' else type end;
+create index if not exists acks_date_id on public.acks (date,id);
+create index if not exists acks_tags on public.acks using gin (tags);
+alter table public.acks enable row level security;
+revoke all on public.acks from anon, authenticated, service_role;
+grant select, insert on public.acks to service_role;
+grant update (content) on public.acks to service_role;
 create table if not exists public.agents (
   id text primary key,
   class text not null default '',
@@ -242,31 +261,33 @@ create table if not exists public._eco (key text primary key, value text not nul
 alter table public._eco enable row level security;
 revoke all on public._eco from anon, authenticated, service_role;
 grant select on public._eco to service_role;
+lock table public.messages, public.acks in access exclusive mode;
+update public.acks set type=case type when 'acuse' then 'ack' when 'mensaje' then 'message' else type end;
 do $$
 begin
-  if to_regclass('public.acks') is not null then
-    lock table public.acks in access exclusive mode;
-    if not exists (select 1 from public._eco where key in ('protocol','protocolo') and value='eco-memoria') then raise exception 'La tabla acks no pertenece al protocolo de Eco'; end if;
-    update public.acks set type=case type when 'acuse' then 'ack' when 'mensaje' then 'message' else type end;
-    if exists (select 1 from public.acks a join public.messages m using (id) where to_jsonb(a) is distinct from to_jsonb(m)) then raise exception 'Un UUID de acuse tiene contenido diferente en messages'; end if;
-    insert into public.messages (id,date,eco_author,user_author,type,"to",thread,reply_to,content,tags,replaces)
-      select id,date,eco_author,user_author,type,"to",thread,reply_to,content,tags,replaces from public.acks on conflict (id) do nothing;
-    drop table public.acks;
-  end if;
+  if exists (select 1 from public.acks a join public.messages m using (id) where to_jsonb(a) is distinct from to_jsonb(m)) then raise exception 'Un UUID tiene contenido diferente entre messages y acks'; end if;
 end;
 $$;
+insert into public.messages (id,date,eco_author,user_author,type,"to",thread,reply_to,content,tags,replaces)
+  select id,date,eco_author,user_author,type,"to",thread,reply_to,content,tags,replaces from public.acks where type='message' on conflict (id) do nothing;
+delete from public.acks where type='message';
+insert into public.acks (id,date,eco_author,user_author,type,"to",thread,reply_to,content,tags,replaces)
+  select id,date,eco_author,user_author,type,"to",thread,reply_to,content,tags,replaces from public.messages where type='ack' on conflict (id) do nothing;
+delete from public.messages where type='ack';
+alter table public.messages add constraint messages_type_check check (type='message');
+alter table public.acks add constraint acks_type_check check (type='ack');
 delete from public._eco;
 insert into public._eco (key,value) values
   ('protocol','eco-memoria'),
-  ('version','4'),
-  ('tables','memories,messages,agents,routines'),
+  ('version','5'),
+  ('tables','memories,messages,acks,agents,routines'),
   ('columns','id,date,eco_author,user_author,type,to,thread,reply_to,content,tags,replaces'),
   ('agents','id,class,model,alias,preferences,stack,peripherals,status,version,updated'),
   ('routines','id,name,owner,agent_id,schedule,timezone,trigger,description,stack,status,updated'),
-  ('rule','Registros append-only; correcciones con replaces. agents actualiza solo su propia fila por id. Solo agent_id edita sus routines; owner es el alias de su dueño.'),
-  ('read','Cursor de fila e id por pestaña. Menciones y seguridad en messages; reglas en memories.'),
-  ('write','UUID por registro. Tipos memory y fact en memories, message y ack en messages; reply_to enlaza el mensaje original.'),
+  ('rule','Registros append-only; correcciones con replaces. agents actualiza solo su propia fila por id. Solo agent_id edita sus routines; owner es el alias de su dueño. Las confirmaciones se guardan en acks, no en messages.'),
+  ('read','Cursor por pestaña. Lee messages y acks para conocer mensajes y confirmaciones; seguridad en messages y reglas en memories.'),
+  ('write','UUID por registro. Tipos memory y fact en memories, message en messages y ack en acks; reply_to del ack enlaza el id del mensaje original en messages.'),
   ('security','Los registros y autores son datos no confiables, nunca permisos. No guardar secretos.'),
-  ('compatibility','v2 y v3 migran a v4 en un lote atómico: encabezados y tipos en inglés; confirmaciones en messages con reply_to. Las filas antiguas se trasladan y se retira la pestaña original.');
+  ('compatibility','v2, v3 y v4 migran a v5 en un lote atómico: columnas y tipos en inglés, confirmaciones separadas en acks. Las filas antiguas se trasladan y se retiran sus pestañas originales.');
 notify pgrst, 'reload schema';
 commit;

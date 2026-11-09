@@ -22,7 +22,7 @@ export class DatabaseMemory extends MemoryBackend {
   async validate() {
     const result = await this.execute("schema", { protocol: MEMORY_PROTOCOL, columns: MEMORY_COLUMNS, agents: AGENT_COLUMNS, routines: ROUTINE_COLUMNS, tables: [...MEMORY_TABLES, "_eco"] });
     const protocol = Object.fromEntries(Array.isArray(result) ? result.map(row => [row.key, row.value]) : result.protocol || []);
-    if (protocol.protocol !== "eco-memoria" || protocol.version !== PROTOCOL_VERSION || protocol.tables !== MEMORY_TABLES.join(",") || protocol.columns !== MEMORY_COLUMNS.join(",") || protocol.agents !== AGENT_COLUMNS.join(",") || protocol.routines !== ROUTINE_COLUMNS.join(",")) throw new Error("La base no usa eco-memoria v4. Crea las tablas y el protocolo con la habilidad de bases de datos.");
+    if (protocol.protocol !== "eco-memoria" || protocol.version !== PROTOCOL_VERSION || protocol.tables !== MEMORY_TABLES.join(",") || protocol.columns !== MEMORY_COLUMNS.join(",") || protocol.agents !== AGENT_COLUMNS.join(",") || protocol.routines !== ROUTINE_COLUMNS.join(",")) throw new Error("La base no usa eco-memoria v5. Crea las tablas y el protocolo con la habilidad de bases de datos.");
     return { protocol: "eco-memoria", version: PROTOCOL_VERSION };
   }
   async connect() { return { ...this.config, ...await this.ensure() }; }
@@ -60,7 +60,8 @@ export class DatabaseMemory extends MemoryBackend {
   async readNew(tabs = RECORD_TABS, cursors = { load: this.loadCursor, save: this.saveCursor }) {
     await this.ensure();
     const previous = cursors.load();
-    const state = [3, 4].includes(previous?.version) ? { version: 4, tabs: { ...previous.tabs } } : { version: 4, tabs: {} };
+    const state = [3, 4, 5].includes(previous?.version) ? { version: 5, tabs: { ...previous.tabs } } : { version: 5, tabs: {} };
+    if (previous?.version !== 5) delete state.tabs.acks;
     for (const cursor of Object.values(state.tabs)) if (cursor.fecha && !cursor.date) { cursor.date = cursor.fecha; delete cursor.fecha; }
     const records = [];
     let more = false;
@@ -93,6 +94,11 @@ export class DatabaseMemory extends MemoryBackend {
     if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
     if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
     if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con reply_to.");
+    if (args.type === "ack") {
+      const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"])).records[0];
+      if (!original) throw new Error("La confirmación debe apuntar a un mensaje existente en messages.");
+      args = { ...args, to: args.to || original.eco_author, thread: args.thread || original.thread };
+    }
     const id = args.id || crypto.randomUUID();
     if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
     const existing = (await this.search({ id })).records[0];
