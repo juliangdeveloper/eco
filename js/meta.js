@@ -7,7 +7,7 @@ export const TIPO_STAT = Object.freeze({ TOTAL_ACUMULADO: "total_acumulado", MEJ
 export const TIPO_PROYECTO = Object.freeze({ PROYECTO: "proyecto", AREA: "area", RECURSO: "recurso", ARCHIVO: "archivo" });
 
 export const PROYECTO = Object.freeze({
-  objetivo: "Agente de IA que corre en el navegador y se conecta a GitHub y Gmail sin servidor.",
+  objetivo: "Agente SI que corre en el navegador y se adapta a protocolos y APIs.",
   fase: FASE.LANZAMIENTO_Y_MANTENIMIENTO,
   fase_estado: ESTADO_FASE.EN_CURSO,
   fases_completadas: 5,

@@ -110,7 +110,7 @@ export function renderEmpty(send) {
   empty.id = "empty";
   empty.append(element("div", "¿En qué te ayudo?"));
   const suggestions = element("div", "", "suggestions");
-  const texts = ["Conéctate a mi Gmail", "Conecta mi GitHub", "Organiza mis tareas"];
+  const texts = ["Conéctate a mi correo", "Conecta mis repositorios", "Organiza mis tareas"];
   for (const text of texts) {
     const button = element("button", text);
     button.type = "button";

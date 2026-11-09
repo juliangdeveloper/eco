@@ -1,17 +1,17 @@
 # 🌱 eco
 
-**Browser AI agent with local memory, passive protocol skills, shared Google Sheets memory, remote MCP tools and private OAuth credentials.**
+**Agente SI en el navegador que se adapta a protocolos y APIs.**
 
-> Conversa, usa herramientas y comparte recuerdos entre tus Ecos.
+> Conversa, crea sus propias herramientas y comparte memoria con otros Ecos y agentes SI.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.10.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.10.1
 
-<img src="assets/screenshot.png?v=0.10.0" alt="Ajustes de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.10.1" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
 - En **Ajustes**, introduce tu clave de OpenRouter. Modelo por defecto: `deepseek/deepseek-v4.1-flash-1017`.
-- Pide «Conéctate a GitHub» u otro servicio: Eco busca su MCP remoto oficial; usa API HTTP si no existe MCP compatible. El servicio debe permitir CORS.
+- Pide que se conecte a cualquier servicio: tus repositorios, tu correo, tus archivos o tus tareas. Eco busca la documentación oficial y usa el protocolo que ofrezca el servicio, MCP remoto o API HTTP, sin conectores predefinidos. El servicio debe permitir CORS.
 - Las credenciales se introducen en una tarjeta, cifradas con AES-GCM en IndexedDB; el modelo no las recibe. Las acciones se ejecutan sin confirmaciones de Eco; solo se solicitan credenciales ausentes y la palabra del borrado seguro.
 - Conversaciones, tareas, habilidades y memoria local permanecen en el navegador. Hay búsqueda, subagentes, compresión a 128.000 tokens e historial de resultados con `leer_resultado`.
 - La memoria local admite 6.000 caracteres (perfil: 3.000). `memory` reemplaza o elimina por fragmento único o `index` desde 0, muestra candidatos si hay ambigüedad y devuelve espacio usado y libre; al exceder el límite, indica el exceso y las entradas actuales con índice y tamaño.
@@ -20,6 +20,10 @@
 - Desliza cualquier mensaje hacia la derecha (o arrástralo con el ratón) para responder citándolo. La cita aparece encima del campo, puede cancelarse y se conserva con el mensaje. Si citas un resultado de subagente, el orquestador puede continuar ese mismo trabajo.
 - Eco puede decidir recargarse con `eco_actualizar({motivo})`, sin pedir aprobación: guarda la conversación, el turno pendiente y los subagentes activos, aplica el service worker disponible y retoma al cargar con los mismos subagentes. El botón **Actualizar** hace lo mismo, también dentro de otra página. No hay búsqueda automática de versiones: puedes avisarle de una actualización por chat o memoria compartida. Máximo una recarga por minuto y tres cada diez minutos.
 - En Ajustes puedes cambiar los pasos por turno: orquestador de 1 a 100 (20 por defecto) y subagente de 1 a 300 (90 por defecto). Se guardan en este dispositivo, se aplican al siguiente turno y se eliminan con el borrado seguro. Al alcanzar el límite resume lo logrado y puedes indicarle que continúe.
+
+## Requisitos
+
+Corre en cualquier dispositivo con un navegador moderno: móvil, tableta o computador. Solo necesita HTTPS, WebAssembly, IndexedDB y conexión a internet para el modelo. La primera carga descarga unos 6,6 MB y después funciona desde la caché. Las herramientas de dispositivo dependen de las APIs que exponga cada navegador.
 
 ## Subagentes
 
@@ -53,7 +57,11 @@ En **Ajustes › Borrado seguro**, configura y repite una palabra exclusiva de 8
 
 Detiene trabajo y conexiones, avisa a otras pestañas de Eco y elimina su IndexedDB, claves `eco.*` de localStorage/sessionStorage, cachés `eco-v*` y service workers de su ruta, sin borrar otras aplicaciones del dominio. Deja una página en blanco; cerrar la ventana depende del navegador. Es borrado local de mejor esfuerzo, no forense: no revoca APIs ni elimina archivos remotos, historial o copias del sistema. La orden remota transporta la palabra en Sheets: protege esa hoja; retirar la celda no elimina su historial. No funciona con Eco cerrado, sin red o con acceso de Google vencido.
 
-## Google Drive: memoria compartida y archivos
+## Memoria compartida
+
+La memoria compartida se adapta al stack de cada usuario: cada destino usa una versión adaptada del protocolo `eco-memoria`. En Google Drive son hojas de cálculo; una base de datos usará tablas y esquemas. Además de comunicar varios Ecos entre sí, permite interactuar con otros agentes SI, como Grok o Claude: cualquier agente con acceso al destino puede leer y escribir registros siguiendo el mismo protocolo. Hoy el destino disponible es Google Drive.
+
+### Google Drive
 
 1. Pide «Conéctate a mi Drive» y pega tu propio Client ID en la tarjeta de inicio de sesión.
 2. Autoriza Google, elige un nombre corto para este Eco y tu alias. Pega la URL/ID de una hoja compatible o deja el campo vacío: Eco busca en tu Drive una **Eco · Memoria** compatible y reutiliza la que tenga más registros; solo crea una nueva si no encuentra ninguna.
@@ -80,11 +88,15 @@ En Google Cloud habilita **Google Sheets API** y **Google Drive API**. Configura
 - Origen JavaScript autorizado: `https://<usuario>.github.io`
 - URI de redirección: `https://<usuario>.github.io/eco/oauth.html`
 
-La tarjeta incluye enlaces en pestaña nueva y botones para copiar los valores exactos. Google usa token implícito sin servidor ni secreto de cliente. Un fallo de renovación silenciosa no invalida un token que aún sirve. Al expirar, Eco sigue en modo local y muestra un único aviso **Reconectar**: el toque abre la ventana de acceso directamente y reutiliza la cuenta conocida sin forzar consentimiento. Safari puede impedir la renovación oculta o pedir iniciar sesión de nuevo; Eco no puede alargar el permiso que concede Google. El acceso renovado reactiva la memoria sin recargar ni duplicar rutinas. Para Gmail habilita su API y los permisos correspondientes.
+La tarjeta incluye enlaces en pestaña nueva y botones para copiar los valores exactos. Google usa token implícito sin servidor ni secreto de cliente. Un fallo de renovación silenciosa no invalida un token que aún sirve. Al expirar, Eco sigue en modo local y muestra un único aviso **Reconectar**: el toque abre la ventana de acceso directamente y reutiliza la cuenta conocida sin forzar consentimiento. Safari puede impedir la renovación oculta o pedir iniciar sesión de nuevo; Eco no puede alargar el permiso que concede Google. El acceso renovado reactiva la memoria sin recargar ni duplicar rutinas. Para otras APIs de Google, habilítalas y añade sus permisos.
 
 ## Stack y ejecución local
 
 JavaScript ES, HTML/CSS, Pyodide 314.0.7/Python 3.14.2, OpenRouter, IndexedDB y service worker. Ejecuta `python3 -m http.server` y abre la dirección local.
+
+## Aviso
+
+Eco es un proyecto experimental de código abierto y no se recomienda como agente SI principal. Ejecuta acciones sin pedir confirmación, guarda credenciales en el navegador y no ha pasado una auditoría de seguridad. Úsalo con cuentas y datos que puedas permitirte exponer y revisa el código antes de confiarle algo importante.
 
 ## Licencia
 
