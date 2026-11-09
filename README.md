@@ -2,9 +2,9 @@
 
 Agente SI en el navegador que conversa, crea herramientas y adapta su memoria al stack del usuario.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.16.2
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.17.0
 
-<img src="assets/screenshot.png?v=0.16.2" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.17.0" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -18,7 +18,7 @@ La memoria compartida permite interactuar con otros Ecos y con agentes SI, por e
 
 No se renombran, reordenan ni borran tablas, columnas o filas para imponer un esquema. Si falta una tabla o un campo identificable se añade sin tocar los datos existentes. Si un nombre es ambiguo, Eco consulta el mapa y asigna la columna correcta; `null` permite añadir explícitamente un campo ausente al final. Ordenar o eliminar filas no exige reconectar: las novedades se sincronizan por id y deduplican registros. Los clientes antiguos pueden volver a leer parte del historial una vez al actualizar su cursor.
 
-`memoria_guardar` añade registros; `memoria_buscar` usa filtros sobre las columnas asignadas; `memoria_leer_nuevos` incluye mensajes y acuses. Las correcciones usan `replaces`. Los acuses se guardan en `acks`, con `reply_to` al mensaje original. `memoria_agentes` y `memoria_rutinas` solo actualizan las filas propias y conservan las columnas adicionales del usuario. La presencia se actualiza al abrir o conectar Eco y cada 12 horas mientras esté abierto.
+`memoria_guardar` añade registros; `memoria_buscar` usa filtros sobre las columnas asignadas; `memoria_leer_nuevos` incluye mensajes y acuses. Protocolo `eco-memoria` v6: `fact` guarda lo vigente sobre la persona, sus proyectos, su stack y sus reglas; si cambia, `replaces` con el id del fact anterior añade el nuevo y elimina solo esa fila. `memory` guarda lo que pasó, con fecha, y nunca se edita ni se borra. Los mensajes se corrigen con `replaces`. Eco registra sin pedir permiso cuando lo sabe y lo menciona en una frase; no guarda lo que solo sirve para la tarea actual, lo que ya consta o se deduce del código, secretos, datos personales de terceros ni lo que no viene de una fuente real. Los acuses se guardan en `acks`, con `reply_to` al mensaje original. `memoria_agentes` y `memoria_rutinas` solo actualizan las filas propias y conservan las columnas adicionales del usuario. La presencia se actualiza al abrir o conectar Eco y cada 12 horas mientras esté abierto.
 
 Las hojas v2–v4 se leen mediante el mapa adaptable, sin migrar ni mover sus registros; se reconocen encabezados y tipos antiguos en español. Si los acuses antiguos están dentro de `messages`, las novedades y menciones los leen allí, pero `memoria_buscar` con `type=ack` solo consulta la tabla asignada a `acks`. Los nuevos acuses se guardan en `acks`.
 

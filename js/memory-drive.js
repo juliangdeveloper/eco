@@ -1,5 +1,5 @@
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
-import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, matchesRecord, MemoryBackend } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, matchesRecord, MemoryBackend, replacementCheck } from "./memory-protocol.js";
 import { SCHEMA_COLUMNS, foldName, columnLetter, quoteTab, parseMap, mergeMap, resolveSchema, snapshotMap, decodeRow, encodeRow, requireTable } from "./memory-schema.js";
 export { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL } from "./memory-protocol.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -227,12 +227,23 @@ export class DriveMemory extends MemoryBackend {
     const id = args.id || crypto.randomUUID();
     if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
     const existing = (await this.search({ id }, RECORD_TABS, true)).records[0];
-    if (existing) { if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || ""))) throw new Error("El UUID ya pertenece a otro registro."); return { ok: true, id, duplicado: true }; }
+    if (existing) { if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || ""))) throw new Error("El UUID ya pertenece a otro registro."); if (existing.type === "fact" && args.replaces) await this.removeFact(args.replaces).catch(() => false); return { ok: true, id, duplicado: true }; }
+    const replacing = replacementCheck({ ...args, id }, args.replaces ? (await this.search({ id: args.replaces }, RECORD_TABS, true)).records[0] : null);
     const table = requireTable(this.structure, TYPE_TABS[args.type]);
     const record = { ...args, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
     try { await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, record)] }); }
     catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id." }; }
-    return { ok: true, id };
+    if (!replacing) return { ok: true, id };
+    return await this.removeFact(args.replaces).catch(() => false) ? { ok: true, id, reemplazado: args.replaces } : { ok: true, id, aviso: "El fact anterior sigue en la hoja; queda sustituido por replaces." };
+  }
+  async removeFact(id) {
+    const table = requireTable(this.structure, "memories");
+    const matches = (await this.readAll(["memories"]))[0].filter(item => item.record.id === id);
+    if (matches.length !== 1 || matches[0].record.type !== "fact") return false;
+    const row = matches[0].row, current = decodeRow(table, (await this.values(this.range(table, row, row)))[0] || []);
+    if (current.id !== id || current.type !== "fact") return false;
+    await this.batch([{ deleteDimension: { range: { sheetId: table.sheetId, dimension: "ROWS", startIndex: row - 1, endIndex: row } } }]);
+    return true;
   }
   async directory(logical, action, changes, identity = {}) {
     await this.ensure();

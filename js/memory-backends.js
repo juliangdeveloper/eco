@@ -37,6 +37,7 @@ export function databaseSQL(action, args) {
     const record = args.record, names = Object.keys(record);
     return "INSERT INTO " + q(table) + " (" + [...names.map(q), ...(Object.hasOwn(record, columns.date) ? [] : [field("date")])].join(",") + ") VALUES (" + [...names.map(key => text(record[key])), ...(Object.hasOwn(record, columns.date) ? [] : ["CURRENT_TIMESTAMP"])].join(",") + ")";
   }
+  if (action === "remove") return "DELETE FROM " + q(table) + " WHERE " + field("id") + "=" + text(args.id) + " AND " + field("type") + " IN ('fact','dato')";
   if (action === "redact") return "UPDATE " + q(table) + " SET " + field("content") + "=" + text("[orden de seguridad retirada]") + " WHERE " + field("id") + "=" + text(args.id);
   if (["agents", "routines"].includes(action) && args.action === "actualizar") {
     const names = Object.keys(args.record);
@@ -78,7 +79,7 @@ export function memoryDependencies(config) {
       result = await observed(connectorFetch(id, "POST", operation.path, {}, payload, true));
     }
     if (!result.ok) throw new Error("Falló la operación de memoria " + action + ". Revisa el conector y sus permisos.");
-    if (action === "schema" && ["add", "map"].includes(args.stage) || ["save", "redact"].includes(action) || ["agents", "routines"].includes(action) && args.action === "actualizar") return { ok: true };
+    if (action === "schema" && ["add", "map"].includes(args.stage) || ["save", "redact", "remove"].includes(action) || ["agents", "routines"].includes(action) && args.action === "actualizar") return { ok: true };
     return unpack(result.data);
   };
   return {

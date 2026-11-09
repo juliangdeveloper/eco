@@ -1,4 +1,4 @@
-import { MemoryBackend, MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, MEMORY_PROTOCOL, TYPE_TABS, RECORD_TABS, PROTOCOL_VERSION, normalizeRecord, matchesRecord } from "./memory-protocol.js";
+import { MemoryBackend, MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, MEMORY_PROTOCOL, TYPE_TABS, RECORD_TABS, PROTOCOL_VERSION, normalizeRecord, matchesRecord, replacementCheck } from "./memory-protocol.js";
 import { foldName, SCHEMA_COLUMNS, parseMap, mergeMap, resolveSchema, snapshotMap, decodeRow, requireTable } from "./memory-schema.js";
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
 
@@ -169,14 +169,18 @@ export class DatabaseMemory extends MemoryBackend {
     const existing = (await this.search({ id })).records[0];
     if (existing) {
       if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => (key === "tags" ? tags(existing[key]) !== tags(args[key]) : String(existing[key] || "") !== String(args[key] || "")))) throw new Error("El UUID ya pertenece a otro registro.");
+      if (existing.type === "fact" && UUID.test(args.replaces || "")) await this.execute("remove", { table: "memories", id: args.replaces }).catch(() => {});
       return { ok: true, id, duplicado: true };
     }
+    const replacing = replacementCheck({ ...args, id }, args.replaces && UUID.test(args.replaces) ? (await this.search({ id: args.replaces })).records[0] : null);
     const record = Object.fromEntries(MEMORY_COLUMNS.filter(key => key !== "date").map(key => [key, String(args[key] || "")]));
     record.tags = tags(record.tags);
     Object.assign(record, { id, eco_author: this.config.eco, user_author: this.config.usuario });
     try { await this.execute("save", { table: TYPE_TABS[args.type], record }); }
     catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id; no generes otro." }; }
-    return { ok: true, id };
+    if (!replacing) return { ok: true, id };
+    try { await this.execute("remove", { table: "memories", id: args.replaces }); return { ok: true, id, reemplazado: args.replaces }; }
+    catch { return { ok: true, id, aviso: "El fact anterior sigue en la base; queda sustituido por replaces." }; }
   }
   async agents(action = "listar", changes = {}, identity = {}) {
     await this.ensure();
@@ -243,6 +247,7 @@ export class SupabaseMemory extends DatabaseMemory {
     }
     const columns = args.columns, field = key => columns[key], quoted = quote;
     if (action === "save") { const record = { ...args.record }; if (typeof record[field("tags")] === "string") record[field("tags")] = record[field("tags")].split(",").map(tag => tag.trim()).filter(Boolean); return this.call("POST", args.table, {}, record); }
+    if (action === "remove") return this.call("DELETE", args.table, { [field("id")]: "eq." + args.id, [field("type")]: "in.(fact,dato)" });
     if (action === "redact") return this.call("PATCH", args.table, { [field("id")]: "eq." + args.id }, { [field("content")]: "[orden de seguridad retirada]" });
     if (["agents", "routines"].includes(action)) {
       if (args.action === "actualizar") return this.call("POST", args.table, { on_conflict: quoted(field("id")) }, args.record, true);
