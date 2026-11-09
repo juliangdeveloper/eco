@@ -2,13 +2,13 @@
 
 Agente SI en el navegador que conversa, crea herramientas y adapta su memoria al stack del usuario.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.17.1
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.17.2
 
-<img src="assets/screenshot.png?v=0.17.1" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.17.2" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
-Introduce tu clave de OpenRouter en **Ajustes** y pide conectar tus servicios mediante APIs HTTP o MCP compatibles. Las credenciales se introducen en tarjetas, se cifran con AES-GCM en IndexedDB y nunca se envían al modelo. Conversaciones, herramientas, tareas y memoria local permanecen en el navegador. Incluye subagentes, búsqueda y rutinas que requieren Eco abierto. **Actualizar** o `eco_actualizar` guarda y reanuda el trabajo.
+Conecta un proveedor de modelos en **Ajustes** (por ahora OpenRouter) y pide conectar tus servicios mediante APIs HTTP o MCP compatibles. Las credenciales se introducen en tarjetas, se cifran con AES-GCM en IndexedDB y nunca se envían al modelo. Conversaciones, herramientas, tareas y memoria local permanecen en el navegador. Incluye subagentes, búsqueda y rutinas que requieren Eco abierto. **Actualizar** o `eco_actualizar` guarda y reanuda el trabajo.
 
 ## Memoria adaptable
 
