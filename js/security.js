@@ -1,11 +1,16 @@
 const KEY = "eco.security";
 const SIGNAL_KEY = "eco.securitySignal";
+const CHANNEL_KEY = "eco.securityChannel";
+const ACTIVITY_KEY = "eco.lastActivityAt";
+const ACTIVITY_INTERVAL_MS = 60000;
+const MAX_INACTIVE_MS = 15 * 24 * 60 * 60 * 1000;
+let activityTimer;
 const ITERATIONS = 600000;
 const PREFIX = /^\s*(?:autodestrucci[oó]n|borrado\s+seguro)(?:\s+|[:-]\s*|$)/iu;
 let wiping = false;
 let shutdown = () => {};
 let queue = Promise.resolve();
-let nonce = readRecord()?.nonce || "";
+let nonce = readRecord()?.nonce || activityNonce();
 const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel("eco-security") : null;
 
 function readRecord() {
@@ -13,10 +18,45 @@ function readRecord() {
   catch { return null; }
 }
 
+function activityNonce() {
+  try { const value = localStorage.getItem(CHANNEL_KEY) || crypto.randomUUID(); localStorage.setItem(CHANNEL_KEY, value); return value; } catch { return crypto.randomUUID(); }
+}
+
+export function checkLocalActivity() {
+  return serial(async () => {
+    if (wiping) return true;
+    const now = Date.now();
+    let previous = null;
+    try { previous = localStorage.getItem(ACTIVITY_KEY); } catch {}
+    const timestamp = Number(previous);
+    if (previous !== null && Number.isFinite(timestamp) && timestamp > 0 && now - timestamp > MAX_INACTIVE_MS) { await erase(); return true; }
+    try { localStorage.setItem(ACTIVITY_KEY, String(now)); } catch {}
+    return false;
+  });
+}
+
+const activityWake = () => { checkLocalActivity().catch(() => {}); };
+export async function startLocalActivityWatch() {
+  stopLocalActivityWatch();
+  if (await checkLocalActivity()) return true;
+  activityTimer = setInterval(activityWake, ACTIVITY_INTERVAL_MS);
+  window.addEventListener("focus", activityWake);
+  window.addEventListener("pageshow", activityWake);
+  document.addEventListener("visibilitychange", activityWake);
+  return false;
+}
+export function stopLocalActivityWatch() {
+  clearInterval(activityTimer);
+  window.removeEventListener("focus", activityWake);
+  window.removeEventListener("pageshow", activityWake);
+  document.removeEventListener("visibilitychange", activityWake);
+}
+
 function writeRecord(value) {
   if (wiping) return;
   localStorage.setItem(KEY, JSON.stringify(value));
   nonce = value.nonce;
+  try { localStorage.setItem(CHANNEL_KEY, nonce); } catch {}
 }
 
 const base64 = bytes => btoa(String.fromCharCode(...bytes));
@@ -142,6 +182,7 @@ function receiveSignal(value) {
 channel?.addEventListener("message", event => receiveSignal(event.data));
 window.addEventListener("storage", event => {
   if (event.key === KEY && event.newValue) nonce = readRecord()?.nonce || nonce;
+  if (event.key === CHANNEL_KEY && event.newValue) nonce = readRecord()?.nonce || event.newValue;
   if (event.key === SIGNAL_KEY && event.newValue) {
     try { receiveSignal(JSON.parse(event.newValue)); } catch {}
   }
@@ -150,6 +191,7 @@ window.addEventListener("storage", event => {
 async function erase(broadcast = true) {
   if (wiping) return;
   wiping = true;
+  stopLocalActivityWatch();
   document.documentElement.style.display = "none";
   if (broadcast && nonce) {
     const signal = { type: "wipe", nonce };

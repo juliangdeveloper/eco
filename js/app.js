@@ -1,6 +1,6 @@
 import { setupReload, resumeMarker, clearResumeMarker, prepareReload, commitReload } from "./reload.js";
 import { startSecurityMemory, stopSecurityMemory } from "./passive-skills.js";
-import { interceptSecurityCommand, isSecurityCommand, isWiping, safeDraft, setSecurityShutdown } from "./security.js";
+import { interceptSecurityCommand, isSecurityCommand, isWiping, safeDraft, setSecurityShutdown, startLocalActivityWatch } from "./security.js";
 import { stopDeviceTools } from "./device-runtime.js";
 import { abortNetwork } from "./network.js";
 import { clearVaultMemory } from "./vault.js";
@@ -190,6 +190,7 @@ async function main() {
     window.ecoBridge = null;
     for (const input of document.querySelectorAll("input, textarea")) input.value = "";
   });
+  if (await startLocalActivityWatch()) return;
   byId("version").textContent = APP_VERSION;
   metaDeclararProyecto(APP_ID, APP_VERSION);
   bindSettings();

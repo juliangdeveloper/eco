@@ -2,9 +2,9 @@
 
 Agente SI en el navegador que conversa, crea herramientas y adapta su memoria al stack del usuario.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.15.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.16.0
 
-<img src="assets/screenshot.png?v=0.15.0" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.16.0" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -18,7 +18,7 @@ La memoria compartida permite interactuar con otros Ecos y con agentes SI, por e
 
 No se renombran, reordenan ni borran tablas, columnas o filas para imponer un esquema. Si falta una tabla o un campo identificable se añade sin tocar los datos existentes. Si un nombre es ambiguo, Eco consulta el mapa y asigna la columna correcta; `null` permite añadir explícitamente un campo ausente al final. Ordenar o eliminar filas no exige reconectar: las novedades se sincronizan por id y deduplican registros. Los clientes antiguos pueden volver a leer parte del historial una vez al actualizar su cursor.
 
-`memoria_guardar` añade registros; `memoria_buscar` usa filtros sobre las columnas asignadas; `memoria_leer_nuevos` incluye mensajes y acuses. Las correcciones usan `replaces`. Los acuses se guardan en `acks`, con `reply_to` al mensaje original. `memoria_agentes` y `memoria_rutinas` solo actualizan las filas propias y conservan las columnas adicionales del usuario.
+`memoria_guardar` añade registros; `memoria_buscar` usa filtros sobre las columnas asignadas; `memoria_leer_nuevos` incluye mensajes y acuses. Las correcciones usan `replaces`. Los acuses se guardan en `acks`, con `reply_to` al mensaje original. `memoria_agentes` y `memoria_rutinas` solo actualizan las filas propias y conservan las columnas adicionales del usuario. La presencia se actualiza al abrir o conectar Eco y cada 12 horas mientras esté abierto.
 
 Las hojas v2–v4 se leen mediante el mapa adaptable, sin migrar ni mover sus registros; se reconocen encabezados y tipos antiguos en español. Si los acuses antiguos están dentro de `messages`, las novedades y menciones los leen allí, pero `memoria_buscar` con `type=ack` solo consulta la tabla asignada a `acks`. Los nuevos acuses se guardan en `acks`.
 
@@ -38,7 +38,7 @@ RLS permanece activado sin acceso anónimo abierto. Una clave que elude RLS solo
 
 ## Dispositivo y seguridad
 
-Las herramientas del dispositivo respetan los permisos del navegador. En **Ajustes › Borrado seguro**, la palabra se guarda como hash PBKDF2 con sal, nunca en claro. El borrado también acepta una orden verificada en el chat o en la memoria conectada mientras Eco esté abierto. Elimina los datos locales de Eco, pero no revoca accesos ni elimina datos remotos. Es un borrado de mejor esfuerzo, no forense.
+Las herramientas del dispositivo respetan los permisos del navegador. En **Ajustes › Borrado seguro**, la palabra se guarda como hash PBKDF2 con sal, nunca en claro. El borrado también acepta una orden verificada en el chat o en la memoria conectada mientras Eco esté abierto. Elimina los datos locales de Eco, pero no revoca accesos ni elimina datos remotos. Si Eco permanece cerrado más de 15 días, borra automáticamente sus datos locales al volver a abrirlo, sin preguntar, aunque no haya memoria compartida conectada. Es un borrado de mejor esfuerzo, no forense.
 
 ## Ejecución local
 

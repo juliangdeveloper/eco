@@ -7,7 +7,7 @@ import { showCredentialCard } from "./credentials.js";
 import { sheetId } from "./memory-drive.js";
 import { MEMORY_BACKENDS, memoryDependencies } from "./memory-backends.js";
 
-const PRESENCE_INTERVAL_MS = 180000;
+const PRESENCE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const CAPABILITY_LABELS = { mediaDevices: "cámara y micrófono", geolocation: "ubicación", bluetooth: "Bluetooth", usb: "USB", serial: "serial", hid: "HID", nfc: "NFC", clipboard: "portapapeles" };
 const CONFIG_KEY = "persistentMemory";
 const CONNECTOR_ID = "eco-memory-drive";
