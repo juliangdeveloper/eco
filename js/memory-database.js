@@ -1,4 +1,5 @@
 import { MemoryBackend, MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, MEMORY_PROTOCOL, TYPE_TABS, RECORD_TABS, PROTOCOL_VERSION, normalizeRecord, matchesRecord } from "./memory-protocol.js";
+import { foldName, SCHEMA_COLUMNS, parseMap, mergeMap, resolveSchema, snapshotMap, decodeRow, requireTable } from "./memory-schema.js";
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -11,19 +12,83 @@ const literal = value => '"' + String(value).replaceAll("\\", "\\\\").replaceAll
 export class DatabaseMemory extends MemoryBackend {
   constructor(dependencies) {
     super(dependencies);
-    this.execute = dependencies.execute;
+    this.transport = dependencies.execute;
+    this.execute = (action, args) => this.mappedExecute(action, args);
+    this.mapping = parseMap(this.config.map);
+    try { this.mapping = parseMap(localStorage.getItem("eco.databaseSchema:" + this.config.connector) || this.config.map); } catch {}
     this.preparing = null;
     this.writing = Promise.resolve();
   }
   ensure() {
-    if (!this.preparing) this.preparing = this.validate().catch(error => { this.preparing = null; throw error; });
+    if (!this.preparing) this.preparing = this.validate().finally(() => { this.preparing = null; });
     return this.preparing;
   }
-  async validate() {
-    const result = await this.execute("schema", { protocol: MEMORY_PROTOCOL, columns: MEMORY_COLUMNS, agents: AGENT_COLUMNS, routines: ROUTINE_COLUMNS, tables: [...MEMORY_TABLES, "_eco"] });
-    const protocol = Object.fromEntries(Array.isArray(result) ? result.map(row => [row.key, row.value]) : result.protocol || []);
-    if (protocol.protocol !== "eco-memoria" || protocol.version !== PROTOCOL_VERSION || protocol.tables !== MEMORY_TABLES.join(",") || protocol.columns !== MEMORY_COLUMNS.join(",") || protocol.agents !== AGENT_COLUMNS.join(",") || protocol.routines !== ROUTINE_COLUMNS.join(",")) throw new Error("La base no usa eco-memoria v5. Crea las tablas y el protocolo con la habilidad de bases de datos.");
-    return { protocol: "eco-memoria", version: PROTOCOL_VERSION };
+  async validate(overrides = null) {
+    const result = await this.transport("schema", { stage: "inspect", protocol: MEMORY_PROTOCOL, columns: MEMORY_COLUMNS, agents: AGENT_COLUMNS, routines: ROUTINE_COLUMNS, tables: Object.keys(SCHEMA_COLUMNS) });
+    let tables = result?.tables;
+    let protocol = Array.isArray(result) ? result.filter(row => row.key !== undefined || row.clave !== undefined).map(row => [row.key ?? row.clave, row.value ?? row.valor]) : result?.protocol || [];
+    if (!tables && Array.isArray(result) && (!result.length || result.some(row => row.table_name))) {
+      const names = [...new Set(result.map(row => row.table_name))];
+      tables = names.map(name => ({ name, headers: result.filter(row => row.table_name === name).sort((a, b) => Number(a.ordinal_position) - Number(b.ordinal_position)).map(row => row.column_name) }));
+    }
+    const discovered = Array.isArray(tables);
+    if (!discovered) tables = Object.entries(SCHEMA_COLUMNS).map(([name, headers]) => ({ name: this.mapping.tables[name]?.name || name, headers: this.mapping.tables[name]?.headers || headers }));
+    tables = tables.map(table => ({ name: table.name, headers: [...(table.headers || table.columns || [])] }));
+    let schema = resolveSchema(tables, overrides ? mergeMap(this.mapping, overrides) : this.mapping);
+    if (!schema.tables._eco.name) {
+      const candidates = tables.filter(table => { const names = table.headers.map(foldName); return names.some(name => ["key", "clave"].includes(name)) && names.some(name => ["value", "valor"].includes(name)); });
+      if (candidates.length === 1) { this.mapping = mergeMap(this.mapping, { tables: { _eco: { name: candidates[0].name } } }); schema = resolveSchema(tables, overrides ? mergeMap(this.mapping, overrides) : this.mapping); }
+    }
+    const metadata = schema.tables._eco;
+    if (discovered && metadata.name && metadata.fields.key !== undefined && metadata.fields.value !== undefined) {
+      const rows = await this.transport("schema", { stage: "protocol", table: metadata.name, columns: Object.fromEntries(Object.entries(metadata.fields).map(([key, index]) => [key, metadata.headers[index]])) });
+      protocol = (rows || []).map(row => [row.key ?? row[metadata.headers[metadata.fields.key]], row.value ?? row[metadata.headers[metadata.fields.value]]]);
+    }
+    const entry = protocol.find(row => row[0] === "map");
+    const remote = entry ? parseMap(entry[1]) : this.mapping;
+    this.mapping = overrides ? mergeMap(remote, overrides) : remote;
+    schema = resolveSchema(tables, this.mapping);
+    const reserved = new Set(Object.values(schema.tables).map(table => table.name).filter(Boolean)), additions = [];
+    if (discovered) for (const [logical, table] of Object.entries(schema.tables)) {
+      if (!table.name && !tables.some(item => item.name === logical) && !table.candidates.some(name => !reserved.has(name))) additions.push({ logical, name: logical, columns: [...SCHEMA_COLUMNS[logical]], create: true });
+      else if (table.name) { const saved = this.mapping.tables[logical], deleted = saved?.headers && table.unknown.every(column => saved.headers.includes(column.name)); const columns = table.unmapped.filter(key => saved?.columns?.[key] === null || !table.unknown.length || deleted && Object.hasOwn(saved.columns || {}, key)); if (columns.length) additions.push({ logical, name: table.name, columns, create: false }); }
+    }
+    let additionError = false;
+    if (additions.length && !this.readOnlyDDL) {
+      try {
+      await this.transport("schema", { stage: "add", additions });
+      for (const item of additions) {
+        const table = tables.find(table => table.name === item.name);
+        if (table) table.headers.push(...item.columns); else tables.push({ name: item.name, headers: [...item.columns] });
+        const columns = Object.fromEntries(item.columns.map(key => [key, key]));
+        this.mapping = mergeMap(this.mapping, { tables: { [item.logical]: { name: item.name, columns } } });
+      }
+      schema = resolveSchema(tables, this.mapping);
+      } catch { additionError = true; }
+    }
+    this.structure = { ...schema, additions_needed: this.readOnlyDDL || additionError ? additions : [], catalog_available: discovered, ...(additionError ? { warning: "No se pudieron añadir campos o tablas ausentes; los datos existentes se conservan." } : {}) };
+    const map = snapshotMap(schema), serialized = JSON.stringify(map);
+    this.mapping = map; this.config.map = map;
+    try { localStorage.setItem("eco.databaseSchema:" + this.config.connector, serialized); } catch {}
+    const target = schema.tables._eco;
+    this.structure.map_shared = Boolean(entry && entry[1] === serialized);
+    if (target.name && target.fields.key !== undefined && target.fields.value !== undefined && (!entry || entry[1] !== serialized)) { try { await this.transport("schema", { stage: "map", table: target.name, columns: Object.fromEntries(Object.entries(target.fields).map(([key, index]) => [key, target.headers[index]])), value: serialized, exists: Boolean(entry) }); this.structure.map_shared = true; } catch { this.structure.warning = "Mapa local: faltan permisos para guardar la fila map en _eco."; } }
+    return { protocol: "eco-memoria", version: PROTOCOL_VERSION, ...this.structure };
+  }
+  async schema(action = "ver", changes = {}) {
+    if (!["ver", "ajustar"].includes(action)) throw new Error("Acción de esquema inválida.");
+    if (action === "ajustar") await this.validate(changes); else await this.ensure();
+    return { mapa: snapshotMap(this.structure), ...this.structure, contenido_no_confiable: true };
+  }
+  async mappedExecute(action, args) {
+    const logical = ["agents", "routines"].includes(action) ? action : action === "redact" ? "messages" : args.table;
+    const table = requireTable(this.structure, logical);
+    const fields = Object.fromEntries(Object.entries(table.fields).map(([key, index]) => [key, table.headers[index]]));
+    const translated = { ...args, table: table.name, logical, columns: fields };
+    if (args.record) translated.record = Object.fromEntries(Object.entries(args.record).filter(([key]) => fields[key] !== undefined).map(([key, value]) => [fields[key], value]));
+    const result = await this.transport(action, translated);
+    if (!Array.isArray(result)) return result;
+    return result.map(row => decodeRow(table, table.headers.map(name => row[name])));
   }
   async connect() { return { ...this.config, ...await this.ensure() }; }
   async visible(row, tab) {
@@ -154,65 +219,53 @@ export class SupabaseMemory extends DatabaseMemory {
   constructor(dependencies) {
     super(dependencies);
     this.request = dependencies.request;
-    this.execute = (action, args) => this.query(action, args);
+    this.readOnlyDDL = true;
+    this.transport = (action, args) => this.query(action, args);
   }
   async call(method, table, query = {}, body = null, upsert = false) {
     if (isWiping()) throw new Error("Memoria detenida");
-    if (![...MEMORY_TABLES, "_eco"].includes(table)) throw new Error("Tabla no compatible.");
-    const result = await this.request(method, "/rest/v1/" + table, query, body, upsert);
-    if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconecta las credenciales de la base de datos." : "No se pudo consultar la base de datos. Revisa tablas, permisos y políticas de acceso.");
-    if (result.redactMemory) this.redactMemory = result.redactMemory;
+    const result = await this.request(method, "/rest/v1/" + encodeURIComponent(table), query, body, upsert);
+    if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconecta las credenciales de la base de datos." : "No se pudo consultar la base. Revisa el mapa de memoria y los permisos de sus tablas.");
+    if (result.redactMemory && table === this.structure?.tables.messages?.name) { const mapped = this.structure.tables.messages; this.redactMemory = id => result.redactMemory(id, { id: mapped.headers[mapped.fields.id], content: mapped.headers[mapped.fields.content] }); }
     return result.data;
   }
-  async validate() {
-    const result = await super.validate();
-    for (const table of MEMORY_TABLES) await this.call("GET", table, { select: (table === "agents" ? AGENT_COLUMNS : table === "routines" ? ROUTINE_COLUMNS : MEMORY_COLUMNS).join(","), limit: "0" });
-    return result;
-  }
   async query(action, args) {
-    if (action === "schema") return this.call("GET", "_eco", { select: "key,value" });
-    if (action === "save") return this.call("POST", args.table, {}, { ...args.record, tags: args.record.tags.split(",").map(tag => tag.trim()).filter(Boolean) });
-    if (action === "redact") return this.call("PATCH", "messages", { id: "eq." + args.id }, { content: "[orden de seguridad retirada]" });
-    if (action === "routines") {
-      if (args.action === "actualizar") return this.call("POST", "routines", { on_conflict: "id" }, args.record, true);
-      const records = [];
-      let after = "";
+    const quote = name => '"' + String(name).replaceAll('"', '\\"') + '"';
+    if (action === "schema") {
+      if (args.stage === "inspect") {
+        const data = await this.call("GET", "");
+        if (!data?.definitions && !data?.components?.schemas) throw new Error("El conector debe permitir descubrir las tablas de la base para adaptar memoria_esquema.");
+        return { tables: Object.entries(data.definitions || data.components.schemas).filter(([, table]) => table.properties).map(([name, table]) => ({ name, headers: Object.keys(table.properties) })) };
+      }
+      if (args.stage === "protocol") return this.call("GET", args.table, { select: Object.values(args.columns).map(quote).join(",") });
+      if (args.stage === "map") return args.exists ? this.call("PATCH", args.table, { [args.columns.key]: "eq.map" }, { [args.columns.value]: args.value }) : this.call("POST", args.table, {}, { [args.columns.key]: "map", [args.columns.value]: args.value });
+      throw new Error("PostgREST no ejecuta DDL. Usa una conexión SQL para añadir columnas o tablas ausentes; no renombres ni borres datos.");
+    }
+    const columns = args.columns, field = key => columns[key], quoted = quote;
+    if (action === "save") { const record = { ...args.record }; if (typeof record[field("tags")] === "string") record[field("tags")] = record[field("tags")].split(",").map(tag => tag.trim()).filter(Boolean); return this.call("POST", args.table, {}, record); }
+    if (action === "redact") return this.call("PATCH", args.table, { [field("id")]: "eq." + args.id }, { [field("content")]: "[orden de seguridad retirada]" });
+    if (["agents", "routines"].includes(action)) {
+      if (args.action === "actualizar") return this.call("POST", args.table, { on_conflict: quoted(field("id")) }, args.record, true);
+      const records = []; let after = "";
       while (true) {
-        const query = { select: ROUTINE_COLUMNS.join(","), order: "id.asc", limit: String(PAGE) };
-        if (args.agent_id) query.agent_id = "eq." + args.agent_id;
-        if (args.id) query.id = "eq." + args.id;
-        else if (after) query.id = "gt." + after;
-        const batch = await this.call("GET", "routines", query);
-        if (!Array.isArray(batch)) throw new Error("Directorio de rutinas inválido.");
+        const query = { select: Object.values(columns).map(quoted).join(","), order: quoted(field("id")) + ".asc", limit: "100" };
+        if (args.agent_id) query[field("agent_id")] = "eq." + args.agent_id;
+        if (args.id) query[field("id")] = "eq." + args.id; else if (after) query[field("id")] = "gt." + after;
+        const batch = await this.call("GET", args.table, query);
+        if (!Array.isArray(batch)) throw new Error("Directorio inválido.");
         records.push(...batch);
         if (args.id || batch.length < PAGE) return records;
-        if (after === batch.at(-1).id) throw new Error("Cursor de rutinas inválido.");
-        after = batch.at(-1).id;
+        if (after === batch.at(-1)[field("id")]) throw new Error("Cursor de directorio inválido.");
+        after = batch.at(-1)[field("id")];
       }
     }
-    if (action === "agents") {
-      if (args.action === "actualizar") return this.call("POST", "agents", { on_conflict: "id" }, args.record, true);
-      const records = [];
-      let after = "";
-      while (true) {
-        const batch = await this.call("GET", "agents", { select: AGENT_COLUMNS.join(","), order: "id.asc", limit: String(PAGE), ...(args.id ? { id: "eq." + args.id } : after ? { id: "gt." + after } : {}) });
-        if (!Array.isArray(batch)) throw new Error("Directorio de agentes inválido.");
-        records.push(...batch);
-        if (args.id || batch.length < PAGE) return records;
-        if (after === batch.at(-1).id) throw new Error("Cursor de agentes inválido.");
-        after = batch.at(-1).id;
-      }
-    }
-    const filters = args.filters || {};
-    const query = { select: MEMORY_COLUMNS.join(","), order: "date.asc,id.asc", limit: String(args.limit) };
-    for (const [key, column] of Object.entries({ type: "type", eco_author: "eco_author", thread: "thread", id: "id" })) if (filters[key]) query[column] = "eq." + filters[key];
-    if (filters.content) query.content = String(filters.content).includes("*")
-      ? "imatch." + String(filters.content).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      : "ilike.*" + String(filters.content).replace(/[\\%_]/g, "\\$&") + "*";
-    if (filters.tags) query.tags = "cs.{" + literal(filters.tags) + "}";
+    const filters = args.filters || {}, query = { select: Object.values(columns).map(quoted).join(","), order: quoted(field("date")) + ".asc," + quoted(field("id")) + ".asc", limit: String(args.limit) };
+    for (const key of ["type", "eco_author", "thread", "id"]) if (filters[key]) { const old = { memory: "recuerdo", fact: "dato", message: "mensaje", ack: "acuse" }[filters[key]]; query[field(key)] = key === "type" && old ? "in.(" + filters[key] + "," + old + ")" : "eq." + filters[key]; }
+    if (filters.content) query[field("content")] = "ilike.*" + String(filters.content).replace(/[\\%_]/g, "\\$&") + "*";
+    if (filters.tags) query[field("tags")] = "cs.{" + literal(filters.tags) + "}";
     if (args.cursor) {
       if (!UUID.test(args.cursor.id) || !/^\d{4}-\d\d-\d\dT[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(args.cursor.date)) throw new Error("Cursor de base de datos inválido.");
-      query.or = "(date.gt." + literal(args.cursor.date) + ",and(date.eq." + literal(args.cursor.date) + ",id.gt." + args.cursor.id + "))";
+      query.or = "(" + quoted(field("date")) + ".gt." + literal(args.cursor.date) + ",and(" + quoted(field("date")) + ".eq." + literal(args.cursor.date) + "," + quoted(field("id")) + ".gt." + args.cursor.id + "))";
     }
     return this.call("GET", args.table, query);
   }

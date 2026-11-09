@@ -91,6 +91,7 @@ export async function memoryCall(action, args) {
   if (!config) throw new Error("La memoria sigue local. Conecta un destino o renueva sus credenciales.");
   const destination = adapter(config);
   await destination.ensure();
+  if (action === "esquema") return destination.schema(args?.action || "ver", args?.mapa || {});
   if (action === "reglas") return destination.search(args, ["memories"]);
   if (action === "agentes") return destination.agents(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")), agentIdentity());
   if (action === "rutinas") return destination.routines(args?.action || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "action")));

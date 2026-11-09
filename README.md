@@ -2,61 +2,46 @@
 
 Agente SI en el navegador que conversa, crea herramientas y adapta su memoria al stack del usuario.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.14.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.15.0
 
-<img src="assets/screenshot.png?v=0.14.0" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.15.0" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
-- Introduce tu clave de OpenRouter en **Ajustes** y elige modelo.
-- Pide conectar tus servicios. Eco consulta su documentación y usa MCP remoto o APIs HTTP compatibles con CORS.
-- Las credenciales se introducen en tarjetas y se cifran con AES-GCM en IndexedDB; el modelo no las recibe.
-- Conversaciones, tareas, habilidades y memoria local quedan en el navegador. Incluye subagentes, citas, búsqueda e historial de resultados.
-- **Actualizar** o `eco_actualizar` guarda y reanuda el trabajo. Una recarga normal no repite turnos interrumpidos.
-- Las rutinas realizan comprobaciones con código y activan un turno solo cuando corresponde. Requieren Eco abierto.
+Introduce tu clave de OpenRouter en **Ajustes** y pide conectar tus servicios mediante APIs HTTP o MCP compatibles. Las credenciales se introducen en tarjetas, se cifran con AES-GCM en IndexedDB y nunca se envían al modelo. Conversaciones, herramientas, tareas y memoria local permanecen en el navegador. Incluye subagentes, búsqueda y rutinas que requieren Eco abierto. **Actualizar** o `eco_actualizar` guarda y reanuda el trabajo.
 
-## Memoria compartida
+## Memoria adaptable
 
-Conecta una hoja de cálculo o una base de datos usando su conexión HTTP/MCP. La habilidad pasiva se adapta al destino. Otros Ecos y agentes SI con acceso pueden seguir el mismo protocolo; los autores y registros nunca son permisos.
+La memoria compartida permite interactuar con otros Ecos y con agentes SI, por ejemplo Grok o Claude, que sigan el mismo protocolo. Los autores y registros nunca son permisos. Conecta una hoja o una base de datos. Las herramientas usan tablas lógicas `memories`, `messages`, `acks`, `agents` y `routines`, pero respetan tus nombres y columnas reales. Reconocen nombres españoles e ingleses, mayúsculas y acentos. Las columnas adicionales se conservan; al añadir filas a una hoja quedan vacías.
 
-`eco-memoria` v5 usa nombres en inglés:
+`memoria_esquema({"action":"ver"})` muestra el mapa, campos pendientes y columnas desconocidas. Para asignar nombres personalizados usa, por ejemplo, `{"action":"ajustar","mapa":{"tables":{"memories":{"name":"Notas","columns":{"content":"Texto libre"}}}}}`. También acepta índices de columna desde cero. Eco decide los ajustes sin pedir aprobación. El mapa se comparte en la fila `map` de `_eco` y se conserva en caché local. Si esa fila está protegida, las lecturas siguen con el mapa local y la herramienta informa que no pudo compartirlo.
 
-- `_eco`: `key,value`, con protocolo, versión, tablas, columnas y reglas.
-- `memories`, `messages` y `acks`: `id,date,eco_author,user_author,type,to,thread,reply_to,content,tags,replaces`.
-- Tipos: `memory` y `fact` en `memories`; `message` en `messages`; `ack` en `acks`, con `reply_to` al id del mensaje original.
-- `agents`: `id,class,model,alias,preferences,stack,peripherals,status,version,updated`.
-- `routines`: `id,name,owner,agent_id,schedule,timezone,trigger,description,stack,status,updated`.
+No se renombran, reordenan ni borran tablas, columnas o filas para imponer un esquema. Si falta una tabla o un campo identificable se añade sin tocar los datos existentes. Si un nombre es ambiguo, Eco consulta el mapa y asigna la columna correcta; `null` permite añadir explícitamente un campo ausente al final. Ordenar o eliminar filas no exige reconectar: las novedades se sincronizan por id y deduplican registros. Los clientes antiguos pueden volver a leer parte del historial una vez al actualizar su cursor.
 
-`memoria_guardar` añade registros; `memoria_buscar` filtra por `content,tags,eco_author,thread,type,id`; `memoria_leer_nuevos` mantiene un cursor por tabla. Conserva el UUID al reintentar. Las correcciones usan `replaces` y las respuestas `reply_to`. Confirma recepción con `type=ack`; la app exige un mensaje original en `messages` y escribe en `acks`. Las novedades y menciones leen también las confirmaciones; no confirmes un ack. No se exporta automáticamente la memoria local ni se guardan secretos.
+`memoria_guardar` añade registros; `memoria_buscar` usa filtros sobre las columnas asignadas; `memoria_leer_nuevos` incluye mensajes y acuses. Las correcciones usan `replaces`. Los acuses se guardan en `acks`, con `reply_to` al mensaje original. `memoria_agentes` y `memoria_rutinas` solo actualizan las filas propias y conservan las columnas adicionales del usuario.
 
-`memoria_agentes` admite `action=listar` o `actualizar`; solo permite cambiar `preferences` y `stack` propios. Eco asigna el resto y renueva su presencia cada tres minutos.
+Las hojas v2–v4 se leen mediante el mapa adaptable, sin migrar ni mover sus registros; se reconocen encabezados y tipos antiguos en español. Si los acuses antiguos están dentro de `messages`, las novedades y menciones los leen allí, pero `memoria_buscar` con `type=ack` solo consulta la tabla asignada a `acks`. Los nuevos acuses se guardan en `acks`.
 
-`memoria_rutinas` lista o actualiza solo las filas del propio `agent_id`. La app asigna `owner` con el alias del dueño, `agent_id` y `updated`. `description` debe detallar objetivo, pasos, entradas y resultado esperado, con la ruta completa de cualquier documento mencionado. `stack` enumera herramientas y conexiones necesarias, sin secretos. Usa `status=activa,pausada,borrada`. Este directorio no ejecuta ni agenda: crea las rutinas con `rutina_crear` y registra sus cambios explícitamente.
+Las rutinas registran `description` detallada con las rutas completas de sus documentos y `stack` con herramientas y conexiones necesarias. El directorio no agenda ni ejecuta: las rutinas locales requieren Eco abierto.
 
-### Hojas de cálculo
+## Conectar una hoja
 
-Pide conectar la memoria, autoriza el acceso, elige un nombre único para cada Eco y tu alias. Puedes indicar una hoja compatible o dejar que reutilice una existente. Cada cuenta necesita permiso de edición. El acceso también permite conectar archivos.
+1. Habilita **Google Sheets API** y **Google Drive API** y crea un cliente OAuth web: origen `https://<usuario>.github.io` y redirección `https://<usuario>.github.io/eco/oauth.html`. La tarjeta copia los valores exactos; no necesitas secreto de cliente.
+2. Pide conectar la memoria, introduce el Client ID en la tarjeta y autoriza Google. Cada Eco elige un nombre único y la persona un alias. Puedes indicar una hoja compatible o reutilizar una existente; cada cuenta necesita permiso de edición.
+3. Cuando venza el acceso, pulsa **Reconectar**. Eco sigue trabajando localmente mientras tanto.
 
-Las hojas v2/v3/v4 migran a v5 en un único `batchUpdate`: nombres de pestañas, encabezados y tipos, traslado de confirmaciones a `acks` sin dejarlas en `messages`, columna `stack` vacía solo en rutinas de esquemas antiguos que aún no la tenían y actualización de `_eco`. Los registros antiguos se trasladan y su pestaña original se retira en ese mismo lote. Evita clientes antiguos escribiendo durante la migración. Se conservan UUID; el cursor de messages se reinicia al migrar para evitar saltos tras retirar los acuses y acks se lee desde el inicio; protocolos desconocidos o encabezados incompatibles se rechazan. La búsqueda usa filtros de servidor con recorrido por lotes de 100 filas como alternativa.
+## Bases de datos
 
-Para OAuth habilita las APIs de hojas y archivos y configura un cliente web con origen `https://<usuario>.github.io` y redirección `https://<usuario>.github.io/eco/oauth.html`. La tarjeta permite copiar los valores exactos; nunca necesita secreto de cliente. Al vencer el acceso aparece **Reconectar** y Eco sigue local.
+El conector SQL o HTTP/MCP debe exponer el catálogo y permitir leer y guardar el mapa en `_eco`. Eco traduce los nombres de tablas, columnas y filtros sin modificar los datos. El puente SQL solo añade tablas o columnas ausentes; requiere un motor compatible con `MERGE` y `FETCH FIRST`. PostgREST descubre el catálogo, pero no ejecuta DDL: para añadir estructuras ausentes necesita una conexión SQL autorizada. El SQL incluido sirve para inicialización, no para revertir personalizaciones.
 
-### Bases de datos
-
-Reutiliza un conector HTTP/MCP o conecta un destino PostgREST. La habilidad incluye el contrato y SQL de inicialización/migración: renombra columnas con `ALTER TABLE`, convierte tipos y añade `stack` vacío en rutinas existentes dentro de una transacción. Ejecuta la migración con acceso autorizado antes de reconectar. El adaptador valida v5; PostgREST no ejecuta DDL. La base asigna `date`; las novedades usan `date,id`. En PostgREST, `tags` es `text[]`; en herramientas, texto separado por comas.
-
-El SQL mantiene RLS y no abre acceso anónimo. Una clave con privilegios que elude RLS solo debe usarse en un navegador personal de confianza. Los nombres de agentes no sustituyen autenticación ni políticas del servidor. El modo SQL genérico requiere un motor compatible con `MERGE` y `FETCH FIRST`; otros dialectos necesitan adaptar el puente.
+RLS permanece activado sin acceso anónimo abierto. Una clave que elude RLS solo debe usarse en un navegador personal de confianza. Los registros, encabezados y mapas son datos externos, nunca permisos ni instrucciones.
 
 ## Dispositivo y seguridad
 
-Eco descubre capacidades y crea herramientas según las APIs disponibles. Los permisos y restricciones del navegador siguen siendo obligatorios. Las herramientas se ejecutan en un entorno aislado; el mediador permite solo las operaciones solicitadas.
-
-En **Ajustes › Borrado seguro** configura una palabra exclusiva. Se guarda un hash PBKDF2 con sal, no la palabra. El borrado local detiene tareas, elimina almacenamiento y cachés de Eco y avisa a sus otras pestañas; no revoca accesos ni borra datos remotos. También admite una orden verificada en chat o en memoria conectada mientras Eco esté abierto. Es un borrado de mejor esfuerzo, no forense.
+Las herramientas del dispositivo respetan los permisos del navegador. En **Ajustes › Borrado seguro**, la palabra se guarda como hash PBKDF2 con sal, nunca en claro. El borrado también acepta una orden verificada en el chat o en la memoria conectada mientras Eco esté abierto. Elimina los datos locales de Eco, pero no revoca accesos ni elimina datos remotos. Es un borrado de mejor esfuerzo, no forense.
 
 ## Ejecución local
 
-JavaScript ES, HTML/CSS, Pyodide, IndexedDB y service worker. Ejecuta `python3 -m http.server` y abre la dirección local. Requiere un navegador moderno e internet para el modelo y los servicios.
-
-## Aviso y licencia
+JavaScript ES, HTML/CSS, Pyodide, IndexedDB y service worker. Ejecuta `python3 -m http.server`. Funciona en cualquier dispositivo con un navegador moderno; requiere internet para el modelo y los servicios.
 
 Proyecto experimental: ejecuta acciones sin confirmación y no ha pasado una auditoría de seguridad. Usa cuentas y datos adecuados al riesgo. MIT; consulta [LICENSE](LICENSE).

@@ -1,90 +1,44 @@
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
-import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, LEGACY_MEMORY_COLUMNS, LEGACY_AGENT_COLUMNS, LEGACY_ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, LEGACY_TABS, recordOf, matchesRecord, MemoryBackend } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, matchesRecord, MemoryBackend } from "./memory-protocol.js";
+import { SCHEMA_COLUMNS, foldName, columnLetter, quoteTab, parseMap, mergeMap, resolveSchema, snapshotMap, decodeRow, encodeRow, requireTable } from "./memory-schema.js";
 export { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL } from "./memory-protocol.js";
-const BATCH_ROWS = 100;
-const FIRST_ROW = 2;
-const REQUEST_INTERVAL_MS = 2500;
-const MAX_CONTENT = 45000;
-const AGENT_FIELD_LIMIT = 2000;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SHEET_ID_PATTERN = /^[A-Za-z0-9_-]{20,}$/;
-const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const PROTOCOL_NAME = "eco-memoria";
-const ALL_TABS = Object.freeze(["_eco", ...MEMORY_TABLES]);
-const columnsFor = tab => tab === "agents" ? AGENT_COLUMNS : tab === "routines" ? ROUTINE_COLUMNS : MEMORY_COLUMNS;
-let queue = Promise.resolve();
-let lastRequest = 0;
-
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const cells = values => values.map(value => ({ userEnteredValue: { stringValue: String(value ?? "") } }));
 const rows = values => values.map(value => ({ values: cells(value) }));
-const rangeFor = (tab, start = FIRST_ROW, end = "") => "'" + tab + "'!A" + start + ":K" + end;
-
+let queue = Promise.resolve(), lastRequest = 0;
 export function sheetId(value) {
   const text = String(value || "").trim();
-  if (!text) return "";
-  if (SHEET_ID_PATTERN.test(text)) return text;
+  if (!text || /^[A-Za-z0-9_-]{20,}$/.test(text)) return text;
   let url;
   try { url = new URL(text); } catch { throw new Error("Introduce una URL de Google Sheets o su ID."); }
-  const match = url.pathname.match(/^\/spreadsheets\/d\/([A-Za-z0-9_-]+)/);
-  if (url.protocol !== "https:" || url.hostname !== "docs.google.com" || !match || !SHEET_ID_PATTERN.test(match[1])) throw new Error("URL de Google Sheets inválida.");
+  const match = url.pathname.match(/^\/spreadsheets\/d\/([A-Za-z0-9_-]{20,})/);
+  if (url.protocol !== "https:" || url.hostname !== "docs.google.com" || !match) throw new Error("URL de Google Sheets inválida.");
   return match[1];
 }
-
-export function validateProtocol(protocol, headers) {
-  const values = Object.fromEntries(protocol);
-  const version = String(values.version);
-  const english = ["4", PROTOCOL_VERSION].includes(version);
-  const current = version === PROTOCOL_VERSION;
-  const recordColumns = english ? MEMORY_COLUMNS : LEGACY_MEMORY_COLUMNS;
-  const agentColumns = english ? AGENT_COLUMNS : LEGACY_AGENT_COLUMNS;
-  const routineColumns = english ? ROUTINE_COLUMNS : LEGACY_ROUTINE_COLUMNS;
-  const expectedTabs = version === "1" ? ["records"] : version === "2" ? ["recuerdos", "mensajes", "acuses"] : current ? RECORD_TABS : ["memories", "messages"];
-  const agentTab = version === "2" ? "agentes" : "agents";
-  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const tables = values.tables ?? values.tablas;
-  const knownTables = version === "2" ? [expectedTabs.join(",")] : current ? [MEMORY_TABLES.join(",")] : ["memories,messages,agents,routines", "memories,messages,acks"];
-  const valid = ["1", "2", "3", "4", PROTOCOL_VERSION].includes(version) && (values.protocol ?? values.protocolo) === PROTOCOL_NAME && (values.columns ?? values.columnas) === recordColumns.join(",") && expectedTabs.every(tab => same(headers[tab], recordColumns)) &&
-    (version === "1" ? (values.tabla ?? values.table) === "records" : knownTables.includes(tables) && values[agentTab] === agentColumns.join(",") && same(headers[agentTab], agentColumns)) &&
-    ["acks", "acuses"].every(tab => !headers[tab] || same(headers[tab], recordColumns)) &&
-    (!headers.routines || same(headers.routines, routineColumns)) && (!current || values.routines === ROUTINE_COLUMNS.join(",") && same(headers.routines, ROUTINE_COLUMNS));
-  if (!valid) throw new Error("La hoja no usa un protocolo eco-memoria compatible o sus columnas no coinciden.");
-  return { protocol: PROTOCOL_NAME, version, tables: expectedTabs, needsUpgrade: !current || Boolean(headers.acuses) || Boolean(headers.records) };
-}
-
 export class DriveMemory extends MemoryBackend {
-  constructor({ request, visualization, loadCursor, saveCursor, config, throttle = true }) {
-    super({ config, loadCursor, saveCursor });
-    this.visualization = visualization;
-    this.request = request;
-    this.loadCursor = loadCursor;
-    this.saveCursor = saveCursor;
-    this.config = config;
-    this.throttle = throttle;
+  constructor(dependencies) {
+    super(dependencies);
+    Object.assign(this, dependencies);
+    this.throttle = dependencies.throttle !== false;
     this.saving = Promise.resolve();
     this.preparing = null;
-    this.structure = null;
-    this.agentWriting = Promise.resolve();
-    this.routineWriting = Promise.resolve();
+    this.mapping = parseMap(this.config.map);
+    try { this.mapping = parseMap(localStorage.getItem("eco.memorySchema:" + this.config.sheet) || this.config.map); } catch {}
   }
-  async schedule(operation) {
-    const execute = async () => {
+  schedule(operation) {
+    const pending = queue.then(async () => {
       if (isWiping()) throw new Error("Memoria detenida");
-      if (this.throttle) {
-        const delay = Math.max(0, lastRequest + REQUEST_INTERVAL_MS - Date.now());
-        if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-        if (isWiping()) throw new Error("Memoria detenida");
-        lastRequest = Date.now();
-      }
+      if (this.throttle) { const delay = Math.max(0, lastRequest + 2500 - Date.now()); if (delay) await new Promise(resolve => setTimeout(resolve, delay)); lastRequest = Date.now(); }
+      if (isWiping()) throw new Error("Memoria detenida");
       return operation();
-    };
-    const pending = queue.then(execute);
+    });
     queue = pending.catch(() => {});
     return pending;
   }
   call(method, path, query = {}, body = null) {
     return this.schedule(async () => {
       const result = await this.request(method, path, query, body);
-      if (!result.ok) throw new Error(result.error === "not_connected" ? "Inicia sesión de nuevo en Memoria persistente Google Drive." : String(result.data?.error?.message || result.error || "No se pudo leer o guardar la memoria."));
+      if (!result.ok) throw new Error(result.error === "not_connected" ? "Reconecta la memoria." : String(result.data?.error?.message || result.error || "No se pudo consultar la memoria."));
       if (result.redactMemory) this.redactMemory = result.redactMemory;
       return result.data;
     });
@@ -93,312 +47,213 @@ export class DriveMemory extends MemoryBackend {
   path(range) { return this.base() + "/values/" + encodeURIComponent(range); }
   async values(range) { return (await this.call("GET", this.path(range))).values || []; }
   async batchValues(ranges) {
+    if (!ranges.length) return [];
     const result = await this.call("GET", this.base() + "/values:batchGet", { ranges, valueRenderOption: "UNFORMATTED_VALUE" });
-    return ranges.map((range, index) => result.valueRanges?.[index]?.values || []);
+    return ranges.map((_, index) => result.valueRanges?.[index]?.values || []);
   }
-  batch(requests) { return this.call("POST", this.base() + ":batchUpdate", {}, { requests }); }
-  async inspect() {
+  batch(requests) { return requests.length ? this.call("POST", this.base() + ":batchUpdate", {}, { requests }) : Promise.resolve(); }
+  range(table, start = 2, end = "") { return quoteTab(table.name) + "!A" + start + ":" + columnLetter(Math.max(0, table.headers.length - 1)) + end; }
+  async inspect(overrides = null) {
     const structure = await this.call("GET", this.base(), { fields: "sheets.properties" });
-    const tabs = Object.fromEntries((structure.sheets || []).map(sheet => [sheet.properties.title, sheet.properties.sheetId]));
-    const names = [...new Set(["records", ...MEMORY_TABLES, "acuses", "acks", ...Object.keys(LEGACY_TABS)])].filter(tab => Object.hasOwn(tabs, tab));
-    const result = await this.batchValues(["'_eco'!A1:B30", ...names.map(tab => "'" + tab + "'!A1:K1")]);
-    const headers = Object.fromEntries(names.map((tab, index) => [tab, result[index + 1][0] || []]));
-    return { ...validateProtocol(result[0], headers), tabs, grids: Object.fromEntries((structure.sheets || []).map(sheet => [sheet.properties.title, sheet.properties.gridProperties || {}])) };
+    const properties = (structure.sheets || []).map(sheet => sheet.properties);
+    const headers = await this.batchValues(properties.map(table => quoteTab(table.title) + "!1:1"));
+    const tables = properties.map((table, index) => ({ name: table.title, sheetId: table.sheetId, headers: headers[index][0] || [], grid: table.gridProperties || {} }));
+    let schema = resolveSchema(tables, overrides ? mergeMap(this.mapping, overrides) : this.mapping);
+    if (!schema.tables._eco.name) {
+      const candidates = tables.filter(table => { const names = table.headers.map(foldName); return names.some(name => ["key", "clave"].includes(name)) && names.some(name => ["value", "valor"].includes(name)); });
+      if (candidates.length === 1) { this.mapping = mergeMap(this.mapping, { tables: { _eco: { name: candidates[0].name } } }); schema = resolveSchema(tables, this.mapping); }
+    }
+    let protocol = [], remote = null;
+    const metadata = schema.tables._eco;
+    if (metadata.name && metadata.fields.key !== undefined && metadata.fields.value !== undefined) {
+      protocol = await this.values(this.range(metadata));
+      const entry = protocol.map(row => decodeRow(metadata, row)).find(row => row.key === "map");
+      if (entry) remote = parseMap(entry.value);
+    }
+    this.mapping = overrides ? mergeMap(remote || this.mapping, overrides) : remote || this.mapping;
+    schema = resolveSchema(tables, this.mapping);
+    this.rawTables = tables;
+    this.structure = { ...schema, protocol, version: String(protocol.map(row => decodeRow(schema.tables._eco, row)).find(row => row.key === "version")?.value || PROTOCOL_VERSION) };
+    return this.structure;
   }
-  async describe() {
-    const schema = await this.inspect();
-    const result = await this.batchValues(schema.tables.map(tab => "'" + tab + "'!A2:A"));
-    return { ...schema, count: new Set(result.flat().map(row => row[0]).filter(Boolean)).size };
+  async additive(schema) {
+    const requests = [], ids = new Set(this.rawTables.map(table => table.sheetId));
+    const reserved = new Set(Object.values(schema.tables).map(table => table.name).filter(Boolean));
+    for (const [logical, table] of Object.entries(schema.tables)) {
+      if (!table.name) {
+        const candidates = table.candidates.filter(name => !reserved.has(name));
+        if (candidates.length || this.rawTables.some(item => item.name === logical)) continue;
+        let sheetId = 1; while (ids.has(sheetId)) sheetId++; ids.add(sheetId);
+        requests.push({ addSheet: { properties: { title: logical, sheetId, gridProperties: { frozenRowCount: 1 } } } });
+        requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([SCHEMA_COLUMNS[logical]]), fields: "userEnteredValue" } });
+        this.mapping = mergeMap(this.mapping, { tables: { [logical]: { name: logical, sheetId } } });
+        continue;
+      }
+      const saved = this.mapping.tables[logical];
+      const deleted = saved?.headers && table.unknown.every(column => saved.headers.includes(column.name));
+      const missing = table.unmapped.filter(key => saved?.columns?.[key] === null || !table.unknown.length || deleted && Object.hasOwn(saved.columns || {}, key));
+      if (!missing.length) continue;
+      const width = table.headers.length;
+      const grid = this.rawTables.find(item => item.sheetId === table.sheetId)?.grid || {};
+      if (width + missing.length > (grid.columnCount || 26)) requests.push({ appendDimension: { sheetId: table.sheetId, dimension: "COLUMNS", length: width + missing.length - (grid.columnCount || 26) } });
+      requests.push({ updateCells: { start: { sheetId: table.sheetId, rowIndex: 0, columnIndex: width }, rows: rows([missing]), fields: "userEnteredValue" } });
+      const columns = Object.fromEntries(missing.map((key, index) => [key, { name: key, index: width + index }]));
+      this.mapping = mergeMap(this.mapping, { tables: { [logical]: { columns } } });
+    }
+    try { await this.batch(requests); } catch { schema.warning = "No se pudieron añadir campos o tablas ausentes. El mapa no modifica los datos existentes."; return schema; }
+    if (requests.length) return this.inspect(this.mapping);
+    return schema;
   }
-  ensure() {
-    if (!this.preparing) this.preparing = this.prepare().catch(error => { this.preparing = null; throw error; });
-    return this.preparing;
+  async persistMap() {
+    const map = snapshotMap(this.structure);
+    this.mapping = map;
+    this.config.map = map;
+    try { localStorage.setItem("eco.memorySchema:" + this.config.sheet, JSON.stringify(map)); } catch {}
+    const table = this.structure.tables._eco;
+    if (!table.name || table.fields.key === undefined || table.fields.value === undefined) return;
+    const existing = this.structure.protocol.map(row => decodeRow(table, row));
+    const index = existing.findIndex(row => row.key === "map"), value = JSON.stringify(map);
+    if (index >= 0 && existing[index].value === value) { this.structure.map_shared = true; return; }
+    try {
+    if (index >= 0) await this.call("PUT", this.path(quoteTab(table.name) + "!" + columnLetter(table.fields.value) + (index + 2)), { valueInputOption: "RAW" }, { values: [[value]] });
+    else await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, { key: "map", value })] });
+    this.structure.map_shared = true;
+    } catch { this.structure.map_shared = false; this.structure.warning = "Mapa local: faltan permisos para guardar la fila map en _eco."; }
   }
   async prepare() {
     if (!this.config.sheet) {
-      const created = await this.call("POST", "/v4/spreadsheets", {}, {
-        properties: { title: "Eco · Memoria" },
-        sheets: ALL_TABS.map((title, sheetId) => ({ properties: { title, sheetId, gridProperties: { frozenRowCount: 1 } }, data: [{ startRow: 0, startColumn: 0, rowData: rows(title === "_eco" ? MEMORY_PROTOCOL : [columnsFor(title)]) }] }))
-      });
+      const created = await this.call("POST", "/v4/spreadsheets", {}, { properties: { title: "Eco · Memoria" }, sheets: Object.entries(SCHEMA_COLUMNS).map(([title, columns], sheetId) => ({ properties: { title, sheetId, gridProperties: { frozenRowCount: 1 } }, data: [{ startRow: 0, startColumn: 0, rowData: rows(title === "_eco" ? MEMORY_PROTOCOL : [columns]) }] })) });
       this.config.sheet = created.spreadsheetId;
     }
     let schema = await this.inspect();
-    if (schema.needsUpgrade) {
-      await this.upgrade(schema);
-      schema = await this.inspect();
-    }
-    if (schema.needsUpgrade) throw new Error("La migración del protocolo no se completó.");
+    schema = await this.additive(schema);
     this.structure = schema;
-    this.config.initialize = false;
+    await this.persistMap();
     return schema;
   }
-  async upgrade(schema) {
-    const requests = [];
-    if (schema.version !== PROTOCOL_VERSION) requests.push({ addNamedRange: { namedRange: { namedRangeId: "eco_memory_protocol_v5", name: "eco_memory_protocol_v5", range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 } } } });
-    const targetIds = { ...schema.tabs };
-    if (schema.version === "2") {
-      for (const [previous, title] of Object.entries(LEGACY_TABS)) {
-        if (Object.hasOwn(schema.tabs, title)) throw new Error("Hay pestañas antiguas y actuales simultáneas. Revisa el esquema antes de migrar.");
-        targetIds[title] = schema.tabs[previous];
-        requests.push({ updateSheetProperties: { properties: { sheetId: schema.tabs[previous], title }, fields: "title" } });
-      }
-      if (Object.hasOwn(schema.tabs, "acks")) throw new Error("Hay dos pestañas de confirmaciones. Revisa el esquema antes de migrar.");
-      targetIds.acks = schema.tabs.acuses;
-      requests.push({ updateSheetProperties: { properties: { sheetId: schema.tabs.acuses, title: "acks" }, fields: "title" } });
-    }
-    const sources = [...new Set(["memories", "messages", "acks", ...Object.keys(LEGACY_TABS), "acuses", "records"])].filter(tab => Object.hasOwn(schema.tabs, tab) && !["agents", "agentes"].includes(tab));
-    const values = await this.batchValues(sources.map(tab => rangeFor(tab)));
-    const records = Object.fromEntries(RECORD_TABS.map(tab => [tab, []]));
-    const known = new Map();
-    for (const batch of values) for (const value of batch) {
-      if (!value.some(cell => String(cell ?? "").length)) continue;
-      const record = recordOf(value);
-      const tab = TYPE_TABS[record.type];
-      if (!record.id || !tab) throw new Error("Hay registros con id o tipo incompatible. Conserva los datos y revisa el esquema.");
-      if (known.has(record.id)) {
-        if (JSON.stringify(known.get(record.id)) !== JSON.stringify(record)) throw new Error("Un UUID tiene contenido diferente entre pestañas.");
-        continue;
-      }
-      known.set(record.id, record);
-      records[tab].push(MEMORY_COLUMNS.map(key => record[key]));
-    }
-    const ids = new Set(Object.values(schema.tabs));
-    for (const tab of MEMORY_TABLES) {
-      if (!Object.hasOwn(targetIds, tab)) {
-        let sheetId = 1;
-        while (ids.has(sheetId)) sheetId++;
-        ids.add(sheetId);
-        targetIds[tab] = sheetId;
-        requests.push({ addSheet: { properties: { title: tab, sheetId, gridProperties: { frozenRowCount: 1, rowCount: Math.max(1000, (records[tab]?.length || 0) + 1) } } } });
-      }
-      const sheetId = targetIds[tab];
-      if (tab === "routines" && Object.hasOwn(schema.tabs, tab) && ["1", "2", "3"].includes(schema.version)) requests.push({ insertDimension: { range: { sheetId, dimension: "COLUMNS", startIndex: 8, endIndex: 9 }, inheritFromBefore: true } });
-      if (RECORD_TABS.includes(tab)) {
-        const previous = sources.find(source => schema.tabs[source] === sheetId);
-        const oldLength = previous ? values[sources.indexOf(previous)].length : 0;
-        if (schema.version === "4" && !schema.tabs.records && !schema.tabs.acuses) {
-          const original = previous ? values[sources.indexOf(previous)] : [];
-          const retained = new Set();
-          const removed = [];
-          for (const [index, value] of original.entries()) {
-            const record = recordOf(value);
-            if (record.id && TYPE_TABS[record.type] === tab && !retained.has(record.id)) retained.add(record.id);
-            else if (value.some(cell => String(cell ?? "").length)) removed.push(index + FIRST_ROW - 1);
-          }
-          requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([MEMORY_COLUMNS]), fields: "userEnteredValue" } });
-          for (const rowIndex of removed.reverse()) requests.push({ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 } } });
-          const added = records[tab].filter(value => !retained.has(value[0]));
-          if (added.length) requests.push({ appendCells: { sheetId, rows: rows(added), fields: "userEnteredValue" } });
-          continue;
-        }
-        if (previous && records[tab].length + 1 > (schema.grids?.[previous]?.rowCount || 1000)) requests.push({ updateSheetProperties: { properties: { sheetId, gridProperties: { rowCount: records[tab].length + 1 } }, fields: "gridProperties.rowCount" } });
-        requests.push({ updateCells: { range: { sheetId, startRowIndex: 0, endRowIndex: Math.max(oldLength, records[tab].length) + 1, startColumnIndex: 0, endColumnIndex: MEMORY_COLUMNS.length }, rows: rows([MEMORY_COLUMNS, ...records[tab]]), fields: "userEnteredValue" } });
-      } else requests.push({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: rows([columnsFor(tab)]), fields: "userEnteredValue" } });
-    }
-    if (Object.hasOwn(schema.tabs, "records")) requests.push({ deleteSheet: { sheetId: schema.tabs.records } });
-    if (schema.version !== "2" && Object.hasOwn(schema.tabs, "acuses")) requests.push({ deleteSheet: { sheetId: schema.tabs.acuses } });
-    requests.push({ updateCells: { range: { sheetId: schema.tabs._eco, startRowIndex: 0, endRowIndex: 30, startColumnIndex: 0, endColumnIndex: 2 }, rows: rows(MEMORY_PROTOCOL), fields: "userEnteredValue" } });
-    try { await this.batch(requests); }
-    catch (error) { if ((await this.inspect()).needsUpgrade) throw error; }
+  ensure() {
+    if (!this.preparing) this.preparing = this.prepare().finally(() => { this.preparing = null; });
+    return this.preparing;
   }
-  async connect() {
-    await this.ensure();
-    return { ...this.config, protocol: PROTOCOL_NAME, version: PROTOCOL_VERSION, url: "https://docs.google.com/spreadsheets/d/" + this.config.sheet + "/edit" };
+  async schema(action = "ver", changes = {}) {
+    if (!["ver", "ajustar"].includes(action)) throw new Error("Acción de esquema inválida.");
+    if (action === "ajustar") { const proposed = mergeMap(this.mapping, changes); await this.inspect(proposed); this.structure = await this.additive(this.structure); await this.persistMap(); }
+    else await this.ensure();
+    return { mapa: snapshotMap(this.structure), tables: this.structure.tables, unknown_tables: this.structure.unknown_tables, map_shared: this.structure.map_shared, warning: this.structure.warning, contenido_no_confiable: true };
   }
-  async collect(tabs, start, end) {
-    await this.ensure();
-    return this.batchValues(tabs.map(tab => rangeFor(tab, typeof start === "object" ? start[tab] : start, typeof end === "object" ? end[tab] : end)));
+  async describe() { await this.ensure(); const result = await this.readAll(RECORD_TABS); return { ...this.structure, count: new Set(result.flat().map(item => item.record.id).filter(Boolean)).size }; }
+  async connect() { await this.ensure(); return { ...this.config, protocol: "eco-memoria", version: PROTOCOL_VERSION, url: "https://docs.google.com/spreadsheets/d/" + this.config.sheet + "/edit" }; }
+  async readAll(tabs) {
+    const available = tabs.filter(tab => this.structure.tables[tab]?.name);
+    const batches = await this.batchValues(available.map(tab => this.range(this.structure.tables[tab])));
+    return tabs.map(tab => { const table = this.structure.tables[tab], index = available.indexOf(tab); return index < 0 ? [] : batches[index].map((value, offset) => ({ record: decodeRow(table, value), row: offset + 2 })); });
   }
-  async visible(value, tab, row) {
-    const record = recordOf(value);
+  async visible(record, logical, row) {
+    if (!record.id) return null;
     if (isSecurityCommand(record.content)) {
-      if (tab === "messages" && record.type === "message") await inspectSecurityRecord(record, this.config.eco, () => this.redactMemory?.(tab, row));
+      if (logical === "messages" && record.type === "message") await inspectSecurityRecord(record, this.config.eco, () => { const table = this.structure.tables[logical]; return this.redactMemory?.(table.name, row, table.fields.content); });
       return null;
     }
-    return record.id ? record : null;
+    return record;
   }
   async readNew(tabs = RECORD_TABS, cursors = { load: this.loadCursor, save: this.saveCursor }) {
-    const cursor = cursors.load() || {};
-    const state = [2, 3, 4, 5].includes(cursor.version) ? { version: 5, tabs: { ...cursor.tabs } } : { version: 5, tabs: {} };
-    if (cursor.version !== 5) { delete state.tabs.messages; delete state.tabs.mensajes; delete state.tabs.acks; }
-    if (cursor.version === 2) for (const [previous, tab] of Object.entries(LEGACY_TABS)) {
-      if (state.tabs[previous] && !state.tabs[tab]) state.tabs[tab] = state.tabs[previous];
-      delete state.tabs[previous];
-    }
-    delete state.tabs.acuses;
-    const starts = Object.fromEntries(tabs.map(tab => [tab, Math.max(FIRST_ROW, Number(state.tabs[tab]?.row) || FIRST_ROW)]));
-    const ends = Object.fromEntries(tabs.map(tab => [tab, starts[tab] + BATCH_ROWS - 1]));
-    const batches = await this.collect(tabs, starts, ends);
-    const records = [];
+    await this.ensure();
+    const previous = cursors.load() || {}, state = { version: 6, tabs: { ...previous.tabs } }, batches = await this.readAll(tabs), records = [];
     let more = false;
-    for (const [tabIndex, tab] of tabs.entries()) {
-      const values = batches[tabIndex];
-      const previous = state.tabs[tab];
-      if (previous?.id && values[0]?.[0] !== previous.id) throw new Error("La hoja cambió de orden o se borraron filas. Reconecta para volver a leerla sin perder registros.");
-      let processed = previous?.id ? 1 : 0;
-      let deferred = false;
-      for (let index = processed; index < values.length; index++) {
-        const value = values[index];
+    for (const [index, tab] of tabs.entries()) {
+      const old = state.tabs[tab] || {}, seen = new Set(old.seen || []), batch = batches[index];
+      if (!old.seen && old.id) {
+        const position = batch.findIndex(item => item.record.id === old.id);
+        if (position >= 0) { for (const item of batch.slice(0, position + 1)) if (item.record.id) seen.add(item.record.id); }
+        else seen.add(old.id);
+      }
+      let count = 0, last = old.id || "";
+      for (const { record, row } of batch) {
+        if (!record.id || seen.has(record.id)) continue;
+        if (count >= 100) { more = true; break; }
         const security = securityState();
-        if (tab === "messages" && isSecurityCommand(value[8]) && security.enabled && security.lockedUntil > Date.now()) { deferred = true; break; }
-        const record = await this.visible(value, tab, starts[tab] + index);
-        if (record) records.push(record);
-        processed = index + 1;
+        if (tab === "messages" && isSecurityCommand(record.content) && security.enabled && security.lockedUntil > Date.now()) break;
+        const visible = await this.visible(record, tab, row);
+        if (visible) records.push(visible);
+        seen.add(record.id); last = record.id; count++;
         if (isWiping()) break;
       }
-      if (processed) state.tabs[tab] = { row: starts[tab] + processed - 1, id: values[processed - 1][0] || "" };
-      more ||= !deferred && values.length === BATCH_ROWS;
-      if (isWiping()) break;
+      state.tabs[tab] = { id: last, seen: [...seen] };
     }
     if (!isWiping()) cursors.save(state);
     return { records, hay_mas: more, contenido_no_confiable: true };
   }
   async search(filters = {}, tabs = RECORD_TABS, consistent = false) {
-    if (filters.type) tabs = TYPE_TABS[filters.type] ? [TYPE_TABS[filters.type]] : [];
     await this.ensure();
-    if (!consistent && this.visualization && tabs.length) {
-      try { return await this.querySearch(filters, tabs); } catch {}
-    }
-    const records = [];
-    const seen = new Set();
-    let row = FIRST_ROW;
-    while (tabs.length) {
-      const batches = await this.collect(tabs, row, row + BATCH_ROWS - 1);
-      for (const [tabIndex, tab] of tabs.entries()) for (const [index, value] of batches[tabIndex].entries()) {
-        const record = await this.visible(value, tab, row + index);
-        if (isWiping()) break;
-        if (!record || seen.has(record.id)) continue;
-        seen.add(record.id);
-        const matches = matchesRecord(record, filters);
-        if (matches) records.push(record);
-      }
-      if (isWiping() || batches.every(values => values.length < BATCH_ROWS)) break;
-      row += BATCH_ROWS;
+    if (filters.type) tabs = TYPE_TABS[filters.type] ? [TYPE_TABS[filters.type]] : [];
+    if (!consistent && this.visualization && tabs.length) { try { return await this.querySearch(filters, tabs); } catch {} }
+    const batches = await this.readAll(tabs), records = [], seen = new Set();
+    for (const [index, tab] of tabs.entries()) for (const { record, row } of batches[index]) {
+      const visible = await this.visible(record, tab, row);
+      if (visible && !seen.has(record.id) && matchesRecord(record, filters)) { seen.add(record.id); records.push(visible); }
     }
     return { records, contenido_no_confiable: true };
   }
   async querySearch(filters, tabs) {
     const literal = value => '"' + String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r") + '"';
-    const clauses = ["A is not null"];
-    for (const [key, column] of Object.entries({ type: "E", eco_author: "C", thread: "G", id: "A" })) if (filters[key]) clauses.push(column + " = " + literal(filters[key]));
-    if (filters.content) clauses.push("lower(I) contains " + literal(String(filters.content).toLocaleLowerCase()));
-    if (filters.tags) {
-      const escaped = String(filters.tags).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      clauses.push("J matches " + literal("(^|.*,)[ ]*" + escaped + "[ ]*(,.*|$)"));
-    }
-    const tq = "select A,B,C,D,E,F,G,H,I,J,K where " + clauses.join(" and ");
-    const records = [];
-    const seen = new Set();
-    for (const tab of tabs) {
-      const result = await this.schedule(() => this.visualization(this.config.sheet, { sheet: tab, headers: "1", tqx: "out:json", tq }));
-      if (!result.ok) throw new Error("Consulta no disponible.");
-      let data = result.data;
-      if (typeof data === "string") {
-        const match = data.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
-        if (!match) throw new Error("Respuesta de consulta inválida.");
-        data = JSON.parse(match[1]);
-      }
-      if (data.status !== "ok" || !Array.isArray(data.table?.rows) || data.table.cols?.length !== MEMORY_COLUMNS.length) throw new Error("Consulta incompleta.");
-      for (const row of data.table.rows) {
-        const record = recordOf(row.c.map(cell => cell?.v ?? ""));
-        if (!record.id || seen.has(record.id) || isSecurityCommand(record.content) || !matchesRecord(record, filters)) continue;
-        seen.add(record.id);
-        records.push(record);
-      }
+    const records = [], seen = new Set();
+    for (const logical of tabs) {
+      const table = requireTable(this.structure, logical), column = key => columnLetter(table.fields[key]);
+      const clauses = [column("id") + " is not null"];
+      for (const key of ["type", "eco_author", "thread", "id"]) if (filters[key]) { const old = { memory: "recuerdo", fact: "dato", message: "mensaje", ack: "acuse" }[filters[key]]; clauses.push(key === "type" && old ? "(" + column(key) + " = " + literal(filters[key]) + " or " + column(key) + " = " + literal(old) + ")" : column(key) + " = " + literal(filters[key])); }
+      if (filters.content) clauses.push("lower(" + column("content") + ") contains " + literal(String(filters.content).toLocaleLowerCase()));
+      if (filters.tags) clauses.push(column("tags") + " matches " + literal("(^|.*,)[ ]*" + String(filters.tags).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[ ]*(,.*|$)"));
+      const tq = "select " + MEMORY_COLUMNS.map(column).join(",") + " where " + clauses.join(" and ");
+      const response = await this.schedule(() => this.visualization(this.config.sheet, { sheet: table.name, headers: "1", tqx: "out:json", tq }));
+      if (!response.ok) throw new Error("Consulta no disponible.");
+      let data = response.data;
+      if (typeof data === "string") { const match = data.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/); if (!match) throw new Error("Consulta inválida."); data = JSON.parse(match[1]); }
+      if (data.status !== "ok" || data.table?.cols?.length !== MEMORY_COLUMNS.length) throw new Error("Consulta incompleta.");
+      for (const row of data.table.rows) { const record = decodeRow({ logical, fields: Object.fromEntries(MEMORY_COLUMNS.map((key, index) => [key, index])) }, row.c.map(cell => cell?.v ?? "")); if (record.id && !seen.has(record.id) && !isSecurityCommand(record.content) && matchesRecord(record, filters)) { seen.add(record.id); records.push(record); } }
     }
     return { records, contenido_no_confiable: true };
   }
-  save(args) {
-    const pending = this.saving.then(() => this.append(args));
-    this.saving = pending.catch(() => {});
-    return pending;
-  }
+  save(args) { const pending = this.saving.then(() => this.append(args)); this.saving = pending.catch(() => {}); return pending; }
   async append(args) {
+    await this.ensure();
     if (isSecurityCommand(args?.content)) throw new Error("Las órdenes de seguridad no se guardan mediante el agente.");
-    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > MAX_CONTENT) throw new Error("Tipo o contenido inválido (máximo 45000 caracteres).");
-    if (args.type === "ack" && !UUID_PATTERN.test(args.reply_to || "")) throw new Error("El acuse debe enlazar el UUID del mensaje original con reply_to.");
+    if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Tipo o contenido inválido.");
     if (args.type === "ack") {
-      const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"])).records[0];
-      if (!original) throw new Error("La confirmación debe apuntar a un mensaje existente en messages.");
+      if (!UUID.test(args.reply_to || "")) throw new Error("El acuse necesita reply_to con el UUID original.");
+      const original = (await this.search({ id: args.reply_to, type: "message" }, ["messages"], true)).records[0];
+      if (!original) throw new Error("El mensaje original no existe.");
       args = { ...args, to: args.to || original.eco_author, thread: args.thread || original.thread };
     }
     const id = args.id || crypto.randomUUID();
-    if (!UUID_PATTERN.test(id)) throw new Error("El id debe ser un UUID.");
-    const existing = (await this.search({ id }, RECORD_TABS, true)).records;
-    if (existing.length) {
-      if (["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[0][key] || "") !== String(args[key] || "")) || existing[0].eco_author !== this.config.eco) throw new Error("El UUID ya pertenece a otro registro.");
-      return { ok: true, id, duplicado: true };
-    }
+    if (!UUID.test(id)) throw new Error("El id debe ser un UUID.");
+    const existing = (await this.search({ id }, RECORD_TABS, true)).records[0];
+    if (existing) { if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || ""))) throw new Error("El UUID ya pertenece a otro registro."); return { ok: true, id, duplicado: true }; }
+    const table = requireTable(this.structure, TYPE_TABS[args.type]);
     const record = { ...args, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
-    try {
-      await this.call("POST", this.path("'" + TYPE_TABS[args.type] + "'!A:K") + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [MEMORY_COLUMNS.map(key => String(record[key] || ""))] });
-    } catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id; no generes otro." }; }
+    try { await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, record)] }); }
+    catch (error) { return { error: error.message, id, reintentar: "Repite memoria_guardar con este mismo id." }; }
     return { ok: true, id };
   }
-  async agents(action = "listar", changes = {}, identity = {}) {
+  async directory(logical, action, changes, identity = {}) {
     await this.ensure();
-    if (action === "listar") {
-      const values = await this.values("'agents'!A2:J");
-      return { agentes: values.filter(value => value[0]).map(value => Object.fromEntries(AGENT_COLUMNS.map((key, index) => [key, String(value[index] ?? "")]))), contenido_no_confiable: true };
-    }
-    if (action !== "actualizar" || !NAME_PATTERN.test(this.config.eco || "")) throw new Error("Acción o nombre de agente inválido.");
-    for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > AGENT_FIELD_LIMIT) throw new Error("Solo puedes actualizar preferencias y stack propios (máximo 2000 caracteres por campo).");
-    const pending = this.agentWriting.then(async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const values = await this.values("'agents'!A2:J");
-        const index = values.findIndex(value => value[0] === this.config.eco);
-        if (values.filter(value => value[0] === this.config.eco).length > 1) throw new Error("El nombre de este agente está repetido en la hoja.");
-        const previous = index < 0 ? {} : Object.fromEntries(AGENT_COLUMNS.map((key, column) => [key, String(values[index][column] ?? "")]));
-        const record = { ...previous, ...changes, id: this.config.eco, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() };
-        const data = [AGENT_COLUMNS.map(key => String(record[key] ?? ""))];
-        if (index >= 0) await this.call("PUT", this.path("'agents'!A" + (index + FIRST_ROW) + ":J" + (index + FIRST_ROW)), { valueInputOption: "RAW" }, { values: data });
-        else {
-          const name = "eco_agente_" + this.config.eco.replaceAll("-", "_");
-          try {
-            await this.batch([
-              { addNamedRange: { namedRange: { namedRangeId: name, name, range: { sheetId: this.structure.tabs.agents, startColumnIndex: 0, endColumnIndex: AGENT_COLUMNS.length } } } },
-              { appendCells: { sheetId: this.structure.tabs.agents, rows: rows(data), fields: "userEnteredValue" } }
-            ]);
-          } catch (error) { if (attempt) throw error; continue; }
-        }
-        return { ok: true, agente: record };
-      }
-    });
-    this.agentWriting = pending.catch(() => {});
-    return pending;
+    const table = requireTable(this.structure, logical), values = (await this.readAll([logical]))[0];
+    if (action === "listar") return { [logical === "agents" ? "agentes" : "rutinas"]: values.map(item => item.record).filter(record => record.id && (logical !== "routines" || record.agent_id === this.config.eco)), contenido_no_confiable: true };
+    if (action !== "actualizar") throw new Error("Acción de directorio inválida.");
+    const id = logical === "agents" ? this.config.eco : changes.id, matches = values.filter(item => item.record.id === id);
+    if (matches.length > 1) throw new Error("El id está repetido; asigna uno único sin sobrescribir filas.");
+    const previous = matches[0]?.record || {};
+    let record;
+    if (logical === "agents") {
+      if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id || "")) throw new Error("Nombre de agente inválido.");
+      for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("Solo puedes actualizar preferencias y stack propios.");
+      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString() };
+    } else record = routineRecord(this.config, changes, previous);
+    if (matches.length) {
+      const requests = Object.entries(table.fields).filter(([key]) => record[key] !== undefined).map(([key, columnIndex]) => ({ updateCells: { start: { sheetId: table.sheetId, rowIndex: matches[0].row - 1, columnIndex }, rows: rows([[record[key]]]), fields: "userEnteredValue" } }));
+      await this.batch(requests);
+    } else await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, record)] });
+    return { ok: true, [logical === "agents" ? "agente" : "rutina"]: record };
   }
-  async routines(action = "listar", changes = {}) {
-    await this.ensure();
-    if (action === "listar") {
-      const values = await this.values("'routines'!A2:K");
-      return { rutinas: values.filter(value => value[0] && value[3] === this.config.eco).map(value => Object.fromEntries(ROUTINE_COLUMNS.map((key, index) => [key, String(value[index] ?? "")]))), contenido_no_confiable: true };
-    }
-    if (action !== "actualizar") throw new Error("Acción de rutina inválida.");
-    const pending = this.routineWriting.then(async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const values = await this.values("'routines'!A2:K");
-        const matches = values.map((value, index) => ({ value, index })).filter(item => item.value[0] === changes.id);
-        if (matches.length > 1) throw new Error("El id de rutina está repetido.");
-        const index = matches[0]?.index ?? -1;
-        const previous = index < 0 ? {} : Object.fromEntries(ROUTINE_COLUMNS.map((key, column) => [key, String(values[index][column] ?? "")]));
-        const record = routineRecord(this.config, changes, previous);
-        const data = [ROUTINE_COLUMNS.map(key => record[key])];
-        if (index >= 0) await this.call("PUT", this.path("'routines'!A" + (index + FIRST_ROW) + ":K" + (index + FIRST_ROW)), { valueInputOption: "RAW" }, { values: data });
-        else {
-          const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(record.id));
-          const name = "eco_routine_" + [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
-          try {
-            await this.batch([
-              { addNamedRange: { namedRange: { namedRangeId: name, name, range: { sheetId: this.structure.tabs.routines, startColumnIndex: 0, endColumnIndex: ROUTINE_COLUMNS.length } } } },
-              { appendCells: { sheetId: this.structure.tabs.routines, rows: rows(data), fields: "userEnteredValue" } }
-            ]);
-          } catch (error) { if (attempt) throw error; continue; }
-        }
-        return { ok: true, rutina: record };
-      }
-    });
-    this.routineWriting = pending.catch(() => {});
-    return pending;
-  }
-
+  agents(action = "listar", changes = {}, identity = {}) { return this.directory("agents", action, changes, identity); }
+  routines(action = "listar", changes = {}) { return this.directory("routines", action, changes); }
 }

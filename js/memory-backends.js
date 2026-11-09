@@ -19,31 +19,37 @@ const unpack = value => {
 };
 
 export function databaseSQL(action, args) {
-  const table = action === "schema" ? "_eco" : ["agents", "routines", "redact"].includes(action) ? action === "redact" ? "messages" : action : args.table;
-  if (![...MEMORY_TABLES, "_eco"].includes(table)) throw new Error("Tabla no compatible.");
-  if (action === "schema") return 'SELECT key,value FROM "_eco"';
+  const q = identifier;
+  if (action === "schema") {
+    if (args.stage === "protocol") return "SELECT " + q(args.columns.key) + " AS key," + q(args.columns.value) + " AS value FROM " + q(args.table);
+    if (args.stage === "map") return args.exists ? "UPDATE " + q(args.table) + " SET " + q(args.columns.value) + "=" + text(args.value) + " WHERE " + q(args.columns.key) + "='map'" : "INSERT INTO " + q(args.table) + " (" + q(args.columns.key) + "," + q(args.columns.value) + ") VALUES ('map'," + text(args.value) + ")";
+    if (args.stage === "add") return args.additions.map(item => {
+      const definition = key => q(key) + (key === "date" ? " TIMESTAMP DEFAULT CURRENT_TIMESTAMP" : " TEXT" + (["id", "key"].includes(key) ? " PRIMARY KEY" : " DEFAULT ''"));
+      return item.create ? "CREATE TABLE " + q(item.name) + " (" + item.columns.map(definition).join(",") + ")" : item.columns.map(key => "ALTER TABLE " + q(item.name) + " ADD COLUMN " + definition(key)).join(";");
+    }).join(";");
+    return "SELECT table_name,column_name,ordinal_position FROM information_schema.columns WHERE table_schema=CURRENT_SCHEMA ORDER BY table_name,ordinal_position";
+  }
+  const logical = args.logical || (["agents", "routines"].includes(action) ? action : action === "redact" ? "messages" : args.table);
+  if (!MEMORY_TABLES.includes(logical)) throw new Error("Tabla lógica no compatible.");
+  const table = args.table || logical, columns = args.columns || Object.fromEntries((logical === "agents" ? AGENT_COLUMNS : logical === "routines" ? ROUTINE_COLUMNS : MEMORY_COLUMNS).map(key => [key, key]));
+  const field = key => q(columns[key]);
   if (action === "save") {
-    const record = args.record;
-    return 'INSERT INTO "' + table + '" (' + MEMORY_COLUMNS.map(identifier).join(",") + ") VALUES (" + MEMORY_COLUMNS.map(key => key === "date" ? "CURRENT_TIMESTAMP" : text(record[key])).join(",") + ")";
+    const record = args.record, names = Object.keys(record);
+    return "INSERT INTO " + q(table) + " (" + [...names.map(q), ...(Object.hasOwn(record, columns.date) ? [] : [field("date")])].join(",") + ") VALUES (" + [...names.map(key => text(record[key])), ...(Object.hasOwn(record, columns.date) ? [] : ["CURRENT_TIMESTAMP"])].join(",") + ")";
   }
-  if (action === "redact") return 'UPDATE "messages" SET content=' + text("[orden de seguridad retirada]") + " WHERE id=" + text(args.id);
+  if (action === "redact") return "UPDATE " + q(table) + " SET " + field("content") + "=" + text("[orden de seguridad retirada]") + " WHERE " + field("id") + "=" + text(args.id);
   if (["agents", "routines"].includes(action) && args.action === "actualizar") {
-    const columns = action === "agents" ? AGENT_COLUMNS : ROUTINE_COLUMNS;
-    return 'MERGE INTO "' + table + '" AS target USING (VALUES (' + columns.map(key => text(args.record[key])).join(",") + ')) AS incoming (' + columns.map(identifier).join(",") + ') ON target.id=incoming.id WHEN MATCHED' + (action === "routines" ? ' AND target.agent_id=incoming.agent_id' : '') + ' THEN UPDATE SET ' + columns.filter(key => key !== "id").map(key => identifier(key) + "=incoming." + identifier(key)).join(",") + ' WHEN NOT MATCHED THEN INSERT (' + columns.map(identifier).join(",") + ') VALUES (' + columns.map(key => "incoming." + identifier(key)).join(",") + ")";
+    const names = Object.keys(args.record);
+    return "MERGE INTO " + q(table) + " AS target USING (VALUES (" + names.map(key => text(args.record[key])).join(",") + ")) AS incoming (" + names.map(q).join(",") + ") ON target." + field("id") + "=incoming." + field("id") + " WHEN MATCHED" + (logical === "routines" ? " AND target." + field("agent_id") + "=incoming." + field("agent_id") : "") + " THEN UPDATE SET " + names.filter(key => key !== columns.id).map(key => q(key) + "=incoming." + q(key)).join(",") + " WHEN NOT MATCHED THEN INSERT (" + names.map(q).join(",") + ") VALUES (" + names.map(key => "incoming." + q(key)).join(",") + ")";
   }
-  const columns = table === "agents" ? AGENT_COLUMNS : table === "routines" ? ROUTINE_COLUMNS : MEMORY_COLUMNS;
-  const where = [];
-  const filters = args.filters || {};
-  if (["agents", "routines"].includes(action) && args.id) where.push("id=" + text(args.id));
-  if (action === "routines" && args.agent_id) where.push("agent_id=" + text(args.agent_id));
-  for (const [key, column] of Object.entries({ type: "type", eco_author: "eco_author", thread: "thread", id: "id" })) if (filters[key]) where.push(column + "=" + text(filters[key]));
-  if (filters.content) where.push("LOWER(content) LIKE " + likeText(String(filters.content).toLocaleLowerCase()) + " ESCAPE '\\'");
-  if (filters.tags) {
-    const tag = String(filters.tags).replace(/[\\%_]/g, "\\$&");
-    where.push("(tags=" + text(filters.tags) + " OR tags LIKE " + text(tag + ",%") + " ESCAPE '\\' OR tags LIKE " + text("%," + tag) + " ESCAPE '\\' OR tags LIKE " + text("%," + tag + ",%") + " ESCAPE '\\')");
-  }
-  if (args.cursor) where.push("(date>" + text(args.cursor.date) + " OR (date=" + text(args.cursor.date) + " AND id>" + text(args.cursor.id) + "))");
-  return 'SELECT ' + columns.map(identifier).join(",") + ' FROM "' + table + '"' + (where.length ? " WHERE " + where.join(" AND ") : "") + (["agents", "routines"].includes(table) ? " ORDER BY id" : " ORDER BY date,id") + (["agents", "routines"].includes(table) ? "" : " FETCH FIRST 100 ROWS ONLY");
+  const where = [], filters = args.filters || {};
+  if (args.id) where.push(field("id") + "=" + text(args.id));
+  if (logical === "routines" && args.agent_id) where.push(field("agent_id") + "=" + text(args.agent_id));
+  for (const key of ["type", "eco_author", "thread", "id"]) if (filters[key]) { const old = { memory: "recuerdo", fact: "dato", message: "mensaje", ack: "acuse" }[filters[key]]; where.push(key === "type" && old ? field(key) + " IN (" + text(filters[key]) + "," + text(old) + ")" : field(key) + "=" + text(filters[key])); }
+  if (filters.content) where.push("LOWER(" + field("content") + ") LIKE " + likeText(String(filters.content).toLocaleLowerCase()) + " ESCAPE '\\'");
+  if (filters.tags) { const tag = String(filters.tags).replace(/[\\%_]/g, "\\$&"); where.push("(" + field("tags") + "=" + text(filters.tags) + " OR " + field("tags") + " LIKE " + text(tag + ",%") + " OR " + field("tags") + " LIKE " + text("%," + tag) + " OR " + field("tags") + " LIKE " + text("%," + tag + ",%") + ")"); }
+  if (args.cursor) where.push("(" + field("date") + ">" + text(args.cursor.date) + " OR (" + field("date") + "=" + text(args.cursor.date) + " AND " + field("id") + ">" + text(args.cursor.id) + "))");
+  return "SELECT " + Object.values(columns).map(q).join(",") + " FROM " + q(table) + (where.length ? " WHERE " + where.join(" AND ") : "") + (["agents", "routines"].includes(logical) ? " ORDER BY " + field("id") : " ORDER BY " + field("date") + "," + field("id") + " FETCH FIRST 100 ROWS ONLY");
 }
 
 export function memoryDependencies(config) {
@@ -63,11 +69,11 @@ export function memoryDependencies(config) {
       result = await connectorFetch(id, "POST", operation.path, {}, payload, true);
     }
     if (!result.ok) throw new Error("Falló la operación de memoria " + action + ". Revisa el conector y sus permisos.");
-    if (["save", "redact"].includes(action) || ["agents", "routines"].includes(action) && args.action === "actualizar") return { ok: true };
+    if (action === "schema" && ["add", "map"].includes(args.stage) || ["save", "redact"].includes(action) || ["agents", "routines"].includes(action) && args.action === "actualizar") return { ok: true };
     return unpack(result.data);
   };
   return {
-    request: (method, path, query, body, upsert) => connectorFetch(id, method, path, query, body, true, undefined, { upsert }),
+    request: (method, path, query, body, upsert) => connectorFetch(id, method, path, query, body, true, undefined, { upsert, ...(path === "/rest/v1/" ? { accept: "application/openapi+json" } : {}) }),
     visualization: (sheet, query) => connectorVisualization(id, sheet, query),
     execute: invoke
   };

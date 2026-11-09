@@ -350,7 +350,7 @@ export async function connectorFetch(id, method, path, query, body, complete = f
     if (base.hostname === "sheets.googleapis.com" && key === "ranges" && Array.isArray(value)) value.forEach(range => url.searchParams.append(key, String(range)));
     else url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
-  const headers = { Accept: "application/json" };
+  const headers = { Accept: options.accept || "application/json" };
   if (options.upsert) headers.Prefer = "resolution=merge-duplicates,return=representation";
   const auth = await authorize(connector, url, headers);
   if (auth !== AUTH_OK) {
@@ -382,19 +382,20 @@ export async function connectorFetch(id, method, path, query, body, complete = f
   const result = { ok: response.ok, status: response.status, data: complete ? data : redactSecurityData(data) };
   const sheet = path.match(/^\/v4\/spreadsheets\/([A-Za-z0-9_-]+)\/values(?:\/|:batchGet)/);
   if (complete && base.hostname === "sheets.googleapis.com" && sheet) {
-    result.redactMemory = (tab, row) => {
-      if (!["messages"].includes(tab) || !Number.isSafeInteger(row) || row < 2 || isWiping()) return;
-      const target = new URL("/v4/spreadsheets/" + sheet[1] + "/values/" + encodeURIComponent("'" + tab + "'!I" + row), base);
+    result.redactMemory = (tab, row, column = 8) => {
+      if (typeof tab !== "string" || !tab || tab.length > 200 || !Number.isSafeInteger(row) || row < 2 || !Number.isSafeInteger(column) || column < 0 || column >= 18278 || isWiping()) return;
+      let letter = ""; for (let value = column + 1; value > 0; value = Math.floor((value - 1) / 26)) letter = String.fromCharCode(65 + (value - 1) % 26) + letter;
+      const target = new URL("/v4/spreadsheets/" + sheet[1] + "/values/" + encodeURIComponent("'" + tab.replaceAll("'", "''") + "'!" + letter + row), base);
       target.searchParams.set("valueInputOption", "RAW");
       return window.fetch(target.href, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ values: [["[orden de seguridad retirada]"]] }), keepalive: true }).catch(() => {});
     };
   }
-  if (complete && path === "/rest/v1/messages" && method === "GET") {
-    result.redactMemory = id => {
+  if (complete && /^\/rest\/v1\/[^/]+$/.test(path) && method === "GET") {
+    result.redactMemory = (id, mapping = {}) => {
       if (!/^[0-9a-f-]{36}$/i.test(id) || isWiping()) return;
-      const target = new URL(connector.base_url + "/rest/v1/messages");
-      target.searchParams.set("id", "eq." + id);
-      return window.fetch(target.href, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ content: "[orden de seguridad retirada]" }), keepalive: true }).catch(() => {});
+      const target = new URL(connector.base_url + path);
+      target.searchParams.set(mapping.id || "id", "eq." + id);
+      return window.fetch(target.href, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ [mapping.content || "content"]: "[orden de seguridad retirada]" }), keepalive: true }).catch(() => {});
     };
   }
   return result;
