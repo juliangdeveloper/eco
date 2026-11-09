@@ -40,3 +40,9 @@ In **Settings › Secure wipe** you choose a word that erases everything Eco sto
 Eco is experimental: it acts without asking for confirmation and has not had a security audit. Use it with accounts and data you are willing to risk.
 
 It works in any modern browser and needs internet. To run it locally: `python3 -m http.server`. MIT license, see [LICENSE](LICENSE).
+
+---
+
+More projects: https://juliangdeveloper.github.io/
+
+Made with ❤️ and 🌱
