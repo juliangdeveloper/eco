@@ -4,7 +4,7 @@ import { redactSecurityData } from "./security.js";
 import { discoverEnvironment, readEnvironmentStorage } from "./environment.js";
 import { readDeviceDocumentation, listDeviceTools, manageDeviceTool, callDeviceTool } from "./device-tools.js";
 import { timedFetch } from "./network.js";
-import { passiveMemory, memoryCall, configureMemory } from "./passive-skills.js";
+import { passiveMemory, memoryCall, configureMemory, databaseMemoryGuide } from "./passive-skills.js";
 import { abortJob, jobRecords, jobSignal, jobSnapshot, jobUpdate, resumeJob } from "./subagents.js";
 import { DEFAULT_MODEL } from "./config.js";
 import { all, remove, setting, store } from "./storage.js";
@@ -226,11 +226,12 @@ window.ecoBridge = {
     stateApi?.refreshConnectors();
     return JSON.stringify(result);
   },
+  async databaseMemoryGuide() { return databaseMemoryGuide(); },
   async passiveSkills() {
     return JSON.stringify(await passiveMemory());
   },
   async configureMemory(action) {
-    const result = await configureMemory(String(action));
+    const result = await configureMemory(typeof action === "string" && !action.trim().startsWith("{") ? action : parsed(action));
     stateApi?.refreshConnectors();
     return JSON.stringify(result);
   },

@@ -309,6 +309,7 @@ async function authorize(connector, url, headers) {
     } else {
       const header = connector.auth.header || DEFAULT_API_KEY_HEADER;
       headers[header] = headerValue(header, connector.auth.prefix, value);
+      if (connector.auth.bearer && value.split(".").length === 3) headers.Authorization = DEFAULT_BEARER_PREFIX + value;
     }
     return AUTH_OK;
   }
@@ -335,7 +336,7 @@ function apiMessage(data) {
   return text.slice(0, MAX_ERROR_CHARS);
 }
 
-export async function connectorFetch(id, method, path, query, body, complete = false, signal) {
+export async function connectorFetch(id, method, path, query, body, complete = false, signal, options = {}) {
   const connector = await getConnector(id);
   if (!connector) {
     return { ok: false, error: "Conector no encontrado" };
@@ -350,6 +351,7 @@ export async function connectorFetch(id, method, path, query, body, complete = f
     else url.searchParams.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   const headers = { Accept: "application/json" };
+  if (options.upsert) headers.Prefer = "resolution=merge-duplicates,return=representation";
   const auth = await authorize(connector, url, headers);
   if (auth !== AUTH_OK) {
     return { ok: false, error: NOT_CONNECTED, reason: auth };
@@ -381,13 +383,34 @@ export async function connectorFetch(id, method, path, query, body, complete = f
   const sheet = path.match(/^\/v4\/spreadsheets\/([A-Za-z0-9_-]+)\/values(?:\/|:batchGet)/);
   if (complete && base.hostname === "sheets.googleapis.com" && sheet) {
     result.redactMemory = (tab, row) => {
-      if (!["mensajes"].includes(tab) || !Number.isSafeInteger(row) || row < 2 || isWiping()) return;
+      if (!["messages"].includes(tab) || !Number.isSafeInteger(row) || row < 2 || isWiping()) return;
       const target = new URL("/v4/spreadsheets/" + sheet[1] + "/values/" + encodeURIComponent("'" + tab + "'!I" + row), base);
       target.searchParams.set("valueInputOption", "RAW");
       return window.fetch(target.href, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ values: [["[orden de seguridad retirada]"]] }), keepalive: true }).catch(() => {});
     };
   }
+  if (complete && path === "/rest/v1/messages" && method === "GET") {
+    result.redactMemory = id => {
+      if (!/^[0-9a-f-]{36}$/i.test(id) || isWiping()) return;
+      const target = new URL(connector.base_url + "/rest/v1/messages");
+      target.searchParams.set("id", "eq." + id);
+      return window.fetch(target.href, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ contenido: "[orden de seguridad retirada]" }), keepalive: true }).catch(() => {});
+    };
+  }
   return result;
+}
+
+export async function connectorVisualization(id, sheet, query) {
+  const connector = await getConnector(id);
+  if (!connector || connector.base_url !== "https://sheets.googleapis.com" || !/^[A-Za-z0-9_-]+$/.test(sheet)) return { ok: false };
+  const url = new URL("https://docs.google.com/spreadsheets/d/" + sheet + "/gviz/tq");
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
+  const headers = { Accept: "application/json" };
+  if (await authorize(connector, url, headers) !== AUTH_OK) return { ok: false };
+  try {
+    const response = await timedFetch(url.href, { headers, credentials: "omit" });
+    return { ok: response.ok, data: await response.text() };
+  } catch { return { ok: false }; }
 }
 
 function authorizeParams(auth, clientId, state, responseType) {

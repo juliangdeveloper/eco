@@ -4,7 +4,8 @@ import { APP_VERSION, DEFAULT_MODEL } from "./config.js";
 import { json, setting } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
-import { DriveMemory, sheetId } from "./memory-drive.js";
+import { sheetId } from "./memory-drive.js";
+import { MEMORY_BACKENDS, memoryDependencies } from "./memory-backends.js";
 
 const PRESENCE_INTERVAL_MS = 180000;
 const CAPABILITY_LABELS = { mediaDevices: "cámara y micrófono", geolocation: "ubicación", bluetooth: "Bluetooth", usb: "USB", serial: "serial", hid: "HID", nfc: "NFC", clipboard: "portapapeles" };
@@ -17,10 +18,11 @@ const MAX_MENTION_BATCHES = 5;
 const BROADCAST = "*";
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ADAPTERS = Object.freeze({
+  ...MEMORY_BACKENDS,
   "google-drive": {
     name: "Memoria persistente Google Drive",
     skill: "assets/skills/memoria-google-drive.txt",
-    create: (dependencies) => new DriveMemory(dependencies),
+    create: MEMORY_BACKENDS["google-drive"].create,
     connector: {
       id: CONNECTOR_ID,
       name: "Memoria persistente Google Drive",
@@ -53,11 +55,12 @@ let presenceIdentity = "";
 let presenceUpdated = 0;
 
 function identityOf(config) {
-  return [config.backend, config.sheet, config.eco, config.usuario].join(":");
+  if (config.backend === "google-drive") return [config.backend, config.sheet, config.eco, config.usuario].join(":");
+  return [config.backend, config.connector, config.operation, config.mode, config.sql_argument, JSON.stringify(config.operations), config.eco, config.usuario].join(":");
 }
 
-function memoryRequest(definition) {
-  return (method, path, query, body) => connectorFetch(definition.connector.id, method, path, query, body, true);
+function memoryRequest() {
+  return memoryDependencies({ backend: "google-drive" }).request;
 }
 
 function adapter(config) {
@@ -66,7 +69,7 @@ function adapter(config) {
   const identity = identityOf(config);
   if (activeIdentity !== identity) {
     const cursorKey = "memoryCursor:" + identity;
-    activeAdapter = definition.create({ config, request: memoryRequest(definition), loadCursor: () => json(cursorKey), saveCursor: (cursor) => json(cursorKey, cursor) });
+    activeAdapter = definition.create({ config, ...memoryDependencies(config), loadCursor: () => json(cursorKey), saveCursor: (cursor) => json(cursorKey, cursor) });
     activeIdentity = identity;
   }
   return activeAdapter;
@@ -84,11 +87,11 @@ export async function passiveMemory() {
 }
 
 export async function memoryCall(action, args) {
-  const config = json(CONFIG_KEY);
-  if (!config?.sheet || !ADAPTERS[config.backend] || await connectorStatus(ADAPTERS[config.backend].connector.id) !== STATUS.CONNECTED) throw new Error("La memoria sigue local. Conecta Google Drive o inicia sesión de nuevo.");
+  const config = await connectedConfig();
+  if (!config) throw new Error("La memoria sigue local. Conecta un destino o renueva sus credenciales.");
   const destination = adapter(config);
   await destination.ensure();
-  if (action === "reglas") return destination.search(args, ["recuerdos"]);
+  if (action === "reglas") return destination.search(args, ["memories"]);
   if (action === "agentes") return destination.agents(args?.accion || "listar", Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "accion")), agentIdentity());
   if (action === "guardar") return destination.save(args);
   if (action === "buscar") return destination.search(args);
@@ -98,7 +101,7 @@ export async function memoryCall(action, args) {
 
 async function connectedConfig() {
   const config = json(CONFIG_KEY);
-  if (!config?.sheet || !ADAPTERS[config.backend] || await connectorStatus(ADAPTERS[config.backend].connector.id) !== STATUS.CONNECTED) return null;
+  if (!config || !ADAPTERS[config.backend] || !(config.backend === "google-drive" ? config.sheet : config.connector) || await connectorStatus(config.backend === "google-drive" ? CONNECTOR_ID : config.connector) !== STATUS.CONNECTED) return null;
   return config;
 }
 
@@ -111,7 +114,7 @@ export async function memoryMentions(cursor) {
   const mention = "@" + config.eco;
   const records = [];
   for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
-    const result = await reader.readNew(["mensajes"], { load: () => position, save: value => { position = value; } });
+    const result = await reader.readNew(["messages"], { load: () => position, save: value => { position = value; } });
     records.push(...result.records.filter((record) => record.eco_autor !== config.eco && (record.para === config.eco || record.para === BROADCAST || record.contenido.includes(mention))));
     if (!result.hay_mas) break;
   }
@@ -125,7 +128,7 @@ export async function findExistingSheet(definition = ADAPTERS["google-drive"]) {
   let best = null;
   for (const file of listing.data.files) {
     try {
-      const probe = definition.create({ config: { sheet: file.id }, request: memoryRequest(definition), loadCursor: () => null, saveCursor: () => {} });
+      const probe = definition.create({ config: { sheet: file.id }, request: memoryRequest(), loadCursor: () => null, saveCursor: () => {} });
       const rows = (await probe.describe()).count;
       if (!best || rows > best.rows) best = { id: file.id, rows };
     } catch {
@@ -141,15 +144,18 @@ function element(tag, text = "") {
   return node;
 }
 
-export async function configureMemory(action) {
+export async function configureMemory(input) {
+  const options = typeof input === "string" ? { accion: input } : input || {};
+  const action = options.accion || "conectar";
   if (action === "desconectar") {
     json(CONFIG_KEY, null);
     activeAdapter = null;
     activeIdentity = "";
     presenceIdentity = "";
     presenceUpdated = 0;
-    return { ok: true, estado: "Memoria local; la hoja no se borró y el acceso de Google sigue guardado en Conectores." };
+    return { ok: true, estado: "Memoria local; los datos remotos y las credenciales siguen intactos." };
   }
+  if (options.backend && options.backend !== "google-drive") return configureDatabase(options);
   const definition = ADAPTERS["google-drive"];
   let connector = await getConnector(CONNECTOR_ID);
   if (!connector) connector = await saveConnector(definition.connector);
@@ -238,6 +244,58 @@ export async function configureMemory(action) {
   });
 }
 
+export async function databaseMemoryGuide() {
+  if (!skillTexts.has("database")) {
+    const response = await fetch(ADAPTERS.database.skill + "?v=" + APP_VERSION);
+    if (!response.ok) throw new Error("No se pudo cargar la habilidad de bases de datos.");
+    skillTexts.set("database", await response.text());
+  }
+  return skillTexts.get("database");
+}
+
+async function configureDatabase(options) {
+  if (!["supabase", "database"].includes(options.backend)) throw new Error("Destino de memoria no compatible.");
+  const previous = json(CONFIG_KEY) || {};
+  const config = { backend: options.backend, connector: options.connector || (options.backend === "supabase" ? "eco-memory-supabase" : ""), eco: options.eco || previous.eco || "eco-" + crypto.randomUUID().slice(0, 6), usuario: options.usuario || previous.usuario || "usuario" };
+  if (!NAME_PATTERN.test(config.eco) || !NAME_PATTERN.test(config.usuario)) throw new Error("Usa nombres de 1 a 40 letras minúsculas, números o guiones.");
+  let connector = await getConnector(config.connector);
+  if (options.backend === "supabase" && options.project_url) {
+    const url = new URL(options.project_url);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !["/", ""].includes(url.pathname)) throw new Error("Usa la URL HTTPS del proyecto, sin rutas ni credenciales.");
+    if (connector && connector.base_url !== url.origin) throw new Error("Usa otro id de conector para un proyecto distinto.");
+    connector = await saveConnector({ id: config.connector, name: "Memoria · base de datos", base_url: url.origin, auth: { type: "api_key", header: "apikey", bearer: true }, operations: [{ name: "leer_memoria", method: "GET", path: "/rest/v1/_eco" }] });
+  }
+  if (!connector) throw new Error("Conecta la base de datos primero o indica project_url para Supabase.");
+  if (options.backend === "supabase" && (connector.kind === "mcp" || connector.auth.type !== "api_key" || connector.auth.header !== "apikey" || !connector.auth.bearer || new URL(connector.base_url).pathname !== "/")) throw new Error("Usa un conector PostgREST con clave apikey para Supabase.");
+  if (await connectorStatus(config.connector) !== STATUS.CONNECTED && await showCredentialCard(connector) !== STATUS.CONNECTED) return { ok: false, estado: "La memoria sigue local." };
+  if (options.backend === "database") {
+    config.mode = options.mode || "operations";
+    if (!["operations", "sql"].includes(config.mode)) throw new Error("Modo de base de datos no compatible.");
+    config.operation = String(options.operation || "");
+    config.operations = Object.fromEntries(Object.entries(options.operations || {}).filter(([key, value]) => ["schema", "search", "new", "save", "agents", "redact"].includes(key) && typeof value === "string"));
+    config.sql_argument = String(options.sql_argument || "query");
+    const names = connector.kind === "mcp" ? connector.tools?.map(tool => tool.name) || [] : connector.operations.map(operation => operation.name);
+    for (const action of ["schema", "search", "new", "save", "agents", "redact"]) if (!names.includes(config.operations[action] || config.operation)) throw new Error("Falta una operación de memoria compatible: " + action);
+  }
+  try {
+    const destination = adapter(config);
+    await destination.connect();
+    await destination.agents("actualizar", {}, agentIdentity());
+  }
+  catch (error) {
+    const result = { ok: false, error: error.message, instructions: await databaseMemoryGuide() };
+    if (options.backend === "supabase") {
+      const response = await fetch("assets/skills/memoria-supabase.sql?v=" + APP_VERSION);
+      if (response.ok) result.setup_sql = await response.text();
+    }
+    return result;
+  }
+  json(CONFIG_KEY, config);
+  presenceIdentity = identityOf(config);
+  presenceUpdated = Date.now();
+  return { ok: true, backend: config.backend, eco: config.eco, estado: "Memoria conectada a la base de datos." };
+}
+
 let securityChecking = false;
 let securityTimer;
 
@@ -251,7 +309,7 @@ export async function checkSecurityMemory() {
     const cursorKey = "securityMemoryCursor:" + identityOf(config);
     const reader = adapter(config);
     for (let batch = 0; batch < MAX_MENTION_BATCHES && !isWiping(); batch++) {
-      if (!(await reader.readNew(["mensajes"], { load: () => json(cursorKey), save: value => json(cursorKey, value) })).hay_mas) break;
+      if (!(await reader.readNew(["messages"], { load: () => json(cursorKey), save: value => json(cursorKey, value) })).hay_mas) break;
     }
   } catch {} finally { securityChecking = false; }
 }

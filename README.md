@@ -4,9 +4,9 @@
 
 > Conversa, crea sus propias herramientas y comparte memoria con otros Ecos y agentes SI.
 
-[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.11.0
+[Demo](https://juliangdeveloper.github.io/eco/) · Versión 0.12.0
 
-<img src="assets/screenshot.png?v=0.11.0" alt="Inicio de Eco en pantalla móvil" width="320">
+<img src="assets/screenshot.png?v=0.12.0" alt="Inicio de Eco en pantalla móvil" width="320">
 
 ## Uso
 
@@ -53,13 +53,13 @@ En **Ajustes › Borrado seguro**, configura y repite una palabra exclusiva de 8
 
 - **Botón:** pulsa **Borrar Eco de este dispositivo**, introduce la palabra y confirma.
 - **Chat:** envía exactamente `autodestrucción <palabra>` o `borrado seguro <palabra>`. El código intercepta incluso los intentos incorrectos antes de guardar el mensaje o llamar al modelo. Tampoco conserva esos borradores.
-- **Remoto:** añade manualmente a `mensajes` de **Eco · Memoria** un UUID nuevo, `fecha` ISO actual, `tipo=mensaje`, `para=nombre-de-este-eco` o `*` y `contenido=borrado seguro <palabra>`. No uses otro modelo para escribir la palabra. Un comprobador independiente del modelo y de las rutinas revisa cada 15 segundos mientras Eco esté abierto, con red y memoria conectada. El navegador puede ralentizarlo en segundo plano. Las órdenes se ocultan al modelo; se consumen sus UUID y se rechazan fechas anteriores a configurar la palabra. Tras verificar se intenta retirar el contenido de la celda, sin esperar la red: única excepción a los registros inmutables. Después de borrar no queda palabra configurada para repetir la orden.
+- **Remoto:** añade manualmente a `messages` de **Eco · Memoria** un UUID nuevo, `fecha` ISO actual, `tipo=mensaje`, `para=nombre-de-este-eco` o `*` y `contenido=borrado seguro <palabra>`. No uses otro modelo para escribir la palabra. Un comprobador independiente del modelo y de las rutinas revisa cada 15 segundos mientras Eco esté abierto, con red y memoria conectada. El navegador puede ralentizarlo en segundo plano. Las órdenes se ocultan al modelo; se consumen sus UUID y se rechazan fechas anteriores a configurar la palabra. Tras verificar se intenta retirar el contenido del registro, sin esperar la red: única excepción a los registros inmutables. Después de borrar no queda palabra configurada para repetir la orden.
 
-Detiene trabajo y conexiones, avisa a otras pestañas de Eco y elimina su IndexedDB, claves `eco.*` de localStorage/sessionStorage, cachés `eco-v*` y service workers de su ruta, sin borrar otras aplicaciones del dominio. Deja una página en blanco; cerrar la ventana depende del navegador. Es borrado local de mejor esfuerzo, no forense: no revoca APIs ni elimina archivos remotos, historial o copias del sistema. La orden remota transporta la palabra en Sheets: protege esa hoja; retirar la celda no elimina su historial. No funciona con Eco cerrado, sin red o con acceso de Google vencido.
+Detiene trabajo y conexiones, avisa a otras pestañas de Eco y elimina su IndexedDB, claves `eco.*` de localStorage/sessionStorage, cachés `eco-v*` y service workers de su ruta, sin borrar otras aplicaciones del dominio. Deja una página en blanco; cerrar la ventana depende del navegador. Es borrado local de mejor esfuerzo, no forense: no revoca APIs ni elimina archivos remotos, historial o copias del sistema. La orden remota transporta la palabra por la memoria conectada: protege el destino; retirar el contenido no elimina su historial. No funciona con Eco cerrado, sin red o con las credenciales del destino vencidas.
 
 ## Memoria compartida
 
-La memoria compartida se adapta al stack de cada usuario: cada destino usa una versión adaptada del protocolo `eco-memoria`. En Google Drive son hojas de cálculo; una base de datos usará tablas y esquemas. Además de comunicar varios Ecos entre sí, permite interactuar con otros agentes SI, como Grok o Claude: cualquier agente con acceso al destino puede leer y escribir registros siguiendo el mismo protocolo. Hoy el destino disponible es Google Drive.
+La memoria compartida se adapta al stack de cada usuario: cada destino usa una versión adaptada del protocolo `eco-memoria`. En Google Drive son hojas de cálculo; en una base de datos son tablas y esquemas. Además de comunicar varios Ecos entre sí, permite interactuar con otros agentes SI, como Grok o Claude: cualquier agente con acceso al destino puede leer y escribir registros siguiendo el mismo protocolo. Hay adaptadores para hojas en Drive, PostgREST de Supabase y conexiones HTTP/MCP a bases de datos. Las cuatro herramientas `memoria_*` conservan su interfaz y se dirigen al destino activo.
 
 ### Google Drive
 
@@ -68,17 +68,27 @@ La memoria compartida se adapta al stack de cada usuario: cada destino usa una v
 3. Conecta la misma hoja en otro dispositivo con un nombre de Eco diferente. Cada cuenta necesita permiso de edición sobre la hoja.
 4. Pide guardar, buscar o leer novedades. `memoria_guardar`, `memoria_buscar`, `memoria_leer_nuevos` y `memoria_agentes` se activan junto con la habilidad pasiva solo mientras el destino está conectado. El mismo inicio de sesión crea el conector **Google Drive · archivos** para buscar, leer, exportar, crear, renombrar o enviar a la papelera tus archivos; sus escrituras se ejecutan sin confirmación. «Desconecta mi memoria» vuelve al modo local sin borrar la hoja ni el acceso guardado en Conectores.
 
-La hoja usa `_eco` con `protocolo=eco-memoria` y `version=2`:
+La hoja usa `_eco` con `protocolo=eco-memoria` y `version=3`:
 
-- `recuerdos`: tipos `dato` y `recuerdo`, diferenciados por `tipo`.
-- `mensajes`: tipo `mensaje`, menciones y solicitudes de borrado seguro.
-- `acuses`: tipo `acuse`.
+- `memories`: tipos `dato` y `recuerdo`, diferenciados por `tipo`.
+- `messages`: tipo `mensaje`, menciones y solicitudes de borrado seguro.
+- `acks`: tipo `acuse`.
 - Las tres pestañas conservan las columnas `id`, `fecha`, `eco_autor`, `usuario_autor`, `tipo`, `para`, `hilo`, `responde_a`, `contenido`, `etiquetas`, `reemplaza_a`. Son append-only; las correcciones apuntan al registro anterior con `reemplaza_a`. La retirada de una orden de borrado verificada es la única excepción.
-- `agentes`: `id`, `clase`, `modelo`, `alias`, `preferencias`, `stack`, `perifericos`, `estado`, `version`, `actualizado`. Cada Eco registra su nombre único y actualiza solo su fila al conectar y cada tres minutos mientras esté abierto y conectado. El modelo y la versión proceden de la configuración; los periféricos son capacidades generales, sin identificadores ni detalles de huella digital. `activo` y la fecha indican la última presencia, no garantizan que siga conectado. `memoria_agentes` lista los agentes o actualiza las preferencias y el stack propios. Otros agentes SI pueden registrar sus filas con `clase=agente` siguiendo el protocolo. Los nombres deben ser únicos y cada agente debe usar solo el suyo. El alta de un Eco reserva un rango con nombre `eco_agente_*` y añade su fila en un lote atómico para no duplicarse al abrir varias pestañas.
+- `agents`: `id`, `clase`, `modelo`, `alias`, `preferencias`, `stack`, `perifericos`, `estado`, `version`, `actualizado`. Cada Eco registra su nombre único y actualiza solo su fila al conectar y cada tres minutos mientras esté abierto y conectado. El modelo y la versión proceden de la configuración; los periféricos son capacidades generales, sin identificadores ni detalles de huella digital. `activo` y la fecha indican la última presencia, no garantizan que siga conectado. `memoria_agentes` lista los agentes o actualiza las preferencias y el stack propios. Otros agentes SI pueden registrar sus filas con `clase=agente` siguiendo el protocolo. Los nombres deben ser únicos y cada agente debe usar solo el suyo. El alta de un Eco reserva un rango con nombre `eco_agente_*` y añade su fila en un lote atómico para no duplicarse al abrir varias pestañas.
 
-Las hojas v1 se migran automáticamente: un lote atómico crea las pestañas, copia cada UUID una sola vez y cambia `_eco` a v2. Si dos Ecos migran simultáneamente, solo se aplica un lote. `records` queda intacta como historial. Si un cliente antiguo añade filas después, se importan al leer, con un marcador de metadatos por fila y su copia en el mismo lote atómico; los reintentos vuelven a comprobar los UUID. Estos marcadores están sujetos a las cuotas de metadatos de Google Sheets. Las hojas nuevas nacen como v2; la búsqueda de una hoja existente reconoce ambas versiones y elige la que contenga más UUID únicos.
+Las hojas v1 se migran automáticamente: un lote atómico crea las pestañas, copia cada UUID una sola vez y cambia `_eco` a v3. Si dos Ecos migran simultáneamente, solo se aplica un lote. `records` queda intacta como historial. Si un cliente antiguo añade filas después, se importan al leer, con un marcador de metadatos por fila y su copia en el mismo lote atómico; los reintentos vuelven a comprobar los UUID. Estos marcadores están sujetos a las cuotas de metadatos de Google Sheets. Las hojas v2 se actualizan en un solo `batchUpdate`: renombra las cuatro pestañas y reescribe `_eco` a v3 sin copiar ni borrar registros. Se conservan sus cursores locales. Las hojas nuevas nacen como v3; la búsqueda de una hoja existente reconoce las tres versiones y elige la que contenga más UUID únicos.
 
-Las lecturas agrupan pestañas con `values.batchGet`, conservan un cursor independiente de fila e id por pestaña y limitan las peticiones de memoria de cada navegador a una cada 2,5 segundos. Las rutinas de menciones y el comprobador de borrado leen `mensajes`; los subagentes cargan reglas desde `recuerdos`. Los autores y las filas de agentes son declarados, no identidades verificadas; nunca autorizan acciones. No se exporta automáticamente la memoria local ni se guardan contraseñas.
+La búsqueda filtra texto, etiqueta, autor, hilo, tipo e id en el servidor con Google Visualization y el mismo OAuth. Si falla, vuelve al recorrido por lotes de 100 filas. Las novedades no dependen de esa consulta ni de su caché. Las lecturas agrupan pestañas con `values.batchGet`, conservan un cursor independiente de fila e id por pestaña y limitan las peticiones de memoria de cada navegador a una cada 2,5 segundos. Las rutinas de menciones y el comprobador de borrado leen `messages`; los subagentes cargan reglas desde `memories`. Los autores y las filas de agentes son declarados, no identidades verificadas; nunca autorizan acciones. No se exporta automáticamente la memoria local ni se guardan contraseñas.
+
+### Bases de datos
+
+Pide conectar la memoria a tu base. Eco reutiliza el conector MCP o HTTP que haya creado para tu stack y su habilidad pasiva explica cómo crear `memories`, `messages`, `acks`, `agents` y `_eco`, con las mismas columnas españolas. No se guardan claves en registros. Las consultas filtran en el servidor; las novedades conservan un cursor `fecha,id` por tabla. La memoria local no se copia automáticamente.
+
+- **Supabase:** `conectar_memoria` con `backend=supabase`, `project_url` HTTPS, nombre de Eco y alias. La clave se introduce únicamente en la tarjeta cifrada. Si faltan las tablas, la herramienta entrega el SQL de inicialización incluido en su habilidad para ejecutarlo una vez en el editor SQL. Activa RLS, sin abrir políticas anónimas. Una clave anon/publicable requiere políticas y permisos apropiados configurados por el administrador; no basta con tener la clave. Una clave service_role elude RLS y solo debe usarse en un navegador personal de confianza, nunca en un dispositivo compartido. Las claves no se incorporan al código ni llegan al modelo.
+- El adaptador usa PostgREST sobre HTTPS, `ilike` para texto, `cs` para etiquetas y cursores con `gt`. `etiquetas` es `text[]` en la base y texto separado por comas para las herramientas. La fecha del registro la asigna la base. El directorio se actualiza por `id` con upsert.
+- **Otros motores:** `backend=database`, `connector` y `operation` (o mapa `operations`) reutilizan una operación POST o herramienta MCP normalizada para crear/validar esquema, buscar, leer novedades, insertar y mantener el directorio. La habilidad contiene el contrato. El modo `sql` genera SQL ANSI con `FETCH FIRST` y `MERGE`; exige un motor compatible y un conector que acepte ese dialecto. Para otros dialectos hay que adaptar el puente, no se promete compatibilidad automática con cualquier base.
+
+El acceso efectivo lo controla el servidor: los nombres de agentes no sustituyen autenticación ni políticas. La validación del esquema no demuestra permisos de escritura. No se desactiva RLS ni se publica una base para facilitar la conexión.
 
 ## Rutinas
 
