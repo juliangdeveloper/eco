@@ -8,6 +8,7 @@ import { deleteSecret } from "./vault.js";
 import { showCredentialCard } from "./credentials.js";
 import { listRoutines, manageRoutine, onRoutinesChange } from "./routines.js";
 import { memoryOverview } from "./passive-skills.js";
+import { ecoName, NAME_MAX, NAME_MIN, setEcoName } from "./identity.js";
 
 const TEXT_SETTINGS = ["openrouterKey", "model"];
 const EMPTY_ROUTINES = "Ask Eco to check something every so often and it will show up here.";
@@ -16,6 +17,7 @@ const EMPTY_CONNECTORS = "Ask Eco to connect to a service and it will show up he
 
 export function bindSettings() {
   bindStepLimits(byId);
+  bindName();
   for (const id of TEXT_SETTINGS) {
     const field = byId(id);
     field.value = setting(id) || (id === "model" ? DEFAULT_MODEL : "");
@@ -25,6 +27,7 @@ export function bindSettings() {
     };
   }
   byId("settingsButton").onclick = async () => {
+    byId("ecoName").value = ecoName();
     await Promise.all([renderConnectors(), renderRoutines(), renderMemories()]);
     renderSecurity();
     renderWipeLimits();
@@ -36,6 +39,23 @@ export function bindSettings() {
   });
   bindSecurity();
   updateNotice();
+}
+
+const NAME_HINT = "Wake word, title and name in shared memory.";
+
+function bindName() {
+  const field = byId("ecoName"), hint = byId("ecoNameHint");
+  field.value = ecoName();
+  field.oninput = () => {
+    const ok = setEcoName(field.value);
+    field.setAttribute("aria-invalid", String(!ok));
+    hint.textContent = ok ? NAME_HINT : "Use " + NAME_MIN + " to " + NAME_MAX + " letters, numbers, spaces or hyphens.";
+  };
+  field.onchange = () => {
+    field.value = ecoName();
+    field.removeAttribute("aria-invalid");
+    hint.textContent = NAME_HINT;
+  };
 }
 
 function button(text, className, onclick) {

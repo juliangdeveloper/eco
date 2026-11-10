@@ -1,4 +1,6 @@
 import { stepLimits } from "./step-limits.js";
+import { ecoName } from "./identity.js";
+import { keepImages, showImages, uploadAttachment } from "./attachments.js";
 import { prepareReload, commitReload } from "./reload.js";
 import { redactSecurityData } from "./security.js";
 import { discoverEnvironment, readEnvironmentStorage } from "./environment.js";
@@ -101,6 +103,13 @@ window.ecoBridge = {
     try { return JSON.stringify(await manageDeviceTool(parsed(raw))); }
     catch (error) { return JSON.stringify({ ok: false, error: String(error.message || error) }); }
   },
+  async keepImages(name, raw, sessionId, jobId) {
+    const anchor = await stateApi?.anchor?.(sessionId).catch(() => "") || "";
+    const { value, saved } = await keepImages(parsed(raw), { session: sessionId, job: jobId, tool: String(name), anchor });
+    if (saved.length && sessionId === stateApi?.sessionId()) showImages(saved);
+    return JSON.stringify(value);
+  },
+  async uploadAttachment(raw, sessionId) { return JSON.stringify(await uploadAttachment(parsed(raw), sessionId)); },
   async deviceCall(name, raw, sessionId, jobId) { return JSON.stringify(await callDeviceTool(String(name), parsed(raw), jobSignal(jobId))); },
   async abortJob(id) { abortJob(id); return true; },
   async resumeJob(id) { resumeJob(id); return true; },
@@ -158,6 +167,7 @@ window.ecoBridge = {
   },
   async state(sessionId, jobId) {
     return JSON.stringify({
+      name: ecoName(),
       memory: setting("memory"),
       user: setting("user"),
       todos: await stateApi?.todos(sessionId, jobId) || []

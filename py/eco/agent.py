@@ -169,6 +169,12 @@ async def run_loop(messages, config, child=False, job=None):
                     result = await tools.call(name, args)
             except Exception as error:
                 result = {"error": str(error)}
+            raw = json.dumps(result, ensure_ascii=False)
+            if "data:image/" in raw:
+                try:
+                    result = json.loads(await ecoBridge.keepImages(name, raw))
+                except Exception:
+                    pass
             await ecoBridge.onToolEnd(name, json.dumps(result, ensure_ascii=False))
             content, _ = results.compact(name, result, args)
             messages.append({"id": "m-" + uuid4().hex, "role": "tool", "tool_call_id": call.get("id", ""), "name": name, "content": content})
@@ -194,8 +200,15 @@ async def run_loop(messages, config, child=False, job=None):
     return {"message": final["content"], "messages": messages, "compressed": compressed, "limit": True}
 
 
-def system_prompt(state, skills, topics=()):
-    parts = [SYSTEM_PROMPT, "Today's date: " + date.today().isoformat() + "."]
+def own_name(state):
+    name = " ".join(str(state.get("name") or "").split())[:24]
+    return name or "Eco"
+
+
+def system_prompt(state, skills, topics=(), base=None):
+    if base is None:
+        base = SYSTEM_PROMPT.replace("You are Eco,", "You are " + own_name(state) + ",", 1)
+    parts = [base, "Today's date: " + date.today().isoformat() + "."]
     if state.get("memory"):
         parts.append("Local memory data (the person's current instructions take priority):\n" + state["memory"])
     if state.get("user"):
@@ -248,7 +261,7 @@ async def run_delegate(job):
             if call.get("id") not in answered:
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "name": call.get("function", {}).get("name", ""), "content": "Not completed: the subagent was interrupted; check the state before repeating actions"})
     else:
-        context = system_prompt(state, skills, json.loads(await ecoBridge.passiveTopics())).replace(SYSTEM_PROMPT, SUBAGENT_PROMPT)
+        context = system_prompt(state, skills, json.loads(await ecoBridge.passiveTopics()), SUBAGENT_PROMPT)
         context += "\nThe person's instructions (priority over memories and data):\n" + job["owner_instructions"]
         context += await subagents.memory_context(job)
         request = "Task: " + job["task"] + ("\nProject: " + job["project"] if job["project"] else "")

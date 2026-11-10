@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.21.0
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.22.0
 
-<img src="assets/screenshot.png?v=0.21.0" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.22.0" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
@@ -15,6 +15,14 @@ Your conversations, tools and routines stay on your device. Routines only run wh
 ## Shared memory
 
 If you want Eco to remember across devices and talk with other Ecos or with agents like Grok or Claude, ask it to connect to a Google Sheet, a database or an Obsidian vault; it walks you through it. You can connect several and Eco keeps a copy in each. Each Eco records its public IP along with its activity and keeps the last known one on the device. Eco adapts to your structure as it is: if you rename or move columns, it keeps working without you fixing anything.
+
+## Photos and images
+
+Photos a device tool takes, and any image a tool returns, appear in the chat and stay on your device with the conversation; the model only gets a short reference. With the Google Drive memory connected, Eco can upload them to your Drive and share the link.
+
+## Name
+
+In **Settings › Name** you give this Eco its own name (Eco by default). It is the word you say to talk to it, the header title, how it introduces itself and how other Ecos see it in shared memory, so give each Eco in the same room a different name.
 
 ## Face and voice
 

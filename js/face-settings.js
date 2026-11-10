@@ -108,12 +108,6 @@ export function renderFaceVoiceSettings() {
   faceGrid.className = "stepLimits";
   faceGrid.append(...FACE_VOICE_SETTINGS.filter((entry) => entry.group === "face").map((entry) => numberField(entry, values)));
   faceFields.replaceChildren(faceGrid, resetButton("face"));
-  const wake = document.createElement("input");
-  wake.id = "fv-wakeWord";
-  wake.maxLength = 40;
-  wake.autocomplete = "off";
-  wake.value = values.wakeWord;
-  wake.oninput = () => setFaceVoiceSetting("wakeWord", wake.value.trim());
   const voices = systemVoices();
   const voiceChooser = select("fv-voiceName", [["", "Automatic (reply language)"], ...voices.map((voice) => [voice.name, voice.name + " · " + voice.lang])], values.voiceName, (value) => setFaceVoiceSetting("voiceName", value));
   const transcriber = select("fv-transcriber", Object.keys(TRANSCRIBERS).map((key) => [key, TRANSCRIBER_LABELS[key]]), values.transcriber, (value) => setFaceVoiceSetting("transcriber", value));
@@ -127,7 +121,7 @@ export function renderFaceVoiceSettings() {
   neuralLabel.append(neural, "Local neural voice (downloads about 75 MB the first time)");
   const top = document.createElement("div");
   top.className = "stepLimits";
-  top.append(field("Name to call Eco", wake), field("Transcriber", transcriber));
+  top.append(field("Transcriber", transcriber));
   const grid = document.createElement("div");
   grid.className = "stepLimits";
   grid.append(...FACE_VOICE_SETTINGS.filter((entry) => entry.group === "voice").map((entry) => numberField(entry, values)));

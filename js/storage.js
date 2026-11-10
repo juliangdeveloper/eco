@@ -2,8 +2,8 @@ import { sessionSnapshot } from "./session-data.js";
 import { isWiping } from "./security.js";
 import { DATABASE_NAME, STORAGE_PREFIX } from "./config.js";
 
-const DATABASE_VERSION = 6;
-const STORES = ["sessions", "skills", "connectors", "secrets", "keys", "routines", "deviceTools", "state", "facePacks"];
+const DATABASE_VERSION = 7;
+const STORES = ["sessions", "skills", "connectors", "secrets", "keys", "routines", "deviceTools", "state", "facePacks", "attachments"];
 
 const key = (name) => STORAGE_PREFIX + name;
 
@@ -168,6 +168,13 @@ export function all(name) {
   return transact(name, "readonly", (table, done) => {
     const request = table.getAll();
     request.onsuccess = () => done(request.result);
+  });
+}
+
+export function get(name, id) {
+  return transact(name, "readonly", (table, done) => {
+    const request = table.get(id);
+    request.onsuccess = () => done(request.result || null);
   });
 }
 

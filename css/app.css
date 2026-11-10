@@ -100,10 +100,26 @@ a {
 }
 
 .brand {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
+
+.brandName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headerActions { flex: none; }
+
+.fieldHint { display: block; margin: -4px 0 8px; }
+#ecoName[aria-invalid="true"] { border-color: var(--red); }
 
 .brand small,
 small {
@@ -327,6 +343,31 @@ small {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.toolImage {
+  align-self: flex-start;
+  width: min(100%, 320px);
+  margin: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+  overflow: hidden;
+}
+
+.toolImage img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 45vh;
+  object-fit: contain;
+  background: var(--background);
+}
+
+.toolImage figcaption {
+  padding: 6px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .tool {

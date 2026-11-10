@@ -1,4 +1,6 @@
 import { reloadPending } from "./reload.js";
+import { ecoName } from "./identity.js";
+import { renderSessionImages } from "./attachments.js";
 import { interceptSecurityCommand, isWiping } from "./security.js";
 import { appendMessage, byId, renderEmpty, renderMessages, renderReply, renderTodos, updateToolCard } from "./ui.js";
 import { renderSubagents } from "./subagents.js";
@@ -38,8 +40,10 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
 
   function show(session) {
     if (session !== getSession()) return;
-    if (session.messages.length) renderMessages(session.messages);
-    else renderEmpty(send);
+    if (session.messages.length) {
+      renderMessages(session.messages);
+      renderSessionImages(session.id, () => session === getSession());
+    } else renderEmpty(send);
     renderReply(session.replyDraft);
     renderSubagents();
   }
@@ -180,7 +184,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   async function replyTo(id) {
     const session = getSession();
     const message = session.messages.find((item) => item.id === id);
-    session.replyDraft = message ? { id, text: message.content, subagentId: message.subagentId || "", label: message.uiLabel || (message.role === "user" ? "You" : "Eco") } : null;
+    session.replyDraft = message ? { id, text: message.content, subagentId: message.subagentId || "", label: message.uiLabel || (message.role === "user" ? "You" : ecoName()) } : null;
     renderReply(session.replyDraft);
     await persist(session);
     byId("prompt").focus();

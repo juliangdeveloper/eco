@@ -274,7 +274,7 @@ export class DriveMemory extends MemoryBackend {
     if (logical === "agents") {
       if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id || "")) throw new Error("Invalid agent name.");
       for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("You can only update your own preferences and stack.");
-      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString(), ip: identity.ip || String(previous.ip || "") };
+      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString(), ip: identity.ip || String(previous.ip || ""), name: identity.name || String(previous.name || "") };
     } else record = routineRecord(this.config, changes, previous);
     if (matches.length) {
       const requests = Object.entries(table.fields).filter(([key]) => record[key] !== undefined).map(([key, columnIndex]) => ({ updateCells: { start: { sheetId: table.sheetId, rowIndex: matches[0].row - 1, columnIndex }, rows: rows([[record[key]]]), fields: "userEnteredValue" } }));

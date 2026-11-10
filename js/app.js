@@ -1,5 +1,7 @@
 import { setupReload, resumeMarker, clearResumeMarker, prepareReload, commitReload } from "./reload.js";
-import { startSecurityMemory, stopSecurityMemory } from "./passive-skills.js";
+import { refreshMemoryPresence, startSecurityMemory, stopSecurityMemory } from "./passive-skills.js";
+import { ecoName, onEcoName } from "./identity.js";
+import { pruneAttachments } from "./attachments.js";
 import { interceptSecurityCommand, isSecurityCommand, isWiping, safeDraft, setSecurityShutdown, startLocalActivityWatch } from "./security.js";
 import { stopDeviceTools } from "./device-runtime.js";
 import { abortNetwork } from "./network.js";
@@ -27,6 +29,7 @@ import { all, closeDatabase, flushWrites, json, retryFailedWrites } from "./stor
 import { autoExpand, bindReplyGestures, byId, updateToolCard } from "./ui.js";
 
 const DEFAULT_TITLE = "New conversation";
+const NAME_SYNC_MS = 1500;
 const LOAD_ERROR = "The agent could not be prepared. Reload the page.";
 
 let pyodide;
@@ -201,6 +204,19 @@ async function main() {
   });
   if (await startLocalActivityWatch()) return;
   byId("version").textContent = APP_VERSION;
+  const showName = () => {
+    const name = ecoName();
+    byId("brandName").textContent = name;
+    document.title = name;
+    byId("faceSprite").setAttribute("aria-label", name + "'s face");
+  };
+  showName();
+  let renamed = null;
+  onEcoName(() => {
+    showName();
+    clearTimeout(renamed);
+    renamed = setTimeout(() => refreshMemoryPresence(true).catch(() => {}), NAME_SYNC_MS);
+  });
   metaDeclararProyecto(APP_ID, APP_VERSION);
   bindSettings();
   bindFaceVoiceSettings();
@@ -225,6 +241,7 @@ async function main() {
   chat.setSending(true);
   const reloadResume = await resumeMarker();
   const restored = await recoverSessions(reloadResume);
+  all("sessions").then((rows) => pruneAttachments(rows.map((row) => row.id))).catch(() => {});
   for (const saved of restored) knownSessions.set(saved.id, saved);
   const last = restored.find((row) => row.id === json("lastSession")) || [...restored].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   replaceSession(last || session);
@@ -241,6 +258,10 @@ async function main() {
     refreshAgent: () => agentPanel.render(),
     refreshConnectors: () => renderConnectors(),
     sessionId: () => currentSession().id,
+    async anchor(sessionId) {
+      const owner = await resolveSession(sessionId);
+      return owner.messages.filter((message) => !message.event && message.content && ["user", "assistant"].includes(message.role)).at(-1)?.id || "";
+    },
     turnUpdate: (sessionId, value) => chat.updateTurn(sessionId, value),
     async setTodos(todos, sessionId, jobId) {
       const owner = await resolveSession(sessionId);

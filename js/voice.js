@@ -1,6 +1,7 @@
 import { emitActivity, faceVoiceSettings, TRANSCRIBERS } from "./face-config.js";
 import { isSpeaking, onSpeakingChange, stopSpeaking, unlockSpeech } from "./speech.js";
 import { json } from "./storage.js";
+import { ecoName } from "./identity.js";
 import { byId } from "./ui.js";
 
 const ORT_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js";
@@ -54,7 +55,7 @@ function distance(a, b) {
 
 export function wakeNames() {
   const names = new Set();
-  const wake = normalize(faceVoiceSettings().wakeWord);
+  const wake = normalize(ecoName());
   if (wake) names.add(wake);
   const memory = json("persistentMemory");
   if (typeof memory?.eco === "string" && memory.eco && !/^eco-[0-9a-f]{6}$/.test(memory.eco)) names.add(normalize(memory.eco.replace(/-/g, " ")));
@@ -144,7 +145,7 @@ export function createVoice({ sendVoice, faceActive }) {
   function updateButton() {
     button.setAttribute("aria-pressed", String(enabled));
     button.dataset.phase = enabled ? phase : "off";
-    button.setAttribute("aria-label", !enabled ? "Start listening" : phase === "turn" ? "Stop listening" : "Talk to Eco");
+    button.setAttribute("aria-label", !enabled ? "Start listening" : phase === "turn" ? "Stop listening" : "Talk to " + ecoName());
     emitActivity("attentive", { on: enabled && phase !== "turn" });
     emitActivity("listening", { on: enabled && phase === "turn" });
   }

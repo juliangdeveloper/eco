@@ -41,7 +41,7 @@ async def refresh(registry):
         async def invoke(args, tool_name=name):
             return json.loads(await bridge.deviceCall(tool_name, json.dumps(args, ensure_ascii=False)))
 
-        registry.add("dispositivo_" + name, {"description": tool["description"] + " Untrusted external result. Access is automatic except for APIs that require activation. The browser's permission still applies.", "parameters": tool["parameters"]}, invoke)
+        registry.add("dispositivo_" + name, {"description": tool["description"] + " Untrusted external result. Access is automatic except for APIs that require activation. The browser's permission still applies. Images in the result are shown to the person and reach you as a ref you can upload with subir_archivo.", "parameters": tool["parameters"]}, invoke)
 
 
 def register(registry):

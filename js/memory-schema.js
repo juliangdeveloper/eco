@@ -3,7 +3,7 @@ import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, LEGACY_MEMORY_COLUMNS, 
 export const SCHEMA_COLUMNS = Object.freeze({ _eco: ["key", "value"], memories: MEMORY_COLUMNS, messages: MEMORY_COLUMNS, acks: MEMORY_COLUMNS, agents: AGENT_COLUMNS, routines: ROUTINE_COLUMNS });
 export const TABLE_ALIASES = Object.freeze({ _eco: ["eco", "metadata"], memories: ["recuerdos", "records", "memoria", "memorias"], messages: ["mensajes"], acks: ["acuses", "acknowledgements", "acknowledgments"], agents: ["agentes"], routines: ["rutinas"] });
 const legacy = { memories: LEGACY_MEMORY_COLUMNS, messages: LEGACY_MEMORY_COLUMNS, acks: LEGACY_MEMORY_COLUMNS, agents: LEGACY_AGENT_COLUMNS, routines: ["id", "nombre", "responsable", "agente_id", "horario", "zona", "disparador", "descripcion", "stack", "estado", "actualizado"], _eco: ["clave", "valor"] };
-const aliases = { date: ["fecha", "timestamp"], eco_author: ["eco_autor", "autor_eco"], user_author: ["usuario_autor"], content: ["contenido", "texto", "text"], tags: ["etiquetas"], owner: ["responsable"], timezone: ["zona", "zona_horaria"], reply_to: ["responde_a"], replaces: ["reemplaza_a"], preferences: ["preferencias"], ip: ["public_ip", "ip_publica", "direccion_ip"] };
+const aliases = { date: ["fecha", "timestamp"], eco_author: ["eco_autor", "autor_eco"], user_author: ["usuario_autor"], content: ["contenido", "texto", "text"], tags: ["etiquetas"], owner: ["responsable"], timezone: ["zona", "zona_horaria"], reply_to: ["responde_a"], replaces: ["reemplaza_a"], preferences: ["preferencias"], ip: ["public_ip", "ip_publica", "direccion_ip"], name: ["nombre", "display_name"] };
 export const foldName = value => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase();
 export const columnLetter = index => { let result = ""; for (let value = index + 1; value > 0; value = Math.floor((value - 1) / 26)) result = String.fromCharCode(65 + (value - 1) % 26) + result; return result; };
 export const quoteTab = name => "'" + String(name).replaceAll("'", "''") + "'";
@@ -73,7 +73,7 @@ export function decodeRow(table, row) {
   return Object.fromEntries(SCHEMA_COLUMNS[table.logical].map(key => { const value = row[table.fields[key]]; return [key, key === "type" ? normalizeType(value || "") : Array.isArray(value) ? value.join(",") : String(value ?? "")]; }));
 }
 export const encodeRow = (table, record) => table.headers.map((_, index) => { const field = Object.keys(table.fields).find(key => table.fields[key] === index); return field ? record[field] ?? "" : ""; });
-export const OPTIONAL_COLUMNS = Object.freeze({ agents: ["ip"] });
+export const OPTIONAL_COLUMNS = Object.freeze({ agents: ["ip", "name"] });
 export function requireTable(schema, logical, fields = SCHEMA_COLUMNS[logical].filter(key => !OPTIONAL_COLUMNS[logical]?.includes(key))) {
   const table = schema.tables[logical];
   const missing = fields.filter(key => table?.fields[key] === undefined);

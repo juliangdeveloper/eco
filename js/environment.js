@@ -62,7 +62,7 @@ export async function discoverEnvironment() {
   };
 }
 
-const safeNames = new Set(["memory", "user", "model", "stats", "lastSession", "persistentMemory", "deviceId", "publicIp"]);
+const safeNames = new Set(["memory", "user", "model", "stats", "lastSession", "persistentMemory", "deviceId", "publicIp", "ecoName"]);
 const secretNames = /key|token|secret|credential|password|authorization|cookie|vault|client.?id/i;
 
 function redact(value, name = "") {

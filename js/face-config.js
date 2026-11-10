@@ -30,7 +30,7 @@ export const FACE_VOICE_SETTINGS = Object.freeze([
   { group: "voice", name: "speechPitch", label: "Speech pitch", default: 1, min: 0.5, max: 2, step: 0.05 }
 ]);
 
-export const VOICE_TEXT_SETTINGS = Object.freeze({ wakeWord: "Eco", voiceName: "", transcriber: "whisper-tiny", neuralVoice: false });
+export const VOICE_TEXT_SETTINGS = Object.freeze({ voiceName: "", transcriber: "whisper-tiny", neuralVoice: false });
 export const TRANSCRIBERS = Object.freeze({ "whisper-tiny": "onnx-community/whisper-tiny", "whisper-base": "onnx-community/whisper-base" });
 
 const definitions = new Map(FACE_VOICE_SETTINGS.map((entry) => [entry.name, entry]));
@@ -44,7 +44,6 @@ export function faceVoiceSettings() {
   if (!TRANSCRIBERS[result.transcriber]) result.transcriber = VOICE_TEXT_SETTINGS.transcriber;
   if (result.idleMaxSeconds < result.idleMinSeconds) result.idleMaxSeconds = result.idleMinSeconds;
   if (result.asleepMinutes <= result.sleepyMinutes) result.asleepMinutes = result.sleepyMinutes + 0.5;
-  result.wakeWord = String(result.wakeWord).slice(0, 40);
   return result;
 }
 

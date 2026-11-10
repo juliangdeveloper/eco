@@ -1,6 +1,7 @@
 import { featureDefinitions, featureValue } from "./environment.js";
 import { isWiping, memoryConfigured, reportMemoryConnection, securityState, setMemoryHealth } from "./security.js";
 import { APP_VERSION, DEFAULT_MODEL } from "./config.js";
+import { ecoName, nameHandle } from "./identity.js";
 import { json, setting } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
@@ -210,10 +211,12 @@ export async function memoryMentions(cursor) {
   const identity = set.primary.identity;
   let position = cursor?.identity === identity ? cursor.position : null;
   const mention = "@" + config.eco;
+  const handle = nameHandle();
+  const named = handle && handle !== "eco" && handle !== config.eco ? new RegExp("@" + handle + "(?![a-z0-9-])", "i") : null;
   const records = [];
   for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
     const result = await set.readNew(["messages", "acks"], { load: () => position, save: value => { position = value; } }, "mentionCursor");
-    records.push(...result.records.filter((record) => ["message", "ack"].includes(record.type) && record.eco_author !== config.eco && (record.to === config.eco || record.to === BROADCAST || record.content.includes(mention))));
+    records.push(...result.records.filter((record) => ["message", "ack"].includes(record.type) && record.eco_author !== config.eco && (record.to === config.eco || record.to === BROADCAST || record.content.includes(mention) || (named && (record.to === handle || named.test(record.content))))));
     if (!result.hay_mas) break;
   }
   return { records, cursor: { identity, position } };
@@ -281,7 +284,7 @@ export async function configureMemory(input) {
   const form = element("form");
   form.append(element("strong", "Connect memory to Google Drive"), element("small", "Paste a compatible sheet or leave the field empty to use your existing Eco · Memoria or create one."));
   const inputs = {};
-  for (const [name, label, initial] of [["eco", "Name of this Eco", previous.eco || "eco-" + crypto.randomUUID().slice(0, 6)], ["usuario", "Your alias", previous.usuario || "usuario"], ["sheet", "Spreadsheet (URL or ID, optional)", previous.sheet || ""]]) {
+  for (const [name, label, initial] of [["eco", "Memory ID of this Eco", previous.eco || "eco-" + crypto.randomUUID().slice(0, 6)], ["usuario", "Your alias", previous.usuario || "usuario"], ["sheet", "Spreadsheet (URL or ID, optional)", previous.sheet || ""]]) {
     const row = element("label", label);
     const input = element("input");
     input.name = name;
@@ -322,7 +325,7 @@ export async function configureMemory(input) {
       let destination;
       try {
         config = { backend: "google-drive", eco: inputs.eco.value.trim(), usuario: inputs.usuario.value.trim(), sheet: sheetId(inputs.sheet.value) };
-        if (!NAME_PATTERN.test(config.eco) || !NAME_PATTERN.test(config.usuario)) throw new Error("Use 1 to 40 lowercase letters, numbers or hyphens for the name and the alias.");
+        if (!NAME_PATTERN.test(config.eco) || !NAME_PATTERN.test(config.usuario)) throw new Error("Use 1 to 40 lowercase letters, numbers or hyphens for the ID and the alias.");
         if (pendingConfig?.sheet === config.sheet && pendingConfig.initialize) config.initialize = true;
         let origin = "";
         if (!config.sheet) {
@@ -477,6 +480,7 @@ export async function devicePublicIp() {
 
 function agentIdentity() {
   return {
+    name: ecoName(),
     model: setting("model") || DEFAULT_MODEL,
     version: APP_VERSION,
     peripherals: featureDefinitions().filter(entry => CAPABILITY_LABELS[entry.name] && featureValue(entry.path)).map(entry => CAPABILITY_LABELS[entry.name]).join(", ") || "No exposed peripherals"

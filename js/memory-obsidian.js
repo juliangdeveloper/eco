@@ -277,7 +277,7 @@ export class ObsidianMemory extends MemoryBackend {
     if (logical === "agents") {
       if (!NAME.test(id || "")) throw new Error("Invalid agent name.");
       for (const [key, value] of Object.entries(changes)) if (!["preferences", "stack"].includes(key) || typeof value !== "string" || value.length > 2000) throw new Error("You can only update your own preferences and stack.");
-      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString(), ip: identity.ip || String(previous.ip || "") };
+      record = { ...previous, ...changes, id, class: "eco", model: identity.model || "", alias: this.config.usuario || "", peripherals: identity.peripherals || "", status: "activo", version: identity.version || "", updated: new Date().toISOString(), ip: identity.ip || String(previous.ip || ""), name: identity.name || String(previous.name || "") };
     } else record = routineRecord(this.config, changes, previous);
     const path = matches[0]?.path || this.path(table.name, encodeURIComponent(id) + ".md");
     this.known?.add(this.path(table.name));
