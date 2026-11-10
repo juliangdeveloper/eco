@@ -19,7 +19,8 @@ export const TOOL_LABELS = {
   request_sign_in: "Sign in",
   modo_cara: "Face mode",
   voz_estado: "Voice status",
-  hablar: "Speak"
+  hablar: "Speak",
+  dreaming: "Dreaming"
 };
 
 const CANCELLED_ERROR = "Action cancelled";

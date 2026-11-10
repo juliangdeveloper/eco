@@ -1,4 +1,4 @@
-import { all, json, store } from "./storage.js";
+import { all, json, remove, store } from "./storage.js";
 import { sessionSnapshot } from "./session-data.js";
 
 const JOURNAL_PREFIX = "sessionJournal:";
@@ -6,9 +6,9 @@ const queues = new Map();
 
 const latest = new Map();
 
-export function saveSession(session) {
+export function saveSession(session, { touch = true } = {}) {
   session.revision = (session.revision || 0) + 1;
-  session.updatedAt = Date.now();
+  if (touch || !session.updatedAt) session.updatedAt = Date.now();
   const snapshot = sessionSnapshot(session);
   session.results = snapshot.results;
   for (const job of session.subagents || []) job.results = snapshot.subagents.find(row => row.id === job.id)?.results || {};
@@ -26,8 +26,17 @@ export function saveSession(session) {
   return pending;
 }
 
+export async function deleteStoredSession(id) {
+  latest.delete(id);
+  await queues.get(id)?.catch(() => {});
+  latest.delete(id);
+  await remove("sessions", id);
+  localStorage.removeItem("eco." + JOURNAL_PREFIX + id);
+  if ((await all("sessions")).some((row) => row.id === id)) throw new Error("The conversation could not be deleted.");
+}
+
 export function flushSessions(sessions) {
-  return Promise.all([...sessions].map(saveSession));
+  return Promise.all([...sessions].map((session) => saveSession(session, { touch: false })));
 }
 
 export async function recoverSessions(resume = null) {

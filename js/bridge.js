@@ -30,6 +30,11 @@ let faceHandler = async () => ({ ok: false, error: "Face mode is not ready" });
 let voiceHandler = () => ({ error: "Voice is not ready" });
 let speakHandler = () => ({ ok: false, error: "Voice is not ready" });
 let speechSupport = () => false;
+let dreamingHandler = async () => ({ ok: false, error: "Dreaming is not ready" });
+
+export function setDreamingHandler(handler) {
+  dreamingHandler = handler;
+}
 
 export function setVoiceHandler(handler) {
   voiceHandler = handler;
@@ -306,6 +311,10 @@ window.ecoBridge = {
   async voiceState() {
     try { return JSON.stringify(voiceHandler()); }
     catch (error) { return JSON.stringify({ error: String(error?.message || error) }); }
+  },
+  async dreaming(argsJson) {
+    try { return JSON.stringify(await dreamingHandler(JSON.parse(String(argsJson || "{}")))); }
+    catch (error) { return JSON.stringify({ ok: false, error: String(error?.message || error) }); }
   },
   async speechSupported() {
     try { return JSON.stringify({ supported: Boolean(speechSupport()) }); }

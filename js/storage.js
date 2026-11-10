@@ -83,7 +83,7 @@ async function transact(name, mode, operation) {
     transactions.add(transaction);
     let value;
     let error;
-    const timer = setTimeout(() => { error = new DOMException("Storage is not responding. Don't close Eco until it saves.", "TimeoutError"); transaction.abort(); }, TRANSACTION_TIMEOUT_MS);
+    const timer = setTimeout(() => { error = new DOMException("Storage is not responding. Don't close Eco until it saves.", "TimeoutError"); try { transaction.abort(); } catch { error = null; } }, TRANSACTION_TIMEOUT_MS);
     transaction.oncomplete = () => { clearTimeout(timer); transactions.delete(transaction); resolve(value); };
     transaction.onabort = transaction.onerror = (event) => { clearTimeout(timer); transactions.delete(transaction); reject(error || event.target?.error || transaction.error || new Error("Could not save to local storage.")); };
     try { operation(transaction.objectStore(name), (result) => { value = result; }); }

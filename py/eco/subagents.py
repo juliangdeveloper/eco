@@ -8,6 +8,7 @@ TASK_MAX_CHARS = 4000
 INSTRUCTION_MAX_CHARS = 12000
 MAX_ACTIVE_JOBS = 6
 TERMINAL_STATES = ("completado", "error", "detenido", "interrumpido")
+LIGHT_ERROR = "This subagent finished a while ago and its details were cleared; only its summary remains. Create a new subagent with the task and that summary if more work is needed."
 jobs = {}
 tasks = {}
 
@@ -75,6 +76,11 @@ async def control(args):
         saved = json.loads(await bridge.jobSnapshot(key))
         if not saved or saved.get("session") != owner:
             return {"error": "Subagent not found in this conversation"}
+        action = args.get("action", "consultar")
+        if saved.get("light"):
+            if action in ("consultar", "detener"):
+                return {"subagente": public(saved)}
+            return {"error": LIGHT_ERROR, "subagente": public(saved)}
         job = {**saved, "inbox": saved.get("inbox", []), "owner_instructions": scope().get("owner_instructions") or saved.get("owner_instructions", "")}
         jobs[key] = job
     action = args.get("action", "consultar")
@@ -137,6 +143,16 @@ async def job_control(raw):
         return json.dumps(await control(args), ensure_ascii=False)
     finally:
         execution.reset(token)
+
+
+async def forget_jobs(raw):
+    removed = []
+    for key in json.loads(raw):
+        job = jobs.get(key)
+        if job and job["status"] in TERMINAL_STATES and not tasks.get(key):
+            jobs.pop(key, None)
+            removed.append(key)
+    return json.dumps({"removed": removed})
 
 
 def register(registry):

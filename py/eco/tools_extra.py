@@ -55,6 +55,14 @@ async def refresh_speech(registry):
         registry.items.pop("hablar", None)
 
 
+DREAMING_DESCRIPTION = "Dreaming consolidates memory. It runs by itself when Eco is idle or when there is a lot to summarize; use action run when the person asks to dream now and status to read the settings and the last result. It programmatically selects shared-memory threads (messages and their acks) and local conversations without recent activity, writes one summary per thread or conversation, verifies it and only then deletes the originals; if anything fails nothing is deleted. The shared part needs a connected Google Sheets memory; otherwise local conversation summaries go to local memory."
+
+
+async def dreaming(args):
+    action = "run" if args.get("action") == "run" else "status"
+    return json.loads(await ecoBridge.dreaming(json.dumps({"action": action})))
+
+
 async def face_mode(args):
     action = str(args.get("action", "estado"))
     return json.loads(await ecoBridge.faceMode(action if action in ("on", "off") else "estado"))

@@ -1,4 +1,4 @@
-import { TYPE_TABS } from "./memory-protocol.js";
+import { TYPE_TABS, isDreamingRecord } from "./memory-protocol.js";
 import { isSecurityCommand, isWiping } from "./security.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -78,7 +78,7 @@ export class MemorySet {
     if (!Object.hasOwn(TYPE_TABS, args.type) || !String(args.content || "").trim() || String(args.content).length > 45000) throw new Error("Invalid type or content (up to 45000 characters).");
     if (!UUID.test(args.id)) throw new Error("The id must be a UUID.");
     if (args.type === "ack" && !UUID.test(args.reply_to || "")) throw new Error("The ack needs reply_to with the original UUID.");
-    if (args.type === "memory" && args.replaces) throw new Error("memory records are never edited or deleted; add a new one.");
+    if (args.type === "memory" && args.replaces && !isDreamingRecord(args)) throw new Error("memory records are never edited or deleted; add a new one.");
   }
   enqueue(member, entry) {
     let list = this.queue.load(member.key);

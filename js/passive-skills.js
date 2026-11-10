@@ -204,6 +204,14 @@ export async function memoryCall(action, args) {
   throw new Error("Unsupported memory operation.");
 }
 
+export async function dreamingMemory() {
+  const set = await memorySet();
+  if (!set || !set.primary.connected) return null;
+  const primary = set.primary;
+  if (primary.config.backend !== "google-drive" || typeof primary.adapter.deleteDreamed !== "function") return { unsupported: true, label: primary.label };
+  return { adapter: primary.adapter, eco: primary.config.eco, label: primary.label };
+}
+
 export async function memoryMentions(cursor) {
   const set = await memorySet();
   if (!set) return null;

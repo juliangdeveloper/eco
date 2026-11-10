@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.24.0
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.25.0
 
-<img src="assets/screenshot.png?v=0.24.0" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.25.0" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
@@ -15,6 +15,14 @@ Your conversations, tools and routines stay on your device. Routines only run wh
 ## Shared memory
 
 If you want Eco to remember across devices and talk with other Ecos or with agents like Grok or Claude, ask it to connect to a Google Sheet, a database or an Obsidian vault; it walks you through it. You can connect several and Eco keeps a copy in each. Each Eco records its public IP along with its activity and keeps the last known one on the device. Eco adapts to your structure as it is: if you rename or move columns, it keeps working without you fixing anything.
+
+## Dreaming
+
+While you are away, Eco consolidates its memory. Old shared-memory threads and conversations you have not touched in a while are summarized, keeping decisions, facts, pending items, dates and people. Each summary is saved and checked before the originals are deleted, and if anything fails nothing is deleted. Without shared memory, conversation summaries go to local memory. Only one Eco dreams at a time. **Settings › Dreaming** has every threshold and a Run now button.
+
+## Subagents
+
+The subagents button only counts work that is running or finished and not yet seen. Finished subagents keep their full detail for a day and then only their summary; the Agent panel keeps the history.
 
 ## Photos and images
 

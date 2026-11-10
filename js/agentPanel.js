@@ -1,5 +1,6 @@
 import { all, remove, setting, store } from "./storage.js";
 import { byId, element } from "./ui.js";
+import { openSubagent, subagentHistory } from "./subagents.js";
 
 const TODO_STATUS_LABELS = {
   pending: "Pending",
@@ -23,6 +24,9 @@ export function createAgentPanel({ getTodos }) {
     if (activeTab === "skills") {
       await renderSkills(content);
     }
+    if (activeTab === "subagents") {
+      renderSubagentHistory(content);
+    }
   }
 
   function renderMemory(content) {
@@ -44,6 +48,21 @@ export function createAgentPanel({ getTodos }) {
     }
     for (const todo of todos) {
       content.append(element("div", (TODO_STATUS_LABELS[todo.status] || todo.status) + " · " + todo.content, "todo"));
+    }
+  }
+
+  function renderSubagentHistory(content) {
+    const rows = subagentHistory();
+    if (!rows.length) {
+      content.append(element("p", "No subagents in this conversation."));
+      return;
+    }
+    for (const row of [...rows].reverse()) {
+      const button = element("button", "", "subagentRow");
+      button.type = "button";
+      button.append(element("strong", row.task), element("small", row.status + (row.project ? " · " + row.project : "") + (row.unseen ? " · new" : "") + (row.light ? " · summary only" : "")));
+      button.onclick = () => openSubagent(row.index);
+      content.append(button);
     }
   }
 

@@ -1,5 +1,5 @@
 import { inspectSecurityRecord, isSecurityCommand, isWiping, securityState } from "./security.js";
-import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, matchesRecord, MemoryBackend, replacementCheck, protocolUpgrades } from "./memory-protocol.js";
+import { MEMORY_COLUMNS, AGENT_COLUMNS, ROUTINE_COLUMNS, MEMORY_TABLES, routineRecord, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL, PROTOCOL_VERSION, matchesRecord, MemoryBackend, replacementCheck, protocolUpgrades, isDreamingRecord, DREAMING_LEASE_KEY } from "./memory-protocol.js";
 import { SCHEMA_COLUMNS, foldName, columnLetter, quoteTab, parseMap, mergeMap, resolveSchema, snapshotMap, decodeRow, encodeRow, requireTable } from "./memory-schema.js";
 export { MEMORY_COLUMNS, AGENT_COLUMNS, TYPE_TABS, RECORD_TABS, MEMORY_PROTOCOL } from "./memory-protocol.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -148,9 +148,10 @@ export class DriveMemory extends MemoryBackend {
     return this.structure;
   }
   ensure() {
-    if (!this.preparing) this.preparing = this.prepare().finally(() => { this.preparing = null; });
+    if (!this.preparing) this.preparing = this.prepare().then((value) => { this.preparedAt = Date.now(); return value; }).finally(() => { this.preparing = null; });
     return this.preparing;
   }
+  ready(maxAge = 60000) { return this.structure && Date.now() - (this.preparedAt || 0) < maxAge ? Promise.resolve() : this.ensure(); }
   async schema(action = "ver", changes = {}) {
     if (!["ver", "ajustar"].includes(action)) throw new Error("Invalid schema action.");
     if (action === "ajustar") { const proposed = mergeMap(this.mapping, changes); await this.inspect(proposed); this.structure = await this.additive(this.structure); await this.persistMap(); }
@@ -244,7 +245,7 @@ export class DriveMemory extends MemoryBackend {
     if (!UUID.test(id)) throw new Error("The id must be a UUID.");
     const existing = (await this.search({ id }, RECORD_TABS, true)).records[0];
     if (existing) { if (existing.eco_author !== this.config.eco || ["content", "type", "to", "thread", "reply_to", "tags", "replaces"].some(key => String(existing[key] || "") !== String(args[key] || ""))) throw new Error("The UUID already belongs to another record."); if (existing.type === "fact" && args.replaces) await this.removeFact(args.replaces).catch(() => false); return { ok: true, id, duplicado: true }; }
-    const replacing = replacementCheck({ ...args, id }, args.replaces ? (await this.search({ id: args.replaces }, RECORD_TABS, true)).records[0] : null, !args.copia);
+    const replacing = replacementCheck({ ...args, id }, args.replaces && !isDreamingRecord(args) ? (await this.search({ id: args.replaces }, RECORD_TABS, true)).records[0] : null, !args.copia);
     const table = requireTable(this.structure, TYPE_TABS[args.type]);
     const { copia, ...fields } = args;
     const record = { ...fields, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
@@ -281,6 +282,55 @@ export class DriveMemory extends MemoryBackend {
       await this.batch(requests);
     } else await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, record)] });
     return { ok: true, [logical === "agents" ? "agente" : "rutina"]: record };
+  }
+  async dreamingRecords() {
+    await this.ready();
+    requireTable(this.structure, "messages");
+    requireTable(this.structure, "acks");
+    const [messages, acks] = await this.readAll(["messages", "acks"]);
+    return { messages: messages.map(item => item.record), acks: acks.map(item => item.record) };
+  }
+  async findRecord(id) {
+    await this.ready();
+    const [memories] = await this.readAll(["memories"]);
+    const matches = memories.filter(item => item.record.id === id);
+    return matches.length === 1 ? matches[0].record : null;
+  }
+  async readLease() {
+    await this.ready();
+    const table = this.structure.tables._eco;
+    if (!table.name || table.fields.key === undefined || table.fields.value === undefined) throw new Error("The shared memory has no _eco table.");
+    const rows = (await this.values(this.range(table))).map(row => decodeRow(table, row));
+    const index = rows.findIndex(row => row.key === DREAMING_LEASE_KEY);
+    let value = null;
+    if (index >= 0) { try { value = JSON.parse(rows[index].value); } catch { value = null; } }
+    return { table, index, value };
+  }
+  async writeLease(value) {
+    const { table, index } = await this.readLease();
+    const text = JSON.stringify(value);
+    if (index >= 0) await this.call("PUT", this.path(quoteTab(table.name) + "!" + columnLetter(table.fields.value) + (index + 2)), { valueInputOption: "RAW" }, { values: [[text]] });
+    else await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, { key: DREAMING_LEASE_KEY, value: text })] });
+    return (await this.readLease()).value;
+  }
+  async deleteDreamed(ids) {
+    await this.ensure();
+    const wanted = new Set(ids);
+    const tabs = ["messages", "acks"], batches = await this.readAll(tabs), requests = [], found = new Set();
+    for (const [index, tab] of tabs.entries()) {
+      const table = requireTable(this.structure, tab);
+      const rowsToDelete = [];
+      for (const { record, row } of batches[index]) {
+        if (!wanted.has(record.id)) continue;
+        if (found.has(record.id)) throw new Error("A summarized id appears more than once; nothing was deleted.");
+        found.add(record.id);
+        rowsToDelete.push(row);
+      }
+      for (const row of rowsToDelete.sort((a, b) => b - a)) requests.push({ deleteDimension: { range: { sheetId: table.sheetId, dimension: "ROWS", startIndex: row - 1, endIndex: row } } });
+    }
+    if (found.size !== wanted.size) throw new Error("Some summarized rows changed; nothing was deleted.");
+    await this.batch(requests);
+    return found.size;
   }
   agents(action = "listar", changes = {}, identity = {}) { return this.directory("agents", action, changes, identity); }
   routines(action = "listar", changes = {}) { return this.directory("routines", action, changes); }

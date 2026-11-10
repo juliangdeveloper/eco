@@ -6,9 +6,10 @@ import { interceptSecurityCommand, isSecurityCommand, isWiping, safeDraft, setSe
 import { stopDeviceTools } from "./device-runtime.js";
 import { abortNetwork } from "./network.js";
 import { clearVaultMemory } from "./vault.js";
-import { flushSessions, recoverSessions, saveSession } from "./session-store.js";
+import { deleteStoredSession, flushSessions, recoverSessions, saveSession } from "./session-store.js";
+import { dreamingTool, startDreaming, stopDreaming } from "./dreaming.js";
 import { createAgentPanel } from "./agentPanel.js";
-import { setBridgeState, setFaceHandler, setSpeakHandler, setToolListener, setVoiceHandler } from "./bridge.js";
+import { setBridgeState, setDreamingHandler, setFaceHandler, setSpeakHandler, setToolListener, setVoiceHandler } from "./bridge.js";
 import { deviceCapabilities, listenOn, onCapabilities, speakOn, watchCapabilities } from "./capabilities.js";
 import { speakTool, voiceState } from "./voice-output.js";
 import { createFace } from "./face.js";
@@ -24,7 +25,7 @@ import { startRenewal } from "./renewal.js";
 import { startRoutines, stopRoutines, tick } from "./routines.js";
 import { listConnectors, connectorStatus, STATUS } from "./connectors.js";
 import { renderReconnectNotice } from "./credentials.js";
-import { setupSubagents, renderSubagents, stopSubagents } from "./subagents.js";
+import { compactFinishedJobs, setupSubagents, renderSubagents, stopSubagents } from "./subagents.js";
 import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
 import { all, closeDatabase, flushWrites, json, retryFailedWrites } from "./storage.js";
@@ -69,6 +70,20 @@ async function resolveSession(id) {
 function statsSave() {
   json("stats", stats);
   metaUpdate(APP_ID, APP_VERSION, { stats }, { declare: STATS });
+}
+
+async function deleteSession(id) {
+  if (id === session.id) throw new Error("The open conversation is never deleted.");
+  const owner = knownSessions.get(id);
+  if (owner?.subagents?.some((job) => job.status === "ejecutando") || owner?.inFlight || owner?.pendingTurns?.length) throw new Error("The conversation is busy.");
+  knownSessions.delete(id);
+  await deleteStoredSession(id);
+  all("sessions").then((rows) => pruneAttachments(rows.map((row) => row.id))).catch(() => {});
+}
+
+function busy() {
+  for (const value of knownSessions.values()) if (value.inFlight || value.pendingTurns?.length || value.subagents?.some((job) => job.status === "ejecutando")) return true;
+  return false;
 }
 
 async function persist(value = session) {
@@ -194,7 +209,7 @@ function bindComposer() {
 
 async function main() {
   setSecurityShutdown(() => {
-    for (const stop of [() => voice?.stop(), stopSpeaking, stopRoutines, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
+    for (const stop of [() => voice?.stop(), stopSpeaking, stopDreaming, stopRoutines, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
     for (const item of interactions.splice(0)) item.resolve("");
     for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close("cancelled");
     pyodide = null;
@@ -292,7 +307,7 @@ async function main() {
     clarify: (...args) => interaction("clarify", clarify, args),
     cancelJob
   };
-  await setupSubagents({ getSession: currentSession, getPyodide: () => pyodide, persist, receiveJob: chat.receiveJob, resolveSession });
+  await setupSubagents({ getSession: currentSession, getPyodide: () => pyodide, persist, persistQuiet: (value) => saveSession(value, { touch: false }), receiveJob: chat.receiveJob, resolveSession });
   setToolListener((name, status, value) => {
     if (!["subagente_crear", "subagente_listar", "subagente_control"].includes(name)) updateToolCard(name, status, value);
     if (status !== "trabajando") {
@@ -339,7 +354,7 @@ async function main() {
   setupReload({
     async checkpoint() {
       currentSession().draft = safeDraft(byId("prompt").value);
-      for (const value of knownSessions.values()) await persist(value);
+      for (const value of knownSessions.values()) await saveSession(value, { touch: false });
       await flushSessions(knownSessions.values());
       await flushWrites();
       return { session: currentSession().id, sessions: [...knownSessions.values()].filter((value) => value.pendingTurns?.length || value.subagents?.some((job) => job.status === "ejecutando")).map((value) => ({ id: value.id, jobs: (value.subagents || []).filter((job) => job.status === "ejecutando").map((job) => job.id) })) };
@@ -368,6 +383,8 @@ async function main() {
   chat.drain();
   renderSubagents();
   startRoutines(chat.trigger);
+  setDreamingHandler(dreamingTool);
+  startDreaming({ sessions: () => knownSessions, currentSession, deleteSession, busy, compact: compactFinishedJobs });
 }
 
 window.ecoApp = {

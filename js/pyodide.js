@@ -34,6 +34,6 @@ export async function loadAgent() {
     }
     pyodide.FS.writeFile("/home/pyodide/eco/" + file, await response.text());
   }
-  await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); from eco.agent import run_turn; from eco.subagents import job_control");
+  await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); from eco.agent import run_turn; from eco.subagents import job_control, forget_jobs");
   return pyodide;
 }
