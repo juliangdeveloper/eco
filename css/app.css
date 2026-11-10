@@ -23,7 +23,9 @@
 
 html,
 body {
+  height: 100svh;
   height: 100dvh;
+  max-height: 100dvh;
   margin: 0;
   overflow: hidden;
 }
@@ -74,10 +76,16 @@ a {
   display: flex;
   flex-direction: column;
   width: 100%;
+  height: 100svh;
   height: 100dvh;
+  max-height: 100dvh;
   max-width: 760px;
   margin: 0 auto;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+body.faceMode .app {
+  max-width: none;
 }
 
 .header,
@@ -590,6 +598,7 @@ dialog textarea {
 
 dialog {
   width: min(92vw, 440px);
+  max-height: calc(100svh - 32px);
   max-height: calc(100dvh - 32px);
   padding: 20px;
   overflow: auto;
@@ -671,6 +680,7 @@ dialog small {
     top: 0;
     bottom: auto;
     width: 360px;
+    height: 100svh;
     height: 100dvh;
     max-height: none;
     border-radius: 18px 0 0 18px;
@@ -977,6 +987,7 @@ dialog small {
   top: 64px;
   bottom: auto;
   z-index: 20;
+  max-height: calc(100svh - 180px);
   max-height: calc(100dvh - 180px);
 }
 
@@ -1068,24 +1079,19 @@ dialog small {
 .headerActions .iconButton[aria-pressed="true"] { background: var(--blue); color: #ffffff; }
 #micButton[data-phase="turn"] { animation: micPulse 1.2s ease-in-out infinite; }
 @keyframes micPulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--blue) 30%, transparent); } }
-.faceLayer { position: absolute; z-index: 5; left: 0; right: 0; top: var(--face-top, 56px); bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; background: color-mix(in srgb, var(--background) 90%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); touch-action: none; user-select: none; -webkit-user-select: none; }
-.faceStage { position: relative; display: grid; place-items: center; width: 100%; flex: 1 1 auto; min-height: 0; }
+.faceLayer { position: absolute; z-index: 5; left: 0; right: 0; top: var(--face-top, 56px); bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: stretch; padding: 0; background: var(--face-backdrop, #1c1c1e); touch-action: none; user-select: none; -webkit-user-select: none; }
+.faceStage { position: relative; display: grid; place-items: center; width: 100%; flex: 1 1 auto; min-height: 0; height: 100%; }
+.faceExtend { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; z-index: 0; }
 .faceSprite, .faceCharacterBody, .faceCharacterAccessory, .facePackPreview { image-rendering: pixelated; background-repeat: no-repeat; }
 .faceSprite { position: relative; z-index: 1; }
-.faceCharacters { position: absolute; inset: 0; pointer-events: none; }
-.faceCharacter { position: absolute; left: 50%; top: 50%; transition: transform 0.6s ease, opacity 0.6s ease; --slot: 0; }
-.faceCharacter[data-slot="0"] { transform: translate(calc(-50% - min(34vw, 170px)), -10%); }
-.faceCharacter[data-slot="1"] { transform: translate(calc(-50% + min(34vw, 170px)), -10%); }
-.faceCharacter[data-slot="2"] { transform: translate(-50%, min(26dvh, 170px)); }
-.faceCharacter[data-slot="3"] { transform: translate(calc(-50% - min(30vw, 140px)), min(20dvh, 130px)); }
-.faceCharacter[data-slot="4"] { transform: translate(calc(-50% + min(30vw, 140px)), min(20dvh, 130px)); }
-.faceCharacter[data-slot="5"] { transform: translate(-50%, max(-26dvh, -170px)); }
+.faceCharacters { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.faceCharacter { position: absolute; left: 50%; top: 50%; transition: transform 0.6s ease, opacity 0.6s ease; --dx: 0px; --dy: 0px; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))); }
 .faceCharacter.leaving { opacity: 0; }
 .faceCharacter[data-end="stopped"].leaving, .faceCharacter[data-end="done"].leaving { margin-left: 60px; }
 .faceCharacterBody, .faceCharacterAccessory { position: absolute; left: 0; top: 0; }
 .faceCharacterBody { position: relative; }
-.faceMore { position: absolute; right: 12px; top: 8px; padding: 2px 8px; border-radius: 10px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
-.faceSubtitle { max-width: min(90%, 520px); max-height: 30%; margin: 0; overflow: hidden; padding: 8px 14px; border-radius: 14px; background: var(--surface); color: var(--text); text-align: center; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); }
+.faceMore { position: absolute; right: 12px; top: 8px; z-index: 3; padding: 2px 8px; border-radius: 10px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.faceSubtitle { position: absolute; z-index: 4; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: min(90%, 520px); max-height: 30%; margin: 0; overflow: hidden; padding: 8px 14px; border-radius: 14px; background: var(--surface); color: var(--text); text-align: center; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); }
 .voiceNotice { position: relative; z-index: 6; display: flex; align-items: center; gap: 8px; margin: 0 16px 6px; padding: 6px 6px 6px 12px; border-radius: 12px; background: var(--surface); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); font-size: 13px; }
 .voiceNotice[hidden] { display: none; }
 .voiceNotice span { flex: 1; min-width: 0; }

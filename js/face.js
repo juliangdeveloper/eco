@@ -105,7 +105,12 @@ export function createFace({ getSession }) {
   let mouth = { pulse: 0, level: -1, started: 0 };
   let subtitleTimer = null;
 
+  const stage = layer.querySelector(".faceStage");
+  const extend = byId("faceExtend");
   const settings = () => faceVoiceSettings();
+  let layoutTok = 0;
+  let edgeImage = null;
+  let edgeUrl = "";
   const shield = (on) => {
     for (const node of document.querySelector(".app").children) if (node !== layer && node.tagName !== "DIALOG" && !node.classList.contains("header") && node.id !== "voiceNotice") node.inert = on;
   };
@@ -113,12 +118,97 @@ export function createFace({ getSession }) {
     const header = document.querySelector(".header");
     layer.style.setProperty("--face-top", header.offsetTop + header.offsetHeight + "px");
   };
-  const scale = (kind = "face") => {
-    const grid = kind === "face" ? pack?.face.grid || 48 : pack?.characters.grid || 32;
-    const area = layer.getBoundingClientRect();
-    const base = Math.max(1, Math.floor(Math.min(area.width * 0.6, area.height * 0.42) / grid));
-    if (kind === "face") return Math.max(1, Math.round(Math.min(base, 6) * settings().faceScale / 100));
-    return Math.max(1, Math.min(area.width < 400 ? 2 : 3, Math.floor(base / 2)));
+  const pickScale = (raw, grid) => {
+    raw = Math.max(1 / grid, raw);
+    const integer = Math.floor(raw + 1e-9);
+    if (integer >= 1 && (integer / raw >= 0.96 || (raw - integer) * grid <= 16)) return integer;
+    return raw;
+  };
+  const metrics = () => {
+    const area = stage.getBoundingClientRect();
+    const width = Math.max(1, area.width);
+    const height = Math.max(1, area.height);
+    const faceGrid = pack?.face.grid || 48;
+    const charGrid = pack?.characters.grid || 32;
+    const user = (settings().faceScale || 100) / 100;
+    const fit = Math.min(width, height) / faceGrid;
+    const faceScale = Math.min(pickScale(fit, faceGrid), pickScale(fit * user, faceGrid));
+    const faceSize = faceGrid * faceScale;
+    const charTarget = Math.min(Math.max(faceSize / 5, charGrid), faceSize * 0.28, Math.min(width, height) * 0.22);
+    const charScale = pickScale(charTarget / charGrid, charGrid);
+    return { width, height, faceGrid, charGrid, faceScale, charScale, faceSize, charSize: charGrid * charScale };
+  };
+  const scale = (kind = "face") => (kind === "face" ? metrics().faceScale : metrics().charScale);
+  const ensureEdgeImage = () => {
+    const state = pack?.face.states.idle || Object.values(pack?.face.states || {})[0];
+    const url = state && pack.urls[state.sheet];
+    if (!url) return null;
+    if (edgeUrl === url && edgeImage?.complete && edgeImage.naturalWidth) return edgeImage;
+    const image = new Image();
+    image.onload = () => requestLayout();
+    image.src = url;
+    edgeImage = image;
+    edgeUrl = url;
+    return image.complete && image.naturalWidth ? image : null;
+  };
+  const applyBackdrop = () => {
+    layer.style.setProperty("--face-backdrop", pack?.backdropColor || "#1c1c1e");
+    if (!pack?.backdropEdge) { extend.hidden = true; return; }
+    const image = ensureEdgeImage();
+    if (!image) { extend.hidden = true; return; }
+    const { width, height, faceGrid, faceSize } = metrics();
+    const state = pack.face.states.idle || Object.values(pack.face.states)[0];
+    const srcY = (state.row || 0) * faceGrid;
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const canvasW = Math.max(1, Math.round(width * dpr));
+    const canvasH = Math.max(1, Math.round(height * dpr));
+    if (extend.width !== canvasW) extend.width = canvasW;
+    if (extend.height !== canvasH) extend.height = canvasH;
+    const ctx = extend.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, width, height);
+    const cx = (width - faceSize) / 2;
+    const cy = (height - faceSize) / 2;
+    const unit = faceSize / faceGrid;
+    const last = faceGrid - 1;
+    const mid = faceGrid - 2;
+    const midPx = faceSize - 2 * unit;
+    const draw = (sx, sy, sw, sh, dx, dy, dw, dh) => {
+      if (dw > 0 && dh > 0 && sw > 0 && sh > 0) ctx.drawImage(image, sx, srcY + sy, sw, sh, dx, dy, dw, dh);
+    };
+    draw(0, 0, 1, 1, 0, 0, cx + unit, cy + unit);
+    draw(1, 0, mid, 1, cx + unit, 0, midPx, cy + unit);
+    draw(last, 0, 1, 1, cx + faceSize - unit, 0, width - (cx + faceSize - unit), cy + unit);
+    draw(0, 1, 1, mid, 0, cy + unit, cx + unit, midPx);
+    draw(last, 1, 1, mid, cx + faceSize - unit, cy + unit, width - (cx + faceSize - unit), midPx);
+    draw(0, last, 1, 1, 0, cy + faceSize - unit, cx + unit, height - (cy + faceSize - unit));
+    draw(1, last, mid, 1, cx + unit, cy + faceSize - unit, midPx, height - (cy + faceSize - unit));
+    draw(last, last, 1, 1, cx + faceSize - unit, cy + faceSize - unit, width - (cx + faceSize - unit), height - (cy + faceSize - unit));
+    extend.hidden = false;
+  };
+  const redraw = () => {
+    if (!pack) return;
+    const faceScale = scale("face");
+    const charScale = scale("characters");
+    if (sprite.state) sprite.draw(pack, sprite.state, sprite.frame, faceScale);
+    for (const item of characters.values()) {
+      if (item.sprite.state) item.sprite.draw(pack, item.sprite.state, item.sprite.frame, charScale);
+      drawAccessory(item);
+    }
+    layer.style.setProperty("--face-size", metrics().faceSize + "px");
+  };
+  const layout = () => {
+    if (!active || !pack) return;
+    place();
+    applyBackdrop();
+    redraw();
+    placeCharacters();
+  };
+  const requestLayout = () => {
+    if (!active) return;
+    if (layoutTok) return;
+    layoutTok = requestAnimationFrame(() => { layoutTok = 0; layout(); });
   };
 
   function idleState() {
@@ -213,6 +303,49 @@ export function createFace({ getSession }) {
     }
   }
 
+  function slotPoint(index, size) {
+    const { width, height, faceSize, charSize } = size;
+    const gap = Math.max(8, Math.round(charSize * 0.12));
+    const side = (width - faceSize) / 2;
+    const vertical = (height - faceSize) / 2;
+    const useSide = side >= charSize + gap;
+    const useVert = vertical >= charSize + gap;
+    let points;
+    if (useVert && !useSide) {
+      const rowY = faceSize / 2 + gap + charSize / 2;
+      const spread = Math.min(faceSize * 0.36, width / 2 - charSize / 2 - 8);
+      points = [
+        { x: -spread, y: rowY }, { x: spread, y: rowY }, { x: 0, y: rowY },
+        { x: -spread, y: -rowY }, { x: spread, y: -rowY }, { x: 0, y: -rowY }
+      ];
+    } else if (useSide && !useVert) {
+      const colX = faceSize / 2 + gap + charSize / 2;
+      const spread = Math.min(faceSize * 0.36, height / 2 - charSize / 2 - 8);
+      points = [
+        { x: -colX, y: 0 }, { x: colX, y: 0 }, { x: 0, y: Math.min(faceSize / 2 - gap - charSize / 2, height / 2 - charSize / 2 - 8) },
+        { x: -colX, y: spread }, { x: colX, y: spread }, { x: -colX, y: -spread }
+      ];
+    } else if (useSide && useVert) {
+      const colX = faceSize / 2 + gap + charSize / 2;
+      const rowY = faceSize / 2 + gap + charSize / 2;
+      points = [
+        { x: -colX, y: 0 }, { x: colX, y: 0 }, { x: 0, y: rowY },
+        { x: -colX, y: rowY }, { x: colX, y: rowY }, { x: 0, y: -rowY }
+      ];
+    } else {
+      const x = faceSize / 2 - gap - charSize / 2;
+      const y = faceSize / 2 - gap - charSize / 2;
+      points = [
+        { x: -x, y: y * 0.2 }, { x: x, y: y * 0.2 }, { x: 0, y: y },
+        { x: -x, y: y }, { x: x, y: y }, { x: 0, y: -y }
+      ];
+    }
+    const point = points[index];
+    const maxX = Math.max(0, width / 2 - charSize / 2 - 4);
+    const maxY = Math.max(0, height / 2 - charSize / 2 - 4);
+    return { x: Math.max(-maxX, Math.min(maxX, point.x)), y: Math.max(-maxY, Math.min(maxY, point.y)) };
+  }
+
   function placeCharacters() {
     const values = settings();
     const session = getSession?.();
@@ -222,7 +355,14 @@ export function createFace({ getSession }) {
     const visible = ordered.filter((item) => item.leaving || ordered.filter((other) => !other.leaving).indexOf(item) < values.maxCharacters);
     const extra = ordered.filter((item) => !item.leaving).length - visible.filter((item) => !item.leaving).length;
     for (const item of ordered) item.node.hidden = !visible.includes(item);
-    visible.forEach((item, index) => { item.node.style.setProperty("--slot", String(index)); item.node.dataset.slot = String(index % 6); });
+    const size = metrics();
+    visible.forEach((item, index) => {
+      item.node.style.setProperty("--slot", String(index));
+      item.node.dataset.slot = String(index % 6);
+      const point = slotPoint(index % 6, size);
+      item.node.style.setProperty("--dx", point.x + "px");
+      item.node.style.setProperty("--dy", point.y + "px");
+    });
     let badge = crowd.querySelector(".faceMore");
     if (extra > 0) {
       if (!badge) { badge = document.createElement("span"); badge.className = "faceMore"; crowd.append(badge); }
@@ -382,13 +522,13 @@ export function createFace({ getSession }) {
     if (value) {
       pack = await loadPack();
       active = true;
-      layer.hidden = false;
-      place();
-      shield(true);
       document.body.classList.add("faceMode");
+      layer.hidden = false;
+      shield(true);
       lastActivity = Date.now();
       transient = "entering";
       playing = "entering";
+      layout();
       sprite.play(pack, "entering", scale(), () => { transient = ""; render(true); });
       crowd.replaceChildren();
       characters.clear();
@@ -410,14 +550,21 @@ export function createFace({ getSession }) {
   window.addEventListener("eco-activity", handle);
   window.addEventListener("eco-face-pack", async () => {
     pack = await loadPack();
+    edgeImage = null;
+    edgeUrl = "";
     if (!active) return;
     crowd.replaceChildren();
     characters.clear();
-    placeCharacters();
+    layout();
     render(true);
   });
-  window.addEventListener("eco-face-voice-settings", () => { if (active) { placeCharacters(); render(true); } });
-  window.addEventListener("resize", () => { if (active) { place(); for (const item of characters.values()) drawAccessory(item); render(true); } });
+  window.addEventListener("eco-face-voice-settings", () => { if (active) { layout(); render(true); } });
+  new ResizeObserver(requestLayout).observe(layer);
+  new ResizeObserver(requestLayout).observe(stage);
+  window.addEventListener("resize", requestLayout);
+  window.addEventListener("orientationchange", requestLayout);
+  visualViewport?.addEventListener("resize", requestLayout);
+  visualViewport?.addEventListener("scroll", requestLayout);
   watchAlert();
   byId("faceButton").onclick = () => { set(!active); };
   layer.addEventListener("pointerdown", (event) => event.preventDefault());

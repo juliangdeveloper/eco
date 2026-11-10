@@ -67,6 +67,45 @@ export async function loadPack(force = false) {
   return cache;
 }
 
+function sampleBackdrop(pack) {
+  return new Promise((resolve) => {
+    const value = pack.face?.background;
+    pack.backdropEdge = value === "edge";
+    if (typeof value === "string" && value !== "edge" && HEX.test(value)) {
+      pack.backdropColor = value;
+      return resolve();
+    }
+    const state = pack.face?.states?.idle || Object.values(pack.face?.states || {})[0];
+    const url = state && pack.urls[state.sheet];
+    const grid = pack.face?.grid;
+    if (!url || !grid) { pack.backdropColor = "#1c1c1e"; return resolve(); }
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = grid;
+        canvas.height = grid;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(image, 0, (state.row || 0) * grid, grid, grid, 0, 0, grid, grid);
+        const data = ctx.getImageData(0, 0, grid, grid).data;
+        const counts = new Map();
+        const bump = (i) => {
+          if (data[i + 3] < 200) return;
+          const key = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+          counts.set(key, (counts.get(key) || 0) + 1);
+        };
+        for (let y = 0; y < grid; y++) for (let x = 0; x < grid; x++) if (x < 2 || y < 2 || x >= grid - 2 || y >= grid - 2) bump((y * grid + x) * 4);
+        let best = 0, key = 0;
+        for (const [item, n] of counts) if (n > best) { best = n; key = item; }
+        pack.backdropColor = best ? "#" + key.toString(16).padStart(6, "0") : "#1c1c1e";
+      } catch { pack.backdropColor = "#1c1c1e"; }
+      resolve();
+    };
+    image.onerror = () => { pack.backdropColor = "#1c1c1e"; resolve(); };
+    image.src = url;
+  });
+}
+
 async function measure(pack) {
   pack.sizes = {};
   await Promise.all(Object.entries(pack.urls).map(([file, url]) => new Promise((resolve) => {
@@ -75,6 +114,7 @@ async function measure(pack) {
     image.onerror = () => resolve();
     image.src = url;
   })));
+  await sampleBackdrop(pack);
   return pack;
 }
 
@@ -124,8 +164,11 @@ function checkState(state, sheets, required = true) {
   return typeof state.sheet === "string" && Object.hasOwn(sheets, state.sheet) && isInt(state.row ?? 0, 0, 512) && isInt(state.frames, 1, 64) && typeof state.fps === "number" && state.fps >= 0.5 && state.fps <= 60 && typeof state.loop === "boolean" && (state.next === undefined || typeof state.next === "string" && STATE_NAME.test(state.next));
 }
 
+const HEX = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
 function checkManifest(manifest, format, required, sheets) {
   if (!manifest || manifest.format !== format || manifest.version !== 1 || !isInt(manifest.grid, 8, 256) || !manifest.states || typeof manifest.states !== "object") return false;
+  if (manifest.background !== undefined && manifest.background !== "edge" && !(typeof manifest.background === "string" && HEX.test(manifest.background))) return false;
   const names = Object.keys(manifest.states);
   if (!names.length || names.length > 128 || !names.every((name) => STATE_NAME.test(name))) return false;
   if (!required.every((name) => Object.hasOwn(manifest.states, name))) return false;
