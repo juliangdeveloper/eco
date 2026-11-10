@@ -1,5 +1,5 @@
 import { FACE_VOICE_SETTINGS, TRANSCRIBERS, faceVoiceSettings, resetFaceVoiceSettings, setFaceVoiceSetting } from "./face-config.js";
-import { activePackId, deletePack, DEFAULT_PACK_ID, exportPack, importPack, listPacks, loadPack, selectPack } from "./face-packs.js";
+import { activePackId, deletePack, DEFAULT_PACK_ID, exportPack, importPack, isBuiltin, listPacks, loadPack, selectPack } from "./face-packs.js";
 import { systemVoices } from "./speech.js";
 import { byId } from "./ui.js";
 
@@ -86,7 +86,7 @@ async function renderPacks() {
   const removeButton = document.createElement("button");
   removeButton.type = "button";
   removeButton.textContent = "Remove";
-  removeButton.disabled = chooser.value === DEFAULT_PACK_ID;
+  removeButton.disabled = isBuiltin(chooser.value);
   removeButton.onclick = async () => { await deletePack(chooser.value); await renderPacks(); };
   actions.append(exportButton, importButton, removeButton, file);
   box.replaceChildren(preview, field("Face pack", chooser), actions, status);

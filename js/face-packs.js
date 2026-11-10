@@ -4,6 +4,10 @@ import { all, remove, setting, store } from "./storage.js";
 const STORE = "facePacks";
 const ACTIVE_KEY = "facePack";
 export const DEFAULT_PACK_ID = "default";
+export const BUILTIN_PACKS = {
+  default: { name: "Default", path: "" },
+  spaceship: { name: "Spaceship", path: "spaceship/" }
+};
 export const PACK_FORMAT = "eco-face-pack";
 export const PACK_MAX_BYTES = 3 * 1024 * 1024;
 const SHEET_MAX_SIDE = 4096;
@@ -25,11 +29,17 @@ function sheetsOf(manifest) {
   return [...files];
 }
 
-async function defaultPack() {
-  const [face, characters] = await Promise.all([fetchJson("face.json"), fetchJson("characters.json")]);
+export function isBuiltin(id) {
+  return Object.hasOwn(BUILTIN_PACKS, id);
+}
+
+async function builtinPack(id) {
+  const meta = BUILTIN_PACKS[id] || BUILTIN_PACKS[DEFAULT_PACK_ID];
+  const prefix = meta.path;
+  const [face, characters] = await Promise.all([fetchJson(prefix + "face.json"), fetchJson(prefix + "characters.json")]);
   const urls = {};
-  for (const file of new Set([...sheetsOf(face), ...sheetsOf(characters)])) urls[file] = base(file);
-  return { id: DEFAULT_PACK_ID, name: "Default", packVersion: APP_VERSION, face, characters, urls };
+  for (const file of new Set([...sheetsOf(face), ...sheetsOf(characters)])) urls[file] = base(prefix + file);
+  return { id: isBuiltin(id) ? id : DEFAULT_PACK_ID, name: meta.name, packVersion: APP_VERSION, face, characters, urls };
 }
 
 export function activePackId() {
@@ -39,18 +49,21 @@ export function activePackId() {
 export async function listPacks() {
   let rows = [];
   try { rows = await all(STORE); } catch {}
-  return [{ id: DEFAULT_PACK_ID, name: "Default" }, ...rows.map(({ id, name, packVersion }) => ({ id, name, packVersion }))];
+  const builtins = Object.entries(BUILTIN_PACKS).map(([id, { name }]) => ({ id, name }));
+  return [...builtins, ...rows.map(({ id, name, packVersion }) => ({ id, name, packVersion }))];
 }
 
 export async function loadPack(force = false) {
   const id = activePackId();
   if (cache && cache.id === id && !force) return cache;
-  let pack = null;
-  if (id !== DEFAULT_PACK_ID) {
-    try { pack = (await all(STORE)).find((row) => row.id === id) || null; } catch {}
-    if (pack) pack = { ...pack, urls: pack.sheets };
+  if (isBuiltin(id)) {
+    cache = await measure(await builtinPack(id));
+    return cache;
   }
-  cache = await measure(pack || await defaultPack());
+  let pack = null;
+  try { pack = (await all(STORE)).find((row) => row.id === id) || null; } catch {}
+  if (pack) pack = { ...pack, urls: pack.sheets };
+  cache = await measure(pack || await builtinPack(DEFAULT_PACK_ID));
   return cache;
 }
 
@@ -74,7 +87,7 @@ export async function selectPack(id) {
 }
 
 export async function deletePack(id) {
-  if (id === DEFAULT_PACK_ID) return;
+  if (isBuiltin(id)) return;
   await remove(STORE, id);
   if (activePackId() === id) await selectPack(DEFAULT_PACK_ID);
 }
