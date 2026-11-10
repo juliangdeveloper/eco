@@ -2,6 +2,8 @@ import { reloadPending } from "./reload.js";
 import { interceptSecurityCommand, isWiping } from "./security.js";
 import { appendMessage, byId, renderEmpty, renderMessages, renderReply, renderTodos, updateToolCard } from "./ui.js";
 import { renderSubagents } from "./subagents.js";
+import { emitActivity } from "./face-config.js";
+import { speak } from "./speech.js";
 
 const RESULT_PREVIEW_CHARS = 1600;
 const messageId = () => "m-" + crypto.randomUUID();
@@ -10,9 +12,12 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   let sending = false;
   const pending = [];
   const notifications = new Set();
+  const shown = new Set();
+  let voiceTurn = false;
 
   function setSending(value) {
     sending = value;
+    emitActivity("thinking", { on: Boolean(value && getPyodide()) });
     byId("send").disabled = !getPyodide();
     byId("prompt").disabled = !getPyodide();
     byId("prompt").placeholder = getPyodide() ? "Write a message…" : "Preparing the agent…";
@@ -57,13 +62,13 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     return new Promise((resolve) => { pending.push({ session, turn, resolve }); drain(); });
   }
 
-  async function send(text) {
+  async function send(text, options = {}) {
     if (isWiping() || await interceptSecurityCommand(text)) return;
     const content = text.trim();
     if (!content || !getPyodide()) return;
     if (!localStorage.getItem("eco.openrouterKey")) { byId("settings").showModal(); return; }
     const session = getSession();
-    const message = { id: messageId(), role: "user", content, ...(session.replyDraft ? { replyTo: session.replyDraft } : {}) };
+    const message = { id: messageId(), role: "user", content, ...(options.voice ? { voice: true } : {}), ...(session.replyDraft ? { replyTo: session.replyDraft } : {}) };
     session.replyDraft = null;
     renderReply(null);
     const turn = { id: crypto.randomUUID(), messageId: message.id, state: "queued" };
@@ -103,6 +108,11 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     let anchor = -1;
     for (const message of incoming) {
       message.id ||= messageId();
+      if (message.role === "assistant" && message.content && !shown.has(message.id) && !session.messages.some((item) => item.id === message.id) && session === getSession()) {
+        shown.add(message.id);
+        emitActivity("text", { length: message.content.length });
+        if (voiceTurn) speak(message.content);
+      }
       const index = session.messages.findIndex((item) => item.id === message.id);
       if (index >= 0) { Object.assign(session.messages[index], message); anchor = index; }
       else { session.messages.splice(anchor + 1, 0, message); anchor += 1; }
@@ -130,6 +140,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
 
   async function run({ session, turn }) {
     turn.state = "running";
+    voiceTurn = Boolean(session.messages.find((message) => message.id === turn.messageId)?.voice);
     session.inFlight = { id: turn.id, messageId: turn.messageId };
     await persist(session);
     const future = new Set((session.pendingTurns || []).filter((item) => item.id !== turn.id).map((item) => item.messageId));
@@ -147,6 +158,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     } catch (error) {
       await append(session, { role: "assistant", content: "The response could not be completed: " + error.message });
     } finally {
+      voiceTurn = false;
       session.pendingTurns = (session.pendingTurns || []).filter((item) => item.id !== turn.id);
       session.inFlight = null;
       await persist(session);

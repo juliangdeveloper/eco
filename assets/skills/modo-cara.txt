@@ -1,7 +1,9 @@
 Face mode
 
-When it applies: the person asks for face mode, for Eco to have a face, an avatar or an animation that reacts while it talks.
+When it applies: the person asks for face mode, for Eco to have a face, an avatar or an animation that reacts while it works or talks, or asks to share or change the face's look.
 
-What you can do today: describe how it could look and ask what they expect (style, expressions, whether it should move while speaking or thinking). If they want to try an idea, you can create a device tool that generates an SVG or a Canvas animation and return the result, but it isn't shown as a permanent view in the app.
+What exists: a header face button and the modo_cara tool (action on, off or estado) turn face mode on or off and report its state. The face covers the chat while it's on; the header stays usable and every dialog shows above it. It reacts to real events: thinking while a request is in flight, writing or speaking when a reply arrives, a gesture per tool family (memory, connectors and network, device, planning, skills, delegation, system) with a happy or error reaction afterwards, asking while a question is open, listening and attentive with voice chat, a short animation when an automatic routine runs, and an alert while the wipe countdown skull is shown. When idle it blinks, looks around, tilts, stretches and yawns, gets sleepy after a while and falls asleep; any event wakes it. Each running subagent appears as a small character that works, waits, celebrates, falls or walks away; extra ones show as +N.
 
-What's missing: Eco doesn't have a face view or an animated avatar on its screen yet, and nothing syncs expressions with your replies. The feature is in design. Don't say it exists or turn on anything the person didn't ask for.
+Settings: Settings › Face mode has every timing and weight (idle gesture interval, gesture weights, sleepy and asleep thresholds, tool animation minimum, reaction length, subagents shown, face size) with Reset to defaults. Face packs: Export saves the current look as one JSON file (name, version, face.json, characters manifest and the sprite sheets as images); Import checks the format and size (3 MB maximum), applies it and keeps it on this device; the person can switch back to Default or remove a pack. The current art is a placeholder set.
+
+Don't turn face mode on unless the person asks, and don't promise looks or animations that aren't in the pack.

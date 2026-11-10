@@ -1,6 +1,7 @@
 import { interceptSecurityCommand, isWiping } from "./security.js";
 import { all } from "./storage.js";
 import { byId } from "./ui.js";
+import { emitActivity } from "./face-config.js";
 
 const ACTIVE = "ejecutando";
 const STATUS_LABELS = { ejecutando: "running", completado: "completed", error: "error", detenido: "stopped", interrumpido: "interrupted" };
@@ -44,12 +45,14 @@ export async function jobUpdate(raw, finished) {
   const previous = session.subagents.find((row) => row.id === value.id);
   const next = { ...previous, ...value, updatedAt: Date.now(), revision: (previous?.revision || 0) + 1, todos: previous?.todos || [] };
   if (finished) next.delivered = false;
+  const before = previous?.status;
   if (previous) Object.assign(previous, next);
   else session.subagents.push(next);
   if (value.status === ACTIVE && !controllers.has(value.id)) resumeJob(value.id);
   if (value.status !== ACTIVE) controllers.delete(value.id);
   await api.persist(session);
   if (isWiping()) return;
+  if (session === api.getSession() && value.status && before !== value.status) emitActivity("job", { id: value.id, status: value.status });
   renderSubagents();
   if (finished) api.receiveJob(session, structuredClone(previous || next)).catch(() => { byId("subagentError").textContent = "The result could not be delivered. Tell the subagent to continue."; });
   return true;

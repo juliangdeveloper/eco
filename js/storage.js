@@ -2,8 +2,8 @@ import { sessionSnapshot } from "./session-data.js";
 import { isWiping } from "./security.js";
 import { DATABASE_NAME, STORAGE_PREFIX } from "./config.js";
 
-const DATABASE_VERSION = 5;
-const STORES = ["sessions", "skills", "connectors", "secrets", "keys", "routines", "deviceTools", "state"];
+const DATABASE_VERSION = 6;
+const STORES = ["sessions", "skills", "connectors", "secrets", "keys", "routines", "deviceTools", "state", "facePacks"];
 
 const key = (name) => STORAGE_PREFIX + name;
 

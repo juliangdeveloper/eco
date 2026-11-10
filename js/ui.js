@@ -16,7 +16,8 @@ export const TOOL_LABELS = {
   create_connector: "Create connector",
   list_connectors: "Connectors",
   call_connector: "Connector",
-  request_sign_in: "Sign in"
+  request_sign_in: "Sign in",
+  modo_cara: "Face mode"
 };
 
 const CANCELLED_ERROR = "Action cancelled";

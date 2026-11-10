@@ -6,7 +6,12 @@ import { abortNetwork } from "./network.js";
 import { clearVaultMemory } from "./vault.js";
 import { flushSessions, recoverSessions, saveSession } from "./session-store.js";
 import { createAgentPanel } from "./agentPanel.js";
-import { setBridgeState, setToolListener } from "./bridge.js";
+import { setBridgeState, setFaceHandler, setToolListener } from "./bridge.js";
+import { createFace } from "./face.js";
+import { emitActivity } from "./face-config.js";
+import { bindFaceVoiceSettings } from "./face-settings.js";
+import { createVoice } from "./voice.js";
+import { stopSpeaking } from "./speech.js";
 import { APP_ID, APP_VERSION, STATS } from "./config.js";
 import { createChat } from "./chat.js";
 import { metaDeclararProyecto, metaUpdate } from "./meta.js";
@@ -29,6 +34,8 @@ let session = newSessionData();
 const knownSessions = new Map();
 let agentPanel;
 let chat;
+let face;
+let voice;
 let stats = json("stats") || { mensajes_enviados: 0, herramientas_usadas: 0 };
 
 function newSessionData() {
@@ -115,6 +122,7 @@ function bindClarify() {
   const dialog = byId("clarify");
   const finish = (value) => {
     if (resolve) {
+      emitActivity("asking", { on: false });
       resolve(value);
       resolve = null;
     }
@@ -132,6 +140,7 @@ function bindClarify() {
     byId("clarifyQuestion").textContent = question;
     byId("clarifyText").value = "";
     const options = parseArgs(raw);
+    emitActivity("asking", { on: true });
     byId("clarifyOptions").replaceChildren(...options.map((option) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -180,7 +189,7 @@ function bindComposer() {
 
 async function main() {
   setSecurityShutdown(() => {
-    for (const stop of [stopRoutines, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
+    for (const stop of [() => voice?.stop(), stopSpeaking, stopRoutines, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
     for (const item of interactions.splice(0)) item.resolve("");
     for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close("cancelled");
     pyodide = null;
@@ -194,6 +203,7 @@ async function main() {
   byId("version").textContent = APP_VERSION;
   metaDeclararProyecto(APP_ID, APP_VERSION);
   bindSettings();
+  bindFaceVoiceSettings();
   bindCloseButtons();
   const clarify = bindClarify();
   chat = createChat({
@@ -205,6 +215,13 @@ async function main() {
     resolveSession,
     statsSave
   });
+  face = createFace({ getSession: currentSession });
+  voice = createVoice({ sendVoice: (text) => window.ecoApp.ready.then(() => chat.send(text, { voice: true })), faceActive: () => face.active });
+  setFaceHandler(async (action) => {
+    if (action === "on" || action === "off") await face.set(action === "on");
+    return { ok: true, modo_cara: face.active ? "on" : "off", estado: face.state };
+  });
+  Object.assign(window.ecoApp, { face, voice });
   chat.setSending(true);
   const reloadResume = await resumeMarker();
   const restored = await recoverSessions(reloadResume);

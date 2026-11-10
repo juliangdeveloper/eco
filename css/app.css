@@ -1022,3 +1022,52 @@ dialog small {
 .stepLimits { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .wipeLimits { align-items: end; }
 #settings .securitySection { margin-top: 14px; padding-top: 12px; }
+
+.app { position: relative; }
+.headerActions .iconButton[aria-pressed="true"] { background: var(--blue); color: #ffffff; }
+#micButton[data-phase="turn"] { animation: micPulse 1.2s ease-in-out infinite; }
+@keyframes micPulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--blue) 30%, transparent); } }
+.faceLayer { position: absolute; z-index: 5; left: 0; right: 0; top: var(--face-top, 56px); bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; background: color-mix(in srgb, var(--background) 90%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); touch-action: none; user-select: none; -webkit-user-select: none; }
+.faceStage { position: relative; display: grid; place-items: center; width: 100%; flex: 1 1 auto; min-height: 0; }
+.faceSprite, .faceCharacterBody, .faceCharacterAccessory, .facePackPreview { image-rendering: pixelated; background-repeat: no-repeat; }
+.faceSprite { position: relative; z-index: 1; }
+.faceCharacters { position: absolute; inset: 0; pointer-events: none; }
+.faceCharacter { position: absolute; left: 50%; top: 50%; transition: transform 0.6s ease, opacity 0.6s ease; --slot: 0; }
+.faceCharacter[data-slot="0"] { transform: translate(calc(-50% - min(34vw, 170px)), -10%); }
+.faceCharacter[data-slot="1"] { transform: translate(calc(-50% + min(34vw, 170px)), -10%); }
+.faceCharacter[data-slot="2"] { transform: translate(-50%, min(26dvh, 170px)); }
+.faceCharacter[data-slot="3"] { transform: translate(calc(-50% - min(30vw, 140px)), min(20dvh, 130px)); }
+.faceCharacter[data-slot="4"] { transform: translate(calc(-50% + min(30vw, 140px)), min(20dvh, 130px)); }
+.faceCharacter[data-slot="5"] { transform: translate(-50%, max(-26dvh, -170px)); }
+.faceCharacter.leaving { opacity: 0; }
+.faceCharacter[data-end="stopped"].leaving, .faceCharacter[data-end="done"].leaving { margin-left: 60px; }
+.faceCharacterBody, .faceCharacterAccessory { position: absolute; left: 0; top: 0; }
+.faceCharacterBody { position: relative; }
+.faceMore { position: absolute; right: 12px; top: 8px; padding: 2px 8px; border-radius: 10px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.faceSubtitle { max-width: min(90%, 520px); max-height: 30%; margin: 0; overflow: hidden; padding: 8px 14px; border-radius: 14px; background: var(--surface); color: var(--text); text-align: center; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); }
+.voiceNotice { padding: 4px 18px; font-size: 12px; color: var(--text-muted); }
+dialog { z-index: 30; }
+.settingsSection { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+.faceVoiceSection summary, .securitySection summary { cursor: pointer; font-weight: 600; }
+.faceVoiceSection select { width: 100%; min-height: 36px; border: 0; border-radius: var(--radius); background: var(--surface-muted); color: var(--text); font: inherit; padding: 0 8px; }
+.resetDefaults { margin-top: 12px; padding: 0 12px; }
+.facePackControls { display: grid; grid-template-columns: auto 1fr; gap: 0 12px; align-items: end; }
+.facePackControls > label { margin-top: 10px; }
+.facePackControls .facePackActions, .facePackControls small { grid-column: 1 / -1; }
+.facePackActions { display: flex; gap: 8px; margin-top: 10px; }
+.facePackActions button { flex: 1; padding: 0 10px; }
+.facePackPreview { width: 64px; height: 64px; }
+@media (max-width: 400px) {
+  .header { padding: 8px 10px; }
+  .headerActions { gap: 2px; }
+  .iconButton { width: 34px; min-height: 34px; padding: 7px; }
+  .brand { font-size: 18px; }
+}
+@media (max-width: 340px) {
+  .brand small#version { display: none; }
+  .brand .offlineCountdown { margin-left: 2px; }
+}
+@media (max-width: 340px) {
+  .headerActions { gap: 0; }
+  .iconButton { width: 32px; min-height: 32px; padding: 6px; }
+}

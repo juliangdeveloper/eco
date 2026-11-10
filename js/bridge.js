@@ -7,6 +7,7 @@ import { timedFetch } from "./network.js";
 import { passiveMemory, memoryCall, configureMemory, databaseMemoryGuide, topicSkill, topicSkills, devicePublicIp } from "./passive-skills.js";
 import { abortJob, jobRecords, jobSignal, jobSnapshot, jobUpdate, resumeJob } from "./subagents.js";
 import { DEFAULT_MODEL } from "./config.js";
+import { emitActivity } from "./face-config.js";
 import { all, remove, setting, store } from "./storage.js";
 import { connectorFetch, deleteConnector, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
@@ -23,6 +24,11 @@ const TASK_STOP_WORDS = new Set(["proyecto", "archivos", "revisar", "revisa", "t
 
 let toolListener = () => {};
 let stateApi = null;
+let faceHandler = async () => ({ ok: false, error: "Face mode is not ready" });
+
+export function setFaceHandler(handler) {
+  faceHandler = handler;
+}
 
 function plain(value) {
   if (value?.toJs) {
@@ -275,18 +281,27 @@ window.ecoBridge = {
   clarify(question, optionsJson, sessionId, jobId) {
     return window.ecoUI.clarify(question, optionsJson, jobId, jobSignal(jobId));
   },
+  async faceMode(action) {
+    try { return JSON.stringify(await faceHandler(String(action || "estado"))); }
+    catch { return JSON.stringify({ ok: false, error: "Face mode could not change" }); }
+  },
   async onToolStart(name, argsJson, sessionId, jobId) {
-    if (jobId || sessionId !== stateApi?.sessionId()) return;
+    if (sessionId !== stateApi?.sessionId()) return;
+    if (jobId) { emitActivity("jobTool", { id: String(jobId), name: String(name), phase: "start" }); return; }
+    emitActivity("tool", { name: String(name), phase: "start" });
     toolListener(name, "trabajando", argsJson);
   },
   async onToolEnd(name, resultJson, sessionId, jobId) {
-    if (jobId || sessionId !== stateApi?.sessionId()) return;
+    if (sessionId !== stateApi?.sessionId()) return;
     let result = resultJson;
     try {
       result = parsed(resultJson);
     } catch {
       result = resultJson;
     }
+    const failed = result?.error !== undefined;
+    if (jobId) { emitActivity("jobTool", { id: String(jobId), name: String(name), phase: "end", status: failed ? "error" : "listo" }); return; }
+    emitActivity("tool", { name: String(name), phase: "end", status: failed ? "error" : "listo" });
     toolListener(name, result?.error !== undefined ? "error" : "listo", result);
   }
 };

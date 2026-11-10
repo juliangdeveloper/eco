@@ -28,6 +28,11 @@ async def clarify(args):
     return {"answer": str(result)}
 
 
+async def face_mode(args):
+    action = str(args.get("action", "estado"))
+    return json.loads(await ecoBridge.faceMode(action if action in ("on", "off") else "estado"))
+
+
 def register(registry, child=False):
     registry.add("skills_list", schema("Lists skills.", {}), skills_list)
     registry.add("skill_view", schema("Shows a skill.", {"name": {"type": "string"}}, ["name"]), skill_view)

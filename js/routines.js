@@ -1,3 +1,4 @@
+import { emitActivity } from "./face-config.js";
 import { isWiping } from "./security.js";
 import { all, remove, store } from "./storage.js";
 import { connectorFetch, getConnector } from "./connectors.js";
@@ -139,6 +140,7 @@ function turnContent(routine, result) {
 }
 
 async function runRoutine(routine) {
+  emitActivity("routine", { id: routine.id });
   const runner = routine.comprobacion.tipo === "memoria_menciones" ? runMentions : runConnector;
   let result = null;
   try {

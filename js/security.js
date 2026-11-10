@@ -314,7 +314,8 @@ async function erase(broadcast = true) {
   })());
   const cachesCleared = bounded((async () => {
     await workers;
-    if (globalThis.caches) await Promise.all((await caches.keys()).filter(name => name.startsWith("eco-v")).map(name => caches.delete(name)));
+    if (globalThis.caches) await Promise.all((await caches.keys()).filter(name => name.startsWith("eco-v") || name === "transformers-cache").map(name => caches.delete(name)));
+    try { const root = await navigator.storage?.getDirectory?.(); if (root) for await (const name of root.keys()) await root.removeEntry(name, { recursive: true }).catch(() => {}); } catch {}
   })());
   for (const name of ["localStorage", "sessionStorage"]) {
     try {
