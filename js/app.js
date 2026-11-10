@@ -8,7 +8,7 @@ import { abortNetwork } from "./network.js";
 import { clearVaultMemory } from "./vault.js";
 import { flushSessions, recoverSessions, saveSession } from "./session-store.js";
 import { createAgentPanel } from "./agentPanel.js";
-import { setBridgeState, setFaceHandler, setToolListener } from "./bridge.js";
+import { setBridgeState, setFaceHandler, setToolListener, setVoiceHandler } from "./bridge.js";
 import { createFace } from "./face.js";
 import { emitActivity } from "./face-config.js";
 import { bindFaceVoiceSettings } from "./face-settings.js";
@@ -233,6 +233,7 @@ async function main() {
   });
   face = createFace({ getSession: currentSession });
   voice = createVoice({ sendVoice: (text) => window.ecoApp.ready.then(() => chat.send(text, { voice: true })), faceActive: () => face.active });
+  setVoiceHandler(() => voice.status());
   setFaceHandler(async (action) => {
     if (action === "on" || action === "off") await face.set(action === "on");
     return { ok: true, modo_cara: face.active ? "on" : "off", estado: face.state };

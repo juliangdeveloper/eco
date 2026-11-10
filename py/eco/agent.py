@@ -61,6 +61,7 @@ def registry(config, child=False):
         subagents.register(result)
         result.add("eco_actualizar", tools_extra.schema("Reloads Eco with the published version and resumes this turn and its active subagents. It also reloads the same version. No approval needed; at most one per minute and three per ten minutes.", {"motivo": {"type": "string"}}, ["motivo"]), reload_page)
         result.add("modo_cara", tools_extra.schema("Turns face mode on or off, or reports its state. Face mode shows Eco's animated face over the chat; the header face button also toggles it.", {"action": {"type": "string", "enum": ["on", "off", "estado"]}}, ["action"]), tools_extra.face_mode)
+        result.add("voz_estado", tools_extra.schema("Reads voice chat state without changing anything: whether listening is on, phase (attentive, turn or off), whether voice detection and the transcriber are loaded, the transcriber model, the name and wake words, the last transcriptions with their times and the last error.", {}), tools_extra.voice_state)
         result.add("clarify", tools_extra.schema("Asks for a clarification.", {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}}, ["question"]), tools_extra.clarify)
     results.register(result)
     return result

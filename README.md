@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.22.0
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.22.1
 
-<img src="assets/screenshot.png?v=0.22.0" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.22.1" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
@@ -26,7 +26,7 @@ In **Settings › Name** you give this Eco its own name (Eco by default). It is 
 
 ## Face and voice
 
-The face button shows Eco's animated face over the chat: it reacts to what Eco is doing and each running subagent appears as a small character. The microphone turns on hands-free listening: detection and transcription run on your device, and Eco only gets what you say after its name. It answers aloud when you spoke to it. **Settings › Face mode** and **Settings › Voice** have every timing with Reset to defaults, and you can export and import face packs to share looks.
+The face button shows Eco's animated face over the chat: it reacts to what Eco is doing and each running subagent appears as a small character. The microphone turns on hands-free listening: detection and transcription run on your device, and Eco only gets what you say after its name. It answers aloud when you spoke to it, and only its own name wakes it. If voice stops working, a notice stays on screen until it works again or you dismiss it. **Settings › Face mode** and **Settings › Voice** have every timing with Reset to defaults, and you can export and import face packs to share looks.
 
 ## Secure wipe
 

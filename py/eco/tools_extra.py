@@ -32,6 +32,10 @@ async def upload_file(args):
     return json.loads(await ecoBridge.uploadAttachment(json.dumps(args, ensure_ascii=False)))
 
 
+async def voice_state(args):
+    return json.loads(await ecoBridge.voiceState())
+
+
 async def face_mode(args):
     action = str(args.get("action", "estado"))
     return json.loads(await ecoBridge.faceMode(action if action in ("on", "off") else "estado"))
@@ -42,6 +46,7 @@ def register(registry, child=False):
     registry.add("skill_view", schema("Shows a skill.", {"name": {"type": "string"}}, ["name"]), skill_view)
     registry.add("skill_manage", schema("Creates, edits or deletes a skill.", {"action": {"type": "string", "enum": ["create", "edit", "delete"]}, "name": {"type": "string"}, "description": {"type": "string"}, "content": {"type": "string"}}, ["action", "name"]), skill_manage)
     registry.add("session_search", schema("Searches previous sessions.", {"query": {"type": "string"}, "limit": {"type": "integer"}}, ["query"]), session_search)
+    registry.add("voz_estado", schema("Reads voice chat state without changing anything: whether listening is on, phase (attentive, turn or off), whether voice detection and the transcriber are loaded, the transcriber model, the name and wake words, the last transcriptions with their times and the last error.", {}), voice_state)
     if child:
         registry.add("subir_archivo", schema("Uploads a conversation attachment to Google Drive with a multipart upload. Images that tools return (for example device.capture photos) are kept on the device, shown to the person and reach you as a ref such as img-0123456789. Needs the Google Drive memory connected. Optional name and parents (Drive folder ids). Returns id, name and webViewLink.", {"ref": {"type": "string"}, "name": {"type": "string"}, "parents": {"type": "array", "items": {"type": "string"}}}, ["ref"]), upload_file)
     if not child:

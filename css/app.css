@@ -1086,7 +1086,10 @@ dialog small {
 .faceCharacterBody { position: relative; }
 .faceMore { position: absolute; right: 12px; top: 8px; padding: 2px 8px; border-radius: 10px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
 .faceSubtitle { max-width: min(90%, 520px); max-height: 30%; margin: 0; overflow: hidden; padding: 8px 14px; border-radius: 14px; background: var(--surface); color: var(--text); text-align: center; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); }
-.voiceNotice { padding: 4px 18px; font-size: 12px; color: var(--text-muted); }
+.voiceNotice { position: relative; z-index: 6; display: flex; align-items: center; gap: 8px; margin: 0 16px 6px; padding: 6px 6px 6px 12px; border-radius: 12px; background: var(--surface); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); font-size: 13px; }
+.voiceNotice[hidden] { display: none; }
+.voiceNotice span { flex: 1; min-width: 0; }
+.voiceNotice button { flex: none; width: 28px; min-height: 28px; padding: 0; border-radius: 50%; background: transparent; color: var(--text-muted); font-size: 18px; line-height: 1; }
 dialog { z-index: 30; }
 .settingsSection { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
 .faceVoiceSection summary, .securitySection summary { cursor: pointer; font-weight: 600; }

@@ -107,7 +107,7 @@ export function createFace({ getSession }) {
 
   const settings = () => faceVoiceSettings();
   const shield = (on) => {
-    for (const node of document.querySelector(".app").children) if (node !== layer && node.tagName !== "DIALOG" && !node.classList.contains("header")) node.inert = on;
+    for (const node of document.querySelector(".app").children) if (node !== layer && node.tagName !== "DIALOG" && !node.classList.contains("header") && node.id !== "voiceNotice") node.inert = on;
   };
   const place = () => {
     const header = document.querySelector(".header");

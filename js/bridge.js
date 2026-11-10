@@ -27,6 +27,11 @@ const TASK_STOP_WORDS = new Set(["proyecto", "archivos", "revisar", "revisa", "t
 let toolListener = () => {};
 let stateApi = null;
 let faceHandler = async () => ({ ok: false, error: "Face mode is not ready" });
+let voiceHandler = () => ({ error: "Voice is not ready" });
+
+export function setVoiceHandler(handler) {
+  voiceHandler = handler;
+}
 
 export function setFaceHandler(handler) {
   faceHandler = handler;
@@ -290,6 +295,10 @@ window.ecoBridge = {
   },
   clarify(question, optionsJson, sessionId, jobId) {
     return window.ecoUI.clarify(question, optionsJson, jobId, jobSignal(jobId));
+  },
+  async voiceState() {
+    try { return JSON.stringify(voiceHandler()); }
+    catch (error) { return JSON.stringify({ error: String(error?.message || error) }); }
   },
   async faceMode(action) {
     try { return JSON.stringify(await faceHandler(String(action || "estado"))); }

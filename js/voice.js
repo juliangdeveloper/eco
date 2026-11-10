@@ -1,6 +1,5 @@
 import { emitActivity, faceVoiceSettings, TRANSCRIBERS } from "./face-config.js";
 import { isSpeaking, onSpeakingChange, stopSpeaking, unlockSpeech } from "./speech.js";
-import { json } from "./storage.js";
 import { ecoName } from "./identity.js";
 import { byId } from "./ui.js";
 
@@ -30,6 +29,8 @@ const CARDINALS = [
   ["9", "nine", "nueve", "nove", "neuf"]
 ];
 const HALLUCINATION = /^\s*[[(].*[\])]\s*$/;
+const MAX_TRANSCRIPTIONS = 20;
+const STATUS_TRANSCRIPTIONS = 5;
 
 export function normalize(text) {
   return String(text || "").normalize("NFD").replace(/\p{M}+/gu, "").toLocaleLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
@@ -57,8 +58,6 @@ export function wakeNames() {
   const names = new Set();
   const wake = normalize(ecoName());
   if (wake) names.add(wake);
-  const memory = json("persistentMemory");
-  if (typeof memory?.eco === "string" && memory.eco && !/^eco-[0-9a-f]{6}$/.test(memory.eco)) names.add(normalize(memory.eco.replace(/-/g, " ")));
   if (!names.size) names.add("eco");
   return [...names].filter(Boolean);
 }
@@ -114,6 +113,10 @@ function script(url, test) {
 export function createVoice({ sendVoice, faceActive }) {
   const button = byId("micButton");
   const notice = byId("voiceNotice");
+  const noticeText = byId("voiceNoticeText");
+  const closeNotice = byId("voiceNoticeClose");
+  let lastError = null;
+  let transcriberLoaded = false;
   const stats = { vad: null, transcriber: null, transcriptions: [] };
   let enabled = false;
   let vad = null;
@@ -137,10 +140,16 @@ export function createVoice({ sendVoice, faceActive }) {
   const settings = () => faceVoiceSettings();
 
   function say(text) {
-    notice.textContent = text;
+    if (text) lastError = { message: text, at: new Date().toISOString() };
+    noticeText.textContent = text;
     notice.hidden = !text;
-    if (text) setTimeout(() => { if (notice.textContent === text) notice.hidden = true; }, 6000);
   }
+
+  function recover() {
+    if (!notice.hidden) say("");
+  }
+
+  closeNotice.onclick = () => say("");
 
   function updateButton() {
     button.setAttribute("aria-pressed", String(enabled));
@@ -168,7 +177,7 @@ export function createVoice({ sendVoice, faceActive }) {
     };
     worker.onerror = () => { for (const entry of waiting.values()) entry.reject(new Error("Transcriber stopped")); waiting.clear(); };
     const model = TRANSCRIBERS[settings().transcriber];
-    workerReady = request({ type: "load", model }).then((info) => { stats.transcriber = { model, ...info }; return info; }).catch((error) => { unloadWorker(); say("The voice transcriber could not load. Check the connection."); throw error; });
+    workerReady = request({ type: "load", model }).then((info) => { stats.transcriber = { model, ...info }; transcriberLoaded = true; recover(); return info; }).catch((error) => { unloadWorker(); say("The voice transcriber could not load. Check the connection."); throw error; });
     return workerReady;
   }
 
@@ -181,6 +190,7 @@ export function createVoice({ sendVoice, faceActive }) {
     worker?.terminate();
     worker = null;
     workerReady = null;
+    transcriberLoaded = false;
     for (const entry of waiting.values()) entry.reject(new Error("Transcriber unloaded"));
     waiting.clear();
   }
@@ -193,7 +203,9 @@ export function createVoice({ sendVoice, faceActive }) {
       await ensureWorker();
       const language = (navigator.language || "").slice(0, 2).toLowerCase();
       const result = await request({ type: "transcribe", audio, language, model: TRANSCRIBERS[settings().transcriber] });
-      stats.transcriptions.push({ ms: Math.round(performance.now() - started), seconds, text: result.text });
+      stats.transcriptions.push({ ms: Math.round(performance.now() - started), seconds, text: result.text, at: new Date().toISOString() });
+      if (stats.transcriptions.length > MAX_TRANSCRIPTIONS) stats.transcriptions.splice(0, stats.transcriptions.length - MAX_TRANSCRIPTIONS);
+      recover();
       return HALLUCINATION.test(result.text) ? "" : result.text;
     } finally {
       pendingTranscriptions -= 1;
@@ -246,7 +258,7 @@ export function createVoice({ sendVoice, faceActive }) {
 
   async function phrase(audio, startedAt) {
     let text = "";
-    try { text = await transcribe(audio); } catch { return; }
+    try { text = await transcribe(audio); } catch { if (workerReady) say("The voice transcription failed. Try again."); return; }
     if (!enabled || !text) return;
     const values = settings();
     if (clarifyOpen()) { answerClarify(text); return; }
@@ -332,6 +344,7 @@ export function createVoice({ sendVoice, faceActive }) {
       }
       enabled = true;
       phase = "attentive";
+      recover();
       lastAliasAt = Date.now();
       clearInterval(housekeeping);
       housekeeping = setInterval(tick, 1000);
@@ -389,6 +402,18 @@ export function createVoice({ sendVoice, faceActive }) {
     get enabled() { return enabled; },
     get phase() { return phase; },
     stats,
+    status: () => ({
+      enabled,
+      phase: enabled ? phase : "off",
+      vadLoaded: Boolean(vad),
+      transcriberLoaded,
+      transcriberModel: TRANSCRIBERS[settings().transcriber],
+      name: ecoName(),
+      wakeWords: wakeNames(),
+      recentTranscriptions: stats.transcriptions.slice(-STATUS_TRANSCRIPTIONS).map((item) => ({ at: item.at || "", text: String(item.text || "").slice(0, 200), seconds: item.seconds, ms: item.ms })),
+      lastError,
+      notice: notice.hidden ? "" : noticeText.textContent
+    }),
     debug: () => ({ enabled, phase, buffer, followUntil, worker: Boolean(worker), stats })
   };
 }
