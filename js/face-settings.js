@@ -1,8 +1,10 @@
 import { FACE_VOICE_SETTINGS, TRANSCRIBERS, faceVoiceSettings, resetFaceVoiceSettings, setFaceVoiceSetting } from "./face-config.js";
 import { activePackId, deletePack, DEFAULT_PACK_ID, exportPack, importPack, isBuiltin, listPacks, loadPack, selectPack } from "./face-packs.js";
 import { systemVoices } from "./speech.js";
+import { deviceCapabilities, onCapabilities } from "./capabilities.js";
 import { byId } from "./ui.js";
 
+const SPEECH_FIELDS = new Set(["speechRate", "speechPitch"]);
 const TRANSCRIBER_LABELS = { "whisper-tiny": "Whisper tiny (faster)", "whisper-base": "Whisper base (more accurate)" };
 
 function field(label, input) {
@@ -37,6 +39,24 @@ function select(id, options, value, onchange) {
   input.value = value;
   input.onchange = () => onchange(input.value);
   return input;
+}
+
+function toggle(name, label, hint, checked) {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = "fv-" + name;
+  input.checked = checked;
+  input.onchange = () => setFaceVoiceSetting(name, input.checked);
+  const text = document.createElement("span");
+  const title = document.createElement("strong");
+  title.textContent = label;
+  const small = document.createElement("small");
+  small.textContent = hint;
+  text.append(title, small);
+  const wrapper = document.createElement("label");
+  wrapper.className = "checkLabel voiceSwitch";
+  wrapper.append(input, text);
+  return wrapper;
 }
 
 function resetButton(group) {
@@ -108,29 +128,51 @@ export function renderFaceVoiceSettings() {
   faceGrid.className = "stepLimits";
   faceGrid.append(...FACE_VOICE_SETTINGS.filter((entry) => entry.group === "face").map((entry) => numberField(entry, values)));
   faceFields.replaceChildren(faceGrid, resetButton("face"));
+  const caps = deviceCapabilities();
+  const parts = [];
+  const switches = document.createElement("div");
+  switches.className = "voiceSwitches";
+  if (caps.listen) switches.append(toggle("listen", "Listen", "Microphone, hands-free listening and the wake word.", values.listen));
+  if (caps.speak) switches.append(toggle("speak", "Speak", "Reads replies to voice turns aloud and speaks when asked.", values.speak));
+  if (switches.children.length) parts.push(switches);
+  else {
+    const note = document.createElement("p");
+    note.className = "voiceUnavailable";
+    note.id = "voiceUnavailable";
+    note.textContent = "This device has no microphone or voice output Eco can use.";
+    parts.push(note);
+  }
+  if (caps.listen) {
+    const transcriber = select("fv-transcriber", Object.keys(TRANSCRIBERS).map((key) => [key, TRANSCRIBER_LABELS[key]]), values.transcriber, (value) => setFaceVoiceSetting("transcriber", value));
+    const top = document.createElement("div");
+    top.className = "stepLimits";
+    top.append(field("Transcriber", transcriber));
+    parts.push(top);
+  }
   const voices = systemVoices();
-  const voiceChooser = select("fv-voiceName", [["", "Automatic (reply language)"], ...voices.map((voice) => [voice.name, voice.name + " · " + voice.lang])], values.voiceName, (value) => setFaceVoiceSetting("voiceName", value));
-  const transcriber = select("fv-transcriber", Object.keys(TRANSCRIBERS).map((key) => [key, TRANSCRIBER_LABELS[key]]), values.transcriber, (value) => setFaceVoiceSetting("transcriber", value));
-  const neural = document.createElement("input");
-  neural.type = "checkbox";
-  neural.id = "fv-neuralVoice";
-  neural.checked = values.neuralVoice;
-  neural.onchange = () => setFaceVoiceSetting("neuralVoice", neural.checked);
-  const neuralLabel = document.createElement("label");
-  neuralLabel.className = "checkLabel";
-  neuralLabel.append(neural, "Local neural voice (downloads about 75 MB the first time)");
-  const top = document.createElement("div");
-  top.className = "stepLimits";
-  top.append(field("Transcriber", transcriber));
+  if (voices.length) parts.push(field("System voice", select("fv-voiceName", [["", "Automatic (reply language)"], ...voices.map((voice) => [voice.name, voice.name + " · " + voice.lang])], values.voiceName, (value) => setFaceVoiceSetting("voiceName", value))));
+  if ((window.AudioContext || window.webkitAudioContext) && window.WebAssembly) {
+    const neural = document.createElement("input");
+    neural.type = "checkbox";
+    neural.id = "fv-neuralVoice";
+    neural.checked = values.neuralVoice;
+    neural.onchange = () => setFaceVoiceSetting("neuralVoice", neural.checked);
+    const neuralLabel = document.createElement("label");
+    neuralLabel.className = "checkLabel";
+    neuralLabel.append(neural, "Local neural voice (downloads about 75 MB the first time)");
+    parts.push(neuralLabel);
+  }
   const grid = document.createElement("div");
   grid.className = "stepLimits";
-  grid.append(...FACE_VOICE_SETTINGS.filter((entry) => entry.group === "voice").map((entry) => numberField(entry, values)));
-  voiceFields.replaceChildren(top, field("System voice", voiceChooser), neuralLabel, grid, resetButton("voice"));
+  grid.append(...FACE_VOICE_SETTINGS.filter((entry) => entry.group === "voice" && (SPEECH_FIELDS.has(entry.name) ? caps.speak : caps.listen)).map((entry) => numberField(entry, values)));
+  if (grid.children.length) parts.push(grid);
+  voiceFields.replaceChildren(...parts, resetButton("voice"));
   renderPacks().catch(() => {});
 }
 
 export function bindFaceVoiceSettings() {
   byId("faceSettings").addEventListener("toggle", () => { if (byId("faceSettings").open) renderFaceVoiceSettings(); });
   byId("voiceSettings").addEventListener("toggle", () => { if (byId("voiceSettings").open) renderFaceVoiceSettings(); });
+  onCapabilities(() => { if (byId("voiceSettings").open) renderFaceVoiceSettings(); });
   try { speechSynthesis.addEventListener?.("voiceschanged", () => { if (byId("voiceSettings").open) renderFaceVoiceSettings(); }); } catch {}
 }

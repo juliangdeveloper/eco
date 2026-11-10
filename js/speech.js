@@ -23,7 +23,16 @@ let audioContext = null;
 let currentSource = null;
 let levelTimer = null;
 const listeners = new Set();
+const MAX_PENDING = 5;
+let pending = [];
+let gestured = false;
+let lastError = null;
+let lastVoice = "";
 export const speechStats = { neural: null };
+
+function fail(message) {
+  lastError = { message: String(message).slice(0, 200), at: new Date().toISOString() };
+}
 
 export function onSpeakingChange(listener) { listeners.add(listener); return () => listeners.delete(listener); }
 
@@ -73,11 +82,13 @@ function systemSay(sentence, language, run) {
     const values = faceVoiceSettings();
     const voice = pickVoice(language);
     if (voice) utterance.voice = voice;
+    lastVoice = voice?.name || "system default";
     utterance.lang = voice?.lang || language;
     utterance.rate = values.speechRate;
     utterance.pitch = values.speechPitch;
     utterance.onboundary = () => emitActivity("mouth", {});
-    utterance.onend = utterance.onerror = () => resolve();
+    utterance.onend = () => resolve();
+    utterance.onerror = (event) => { if (!/interrupted|canceled/.test(event?.error || "")) fail("The system voice failed: " + (event?.error || "unknown")); resolve(); };
     if (run !== generation) { resolve(); return; }
     speechSynthesis.speak(utterance);
   });
@@ -99,6 +110,7 @@ async function neuralSay(sentence, language, run) {
     piperSession = tts.TtsSession.create({ voiceId, wasmPaths: PIPER_WASM, progress: (progress) => { downloaded = Math.max(downloaded, progress?.total || 0); } }).catch((error) => { piperVoice = ""; tts.TtsSession._instance = null; throw error; });
   }
   const session = await piperSession;
+  lastVoice = "Piper " + voiceId;
   const wav = await session.predict(sentence);
   speechStats.neural ||= { voiceId, firstMs: Math.round(performance.now() - started), downloadBytes: downloaded };
   if (run !== generation) return;
@@ -133,7 +145,7 @@ async function drain(run) {
     const { sentence, language } = queue.shift();
     if (faceVoiceSettings().neuralVoice) {
       try { await neuralSay(sentence, language, run); continue; }
-      catch (error) { speechStats.neural = { error: String(error?.message || error).slice(0, 200) }; window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: "The neural voice could not load. Using the system voice." })); }
+      catch (error) { fail("The neural voice could not load."); speechStats.neural = { error: String(error?.message || error).slice(0, 200) }; window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: "The neural voice could not load. Using the system voice." })); }
     }
     await systemSay(sentence, language, run);
   }
@@ -167,4 +179,33 @@ export function unlockSpeech() {
 
 export function systemVoices() {
   try { return speechSynthesis.getVoices().map((voice) => ({ name: voice.name, lang: voice.lang })); } catch { return []; }
+}
+
+export const speechUnlocked = () => gestured;
+
+export function queueUntilGesture(text, interrupt = false) {
+  if (interrupt) pending = [];
+  pending.push(String(text));
+  if (pending.length > MAX_PENDING) pending.splice(0, pending.length - MAX_PENDING);
+  return pending.length;
+}
+
+function firstGesture() {
+  if (gestured) return;
+  gestured = true;
+  for (const type of ["pointerdown", "keydown", "touchend"]) window.removeEventListener(type, firstGesture, true);
+  unlockSpeech();
+  const items = pending;
+  pending = [];
+  for (const text of items) speak(text, { final: false });
+}
+
+for (const type of ["pointerdown", "keydown", "touchend"]) window.addEventListener(type, firstGesture, true);
+
+export function speechStatus() {
+  return { speaking, queued: pending.length + queue.length, waitingForTap: pending.length, voice: lastVoice || (faceVoiceSettings().neuralVoice ? "Piper" : faceVoiceSettings().voiceName || "automatic"), neural: faceVoiceSettings().neuralVoice, lastError };
+}
+
+export function clearPendingSpeech() {
+  pending = [];
 }

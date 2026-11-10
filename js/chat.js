@@ -6,6 +6,7 @@ import { appendMessage, byId, renderEmpty, renderMessages, renderReply, renderTo
 import { renderSubagents } from "./subagents.js";
 import { emitActivity } from "./face-config.js";
 import { speak } from "./speech.js";
+import { speakOn } from "./capabilities.js";
 
 const RESULT_PREVIEW_CHARS = 1600;
 const messageId = () => "m-" + crypto.randomUUID();
@@ -115,7 +116,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
       if (message.role === "assistant" && message.content && !shown.has(message.id) && !session.messages.some((item) => item.id === message.id) && session === getSession()) {
         shown.add(message.id);
         emitActivity("text", { length: message.content.length });
-        if (voiceTurn) speak(message.content);
+        if (voiceTurn && speakOn()) speak(message.content);
       }
       const index = session.messages.findIndex((item) => item.id === message.id);
       if (index >= 0) { Object.assign(session.messages[index], message); anchor = index; }

@@ -1063,7 +1063,7 @@ dialog small {
 .securitySection { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 4px; }
 .securitySection p, #wipeStatus, #securityNotice { font-size: 12px; line-height: 1.5; color: var(--muted); }
 #securityNotice { padding: 6px 18px; }
-.checkLabel { display: flex; align-items: flex-start; gap: 10px; }
+.checkLabel { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; }
 .checkLabel input { width: auto; flex: 0 0 auto; margin-top: 4px; }
 
 .deviceGrantSettings { margin-top: 16px; }
@@ -1121,3 +1121,9 @@ dialog { z-index: 30; }
   .headerActions { gap: 0; }
   .iconButton { width: 32px; min-height: 32px; padding: 6px; }
 }
+.voiceSwitches { display: grid; gap: 0; margin-bottom: 4px; }
+.voiceSwitch { margin-top: 10px; }
+.voiceSwitch strong { font-size: 14px; }
+.voiceSwitch span { display: grid; gap: 2px; min-width: 0; }
+.voiceSwitch small { color: var(--text-muted); font-size: 12px; }
+.voiceUnavailable { margin: 10px 0 0; font-size: 13px; line-height: 1.4; color: var(--text-muted); }

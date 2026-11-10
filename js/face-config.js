@@ -31,6 +31,7 @@ export const FACE_VOICE_SETTINGS = Object.freeze([
 ]);
 
 export const VOICE_TEXT_SETTINGS = Object.freeze({ voiceName: "", transcriber: "whisper-tiny", neuralVoice: false });
+export const VOICE_SWITCHES = Object.freeze({ listen: true, speak: true });
 export const TRANSCRIBERS = Object.freeze({ "whisper-tiny": "onnx-community/whisper-tiny", "whisper-base": "onnx-community/whisper-base" });
 
 const definitions = new Map(FACE_VOICE_SETTINGS.map((entry) => [entry.name, entry]));
@@ -41,6 +42,7 @@ export function faceVoiceSettings() {
   const result = {};
   for (const entry of FACE_VOICE_SETTINGS) result[entry.name] = valid(entry, stored[entry.name]) ? stored[entry.name] : entry.default;
   for (const [name, fallback] of Object.entries(VOICE_TEXT_SETTINGS)) result[name] = typeof stored[name] === typeof fallback ? stored[name] : fallback;
+  for (const [name, fallback] of Object.entries(VOICE_SWITCHES)) result[name] = typeof stored[name] === "boolean" ? stored[name] : typeof stored.enabled === "boolean" ? stored.enabled : fallback;
   if (!TRANSCRIBERS[result.transcriber]) result.transcriber = VOICE_TEXT_SETTINGS.transcriber;
   if (result.idleMaxSeconds < result.idleMinSeconds) result.idleMaxSeconds = result.idleMinSeconds;
   if (result.asleepMinutes <= result.sleepyMinutes) result.asleepMinutes = result.sleepyMinutes + 0.5;
@@ -57,7 +59,8 @@ export function setFaceVoiceSetting(name, value) {
   } else if (Object.hasOwn(VOICE_TEXT_SETTINGS, name)) {
     const fallback = VOICE_TEXT_SETTINGS[name];
     stored[name] = typeof fallback === "boolean" ? Boolean(value) : String(value).slice(0, 80);
-  } else return false;
+  } else if (Object.hasOwn(VOICE_SWITCHES, name)) stored[name] = Boolean(value);
+  else return false;
   json(KEY, stored);
   window.dispatchEvent(new Event("eco-face-voice-settings"));
   return true;

@@ -28,9 +28,16 @@ let toolListener = () => {};
 let stateApi = null;
 let faceHandler = async () => ({ ok: false, error: "Face mode is not ready" });
 let voiceHandler = () => ({ error: "Voice is not ready" });
+let speakHandler = () => ({ ok: false, error: "Voice is not ready" });
+let speechSupport = () => false;
 
 export function setVoiceHandler(handler) {
   voiceHandler = handler;
+}
+
+export function setSpeakHandler(handler, supported) {
+  speakHandler = handler;
+  speechSupport = supported;
 }
 
 export function setFaceHandler(handler) {
@@ -299,6 +306,14 @@ window.ecoBridge = {
   async voiceState() {
     try { return JSON.stringify(voiceHandler()); }
     catch (error) { return JSON.stringify({ error: String(error?.message || error) }); }
+  },
+  async speechSupported() {
+    try { return JSON.stringify({ supported: Boolean(speechSupport()) }); }
+    catch { return JSON.stringify({ supported: false }); }
+  },
+  async speakText(argsJson) {
+    try { return JSON.stringify(speakHandler(JSON.parse(String(argsJson || "{}")))); }
+    catch (error) { return JSON.stringify({ ok: false, error: String(error?.message || error) }); }
   },
   async faceMode(action) {
     try { return JSON.stringify(await faceHandler(String(action || "estado"))); }

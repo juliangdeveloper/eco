@@ -1,6 +1,7 @@
 import { emitActivity, faceVoiceSettings, TRANSCRIBERS } from "./face-config.js";
 import { isSpeaking, onSpeakingChange, stopSpeaking, unlockSpeech } from "./speech.js";
 import { ecoName } from "./identity.js";
+import { deviceCapabilities, listenOn, refreshCapabilities } from "./capabilities.js";
 import { byId } from "./ui.js";
 
 const ORT_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js";
@@ -329,6 +330,8 @@ export function createVoice({ sendVoice, faceActive }) {
     if (enabled) return true;
     if (starting) return starting;
     unlockSpeech();
+    if (!deviceCapabilities().checked) await refreshCapabilities();
+    if (!listenOn()) return false;
     if (!navigator.mediaDevices?.getUserMedia) { say("This browser can't use the microphone."); return false; }
     starting = (async () => {
       try {

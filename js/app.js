@@ -8,12 +8,14 @@ import { abortNetwork } from "./network.js";
 import { clearVaultMemory } from "./vault.js";
 import { flushSessions, recoverSessions, saveSession } from "./session-store.js";
 import { createAgentPanel } from "./agentPanel.js";
-import { setBridgeState, setFaceHandler, setToolListener, setVoiceHandler } from "./bridge.js";
+import { setBridgeState, setFaceHandler, setSpeakHandler, setToolListener, setVoiceHandler } from "./bridge.js";
+import { deviceCapabilities, listenOn, onCapabilities, speakOn, watchCapabilities } from "./capabilities.js";
+import { speakTool, voiceState } from "./voice-output.js";
 import { createFace } from "./face.js";
 import { emitActivity } from "./face-config.js";
 import { bindFaceVoiceSettings } from "./face-settings.js";
 import { createVoice } from "./voice.js";
-import { stopSpeaking } from "./speech.js";
+import { clearPendingSpeech, stopSpeaking } from "./speech.js";
 import { APP_ID, APP_VERSION, STATS } from "./config.js";
 import { createChat } from "./chat.js";
 import { metaDeclararProyecto, metaUpdate } from "./meta.js";
@@ -233,7 +235,16 @@ async function main() {
   });
   face = createFace({ getSession: currentSession });
   voice = createVoice({ sendVoice: (text) => window.ecoApp.ready.then(() => chat.send(text, { voice: true })), faceActive: () => face.active });
-  setVoiceHandler(() => voice.status());
+  setVoiceHandler(() => voiceState(voice));
+  setSpeakHandler(speakTool, () => deviceCapabilities().speak);
+  const applyVoice = () => {
+    byId("micButton").hidden = !listenOn();
+    if (!listenOn() && (voice.enabled || voice.phase === "turn")) voice.stop();
+    if (!speakOn()) { stopSpeaking(); clearPendingSpeech(); }
+  };
+  onCapabilities(applyVoice);
+  window.addEventListener("eco-face-voice-settings", applyVoice);
+  watchCapabilities();
   setFaceHandler(async (action) => {
     if (action === "on" || action === "off") await face.set(action === "on");
     return { ok: true, modo_cara: face.active ? "on" : "off", estado: face.state };
