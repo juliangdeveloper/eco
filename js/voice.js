@@ -246,7 +246,7 @@ export function createVoice({ sendVoice, faceActive }) {
 
   async function phrase(audio, startedAt) {
     let text = "";
-    try { text = await transcribe(audio); } catch { return; }
+    try { text = await transcribe(audio); } catch { if (workerReady) say("The voice transcription failed. Try again."); return; }
     if (!enabled || !text) return;
     const values = settings();
     if (clarifyOpen()) { answerClarify(text); return; }
