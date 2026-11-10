@@ -7,7 +7,7 @@ import { stopDeviceTools } from "./device-runtime.js";
 import { abortNetwork } from "./network.js";
 import { clearVaultMemory } from "./vault.js";
 import { deleteStoredSession, flushSessions, recoverSessions, saveSession } from "./session-store.js";
-import { dreamingTool, startDreaming, stopDreaming } from "./dreaming.js";
+import { dreamingEnabled, dreamingTool, startDreaming, stopDreaming } from "./dreaming.js";
 import { createAgentPanel } from "./agentPanel.js";
 import { setBridgeState, setDreamingHandler, setFaceHandler, setSpeakHandler, setToolListener, setVoiceHandler } from "./bridge.js";
 import { deviceCapabilities, listenOn, onCapabilities, speakOn, watchCapabilities } from "./capabilities.js";
@@ -383,7 +383,7 @@ async function main() {
   chat.drain();
   renderSubagents();
   startRoutines(chat.trigger);
-  setDreamingHandler(dreamingTool);
+  setDreamingHandler(dreamingTool, dreamingEnabled);
   startDreaming({ sessions: () => knownSessions, currentSession, deleteSession, busy, compact: compactFinishedJobs });
 }
 

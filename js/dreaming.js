@@ -44,14 +44,14 @@ const listeners = new Set();
 
 export function dreamingSettings() {
   const stored = json(KEY) || {};
-  const result = { auto: typeof stored.auto === "boolean" ? stored.auto : true };
+  const result = { enabled: typeof stored.enabled === "boolean" ? stored.enabled : stored.auto === true, auto: typeof stored.auto === "boolean" ? stored.auto : true };
   for (const entry of DREAMING_SETTINGS) result[entry.name] = valid(entry, stored[entry.name]) ? stored[entry.name] : entry.default;
   return result;
 }
 
 export function setDreamingSetting(name, value) {
   const stored = json(KEY) || {};
-  if (name === "auto") stored.auto = Boolean(value);
+  if (name === "enabled" || name === "auto") stored[name] = Boolean(value);
   else {
     const entry = definitions.get(name);
     const number = Number(value);
@@ -61,6 +61,13 @@ export function setDreamingSetting(name, value) {
   json(KEY, stored);
   for (const listener of listeners) { try { listener(); } catch {} }
   return true;
+}
+
+export const dreamingEnabled = () => dreamingSettings().enabled;
+
+export function resetDreamingSettings() {
+  json(KEY, { enabled: false });
+  for (const listener of listeners) { try { listener(); } catch {} }
 }
 
 export const onDreamingSettings = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
@@ -271,6 +278,7 @@ function describe(report) {
 
 async function dream(reason) {
   const values = dreamingSettings();
+  if (!values.enabled) return { reason, threads: 0, rows: 0, conversations: 0, shared: "", error: "Dreaming is off on this Eco.", disabled: true, text: "Dreaming is off on this Eco. Turn it on in Settings › Dreaming." };
   const now = Date.now();
   const report = { reason, threads: 0, rows: 0, conversations: 0, shared: "", error: "" };
   try {
@@ -310,6 +318,7 @@ async function dream(reason) {
 
 export function runDreaming(reason = "manual") {
   if (running) return running;
+  if (!dreamingEnabled()) return Promise.resolve({ reason, disabled: true, error: "Dreaming is off on this Eco.", text: "Dreaming is off on this Eco. Turn it on in Settings › Dreaming." });
   const work = navigator.locks?.request ? navigator.locks.request("eco-dreaming", { ifAvailable: true }, (lock) => lock ? dream(reason) : { reason, skipped: true, text: "Dreaming is already running in another tab." }) : dream(reason);
   running = Promise.resolve(work).finally(() => { running = null; });
   return running;
@@ -337,7 +346,7 @@ export async function dreamingTick() {
   if (!api || running || isWiping()) return null;
   const values = dreamingSettings();
   await api.compact?.(values.detailHours * HOUR).catch(() => {});
-  if (!values.auto || api.busy()) return null;
+  if (!values.enabled || !values.auto || api.busy()) return null;
   const now = Date.now();
   let reason = "";
   if (now - lastActivity >= values.idleMinutes * 60000 && now - (dreamingState().lastRun || 0) >= values.everyHours * HOUR) reason = "idle";
@@ -350,6 +359,7 @@ export async function dreamingTick() {
 }
 
 export async function dreamingTool(args = {}) {
+  if (!dreamingEnabled()) return { ok: false, enabled: false, error: "Dreaming is off on this Eco. The person can turn it on in Settings › Dreaming." };
   const action = String(args.action || "status");
   if (action === "run") {
     const report = await runDreaming("tool");
@@ -377,8 +387,41 @@ function numberField(entry, values) {
   return label;
 }
 
+function masterSwitch(values) {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = "dr-enabled";
+  input.checked = values.enabled;
+  input.onchange = () => { setDreamingSetting("enabled", input.checked); renderDreamingSettings(); };
+  const text = document.createElement("span");
+  const title = document.createElement("strong");
+  title.textContent = "Dreaming";
+  const small = document.createElement("small");
+  small.textContent = "Off by default. Turn it on for the Ecos that should consolidate memory; this Eco only dreams when it is on.";
+  text.append(title, small);
+  const wrapper = document.createElement("label");
+  wrapper.className = "checkLabel voiceSwitch";
+  wrapper.append(input, text);
+  return wrapper;
+}
+
+function resetButton() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = "dreamingReset";
+  button.className = "resetDefaults";
+  button.textContent = "Reset to defaults";
+  button.onclick = () => { resetDreamingSettings(); renderDreamingSettings(); };
+  return button;
+}
+
 export function renderDreamingSettings() {
   const values = dreamingSettings();
+  const master = masterSwitch(values);
+  if (!values.enabled) {
+    byId("dreamingFields").replaceChildren(master, resetButton());
+    return;
+  }
   const auto = document.createElement("input");
   auto.type = "checkbox";
   auto.id = "dr-auto";
@@ -408,7 +451,7 @@ export function renderDreamingSettings() {
     notify(report, true);
     renderDreamingSettings();
   };
-  byId("dreamingFields").replaceChildren(autoLabel, grid, status, run);
+  byId("dreamingFields").replaceChildren(master, autoLabel, grid, status, run, resetButton());
 }
 
 export function startDreaming(options) {
