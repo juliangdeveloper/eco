@@ -5,6 +5,8 @@ import { deviceCapabilities, listenOn, microphoneGranted, rememberMicrophoneGran
 import { consumeMagicTranscript } from "./magic.js";
 import { byId } from "./ui.js";
 import { requestHelp } from "./help.js";
+import { literalError, registerComponent, saveComponentConfig, storedConfig } from "./runtime.js";
+import { loadTranscriber, runTranscribe, transcriberAttempts as planTranscriber } from "./voice-transcribe.js";
 import { distance, isTruncation, normalize, phonetic } from "./voice-match.js";
 
 const ORT_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js";
@@ -35,6 +37,15 @@ const CARDINALS = [
 const HALLUCINATION = /^\s*[[(].*[\])]\s*$/;
 const MAX_TRANSCRIPTIONS = 20;
 const STATUS_TRANSCRIPTIONS = 5;
+const TRANSCRIBER_BACKENDS = new Set(["auto", "wasm", "webgpu"]);
+const TRANSCRIBER_QUANT = new Set(["q8", "q4", "fp32", "q4f16"]);
+
+function validSource(value) {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  return Boolean(text) && text.length <= 300 && !/[<>\s]/.test(text) && !/javascript:/i.test(text) && (/^https:\/\//i.test(text) || /^[\w.-]+\/[\w./-]+$/i.test(text));
+}
+
 
 export { normalize } from "./voice-match.js";
 
@@ -101,6 +112,8 @@ export function createVoice({ sendVoice, faceActive }) {
   const closeNotice = byId("voiceNoticeClose");
   let lastError = null;
   let transcriberLoaded = false;
+  let transcriberInfo = null;
+  let mainEngine = null;
   const stats = { vad: null, transcriber: null, transcriptions: [] };
   let enabled = false;
   let vad = null;
@@ -209,11 +222,29 @@ export function createVoice({ sendVoice, faceActive }) {
     syncSession("queued");
   }
 
+  function rememberError(text) {
+    lastError = { message: text, at: new Date().toISOString() };
+  }
+
   function say(text) {
-    if (text) lastError = { message: text, at: new Date().toISOString() };
+    if (text) rememberError(text);
     noticeText.textContent = text;
     notice.hidden = !text;
     if (text) requestHelp(text);
+  }
+
+  function transcriberOptions() {
+    const voice = settings();
+    const stored = storedConfig("transcriber");
+    const model = TRANSCRIBERS[stored.model] ? stored.model : (TRANSCRIBERS[voice.transcriber] ? voice.transcriber : "whisper-tiny");
+    const backend = TRANSCRIBER_BACKENDS.has(stored.backend) ? stored.backend : "auto";
+    const quantization = TRANSCRIBER_QUANT.has(stored.quantization) ? stored.quantization : "";
+    const source = validSource(stored.source) ? stored.source.trim() : TRANSCRIBERS[model];
+    return { backend, model, quantization, source };
+  }
+
+  function transcriberAttempts() {
+    return planTranscriber(transcriberOptions(), TRANSCRIBERS["whisper-tiny"]);
   }
 
   function recover() {
@@ -244,7 +275,13 @@ export function createVoice({ sendVoice, faceActive }) {
       waiting.delete(data.id);
       if (data.type === "error") entry.reject(new Error(data.error)); else entry.resolve(data);
     };
-    worker.onerror = () => { for (const entry of waiting.values()) entry.reject(new Error("Transcriber stopped")); waiting.clear(); };
+    const fail = (error, fallback) => {
+      const message = literalError(error) || fallback;
+      for (const entry of waiting.values()) entry.reject(new Error(message));
+      waiting.clear();
+    };
+    worker.onerror = (event) => fail(event, "Transcriber stopped");
+    worker.onmessageerror = (event) => fail(event?.data || event, "Transcriber message failed");
   }
 
   function ensureWorker() {
@@ -254,25 +291,38 @@ export function createVoice({ sendVoice, faceActive }) {
     return workerReady;
   }
 
-  async function startWorker(device) {
-    bindWorker();
-    const model = TRANSCRIBERS[settings().transcriber];
-    try {
-      const info = await request({ type: "load", model, device });
-      stats.transcriber = { model, ...info };
-      transcriberLoaded = true;
-      recover();
-      return info;
-    } catch (error) {
-      unloadWorker(true);
-      if (device !== "wasm") {
-        workerReady = startWorker("wasm");
-        return workerReady;
-      }
-      workerReady = null;
-      say("The voice transcriber could not load. Check the connection.");
-      throw error;
+  async function startEngine(attempt) {
+    if (attempt.mode === "main") {
+      const loaded = await loadTranscriber({ ...attempt, mode: "main" });
+      mainEngine = loaded;
+      return loaded.info;
     }
+    bindWorker();
+    return request({ type: "load", model: attempt.source, device: attempt.backend, source: attempt.source, backend: attempt.backend, quantization: attempt.quantization, wasmPaths: attempt.wasmPaths, mode: "worker" });
+  }
+
+  async function startWorker() {
+    const attempts = transcriberAttempts();
+    const errors = [];
+    for (const attempt of attempts) {
+      try {
+        const info = await startEngine(attempt);
+        stats.transcriber = { model: attempt.source, ...info };
+        transcriberInfo = stats.transcriber;
+        transcriberLoaded = true;
+        recover();
+        return info;
+      } catch (error) {
+        const message = literalError(error);
+        errors.push((attempt.mode || "worker") + "/" + (attempt.backend || "auto") + ": " + message);
+        rememberError("The voice transcriber could not load. " + message);
+        unloadWorker(true);
+      }
+    }
+    workerReady = null;
+    const cause = errors.join(" | ") || "unknown error";
+    say("The voice transcriber could not load. " + cause);
+    throw new Error(cause);
   }
 
   function request(message) {
@@ -283,25 +333,50 @@ export function createVoice({ sendVoice, faceActive }) {
   function unloadWorker(keepReady = false) {
     worker?.terminate();
     worker = null;
+    mainEngine = null;
     transcriberLoaded = false;
+    transcriberInfo = null;
     for (const entry of waiting.values()) entry.reject(new Error("Transcriber unloaded"));
     waiting.clear();
     if (!keepReady) workerReady = null;
+  }
+
+  async function reloadTranscriber() {
+    unloadWorker();
+    workerReady = startWorker();
+    try {
+      const info = await workerReady;
+      return { ok: true, name: "transcriber", ...info };
+    } catch (error) {
+      return { ok: false, name: "transcriber", error: literalError(error) };
+    }
   }
 
   async function transcribe(audio) {
     pendingTranscriptions += 1;
     const started = performance.now();
     const seconds = Math.round(audio.length / 1600) / 10;
+    const chosen = settings().speechLanguage;
+    const language = chosen && chosen !== "auto" ? chosen : (navigator.language || "").slice(0, 2).toLowerCase();
+    let last;
     try {
-      await ensureWorker();
-      const chosen = settings().speechLanguage;
-      const language = chosen && chosen !== "auto" ? chosen : (navigator.language || "").slice(0, 2).toLowerCase();
-      const result = await request({ type: "transcribe", audio, language, model: TRANSCRIBERS[settings().transcriber] });
-      stats.transcriptions.push({ ms: Math.round(performance.now() - started), seconds, text: result.text, at: new Date().toISOString() });
-      if (stats.transcriptions.length > MAX_TRANSCRIPTIONS) stats.transcriptions.splice(0, stats.transcriptions.length - MAX_TRANSCRIPTIONS);
-      recover();
-      return HALLUCINATION.test(result.text) ? "" : result.text;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await ensureWorker();
+          const text = mainEngine
+            ? await runTranscribe(mainEngine.recognizer, audio, language)
+            : (await request({ type: "transcribe", audio, language, model: transcriberOptions().source, source: transcriberOptions().source })).text;
+          stats.transcriptions.push({ ms: Math.round(performance.now() - started), seconds, text, at: new Date().toISOString() });
+          if (stats.transcriptions.length > MAX_TRANSCRIPTIONS) stats.transcriptions.splice(0, stats.transcriptions.length - MAX_TRANSCRIPTIONS);
+          recover();
+          return HALLUCINATION.test(text) ? "" : text;
+        } catch (error) {
+          last = error;
+          if (attempt === 0) unloadWorker();
+        }
+      }
+      say("The voice transcription failed. " + literalError(last));
+      throw last;
     } finally {
       pendingTranscriptions -= 1;
       lastVoiceAt = Date.now();
@@ -353,7 +428,7 @@ export function createVoice({ sendVoice, faceActive }) {
 
   async function phrase(audio, startedAt) {
     let text = "";
-    try { text = await transcribe(audio); } catch { if (workerReady) say("The voice transcription failed. Try again."); return; }
+    try { text = await transcribe(audio); } catch { return; }
     if (!enabled || !text) return;
     const values = settings();
     if (clarifyOpen()) { answerClarify(text); return; }
@@ -568,6 +643,63 @@ export function createVoice({ sendVoice, faceActive }) {
     beginTurn(buffer);
   };
 
+  registerComponent("transcriber", {
+    keys: new Set(["backend", "model", "quantization", "source"]),
+    status: () => ({
+      loaded: transcriberLoaded,
+      lastError,
+      backend: transcriberInfo?.device || transcriberOptions().backend,
+      model: transcriberOptions().model,
+      source: transcriberInfo?.source || transcriberOptions().source,
+      quantization: transcriberInfo?.quantization || transcriberOptions().quantization || "",
+      mode: transcriberInfo?.mode || "",
+      loadMs: transcriberInfo?.loadMs || 0
+    }),
+    config: () => transcriberOptions(),
+    async configure(patch) {
+      if (patch.backend && !TRANSCRIBER_BACKENDS.has(patch.backend)) throw new Error("backend must be auto, wasm or webgpu");
+      if (patch.model && !TRANSCRIBERS[patch.model] && patch.source == null) throw new Error("Unknown transcriber model");
+      if (patch.quantization && !TRANSCRIBER_QUANT.has(patch.quantization)) throw new Error("quantization must be q8, q4, q4f16 or fp32");
+      if (patch.source != null && patch.source !== "" && !validSource(patch.source)) throw new Error("Invalid source");
+      if (patch.model && TRANSCRIBERS[patch.model]) setFaceVoiceSetting("transcriber", patch.model);
+      saveComponentConfig("transcriber", patch);
+      const reloaded = await reloadTranscriber();
+      return { ok: reloaded.ok, name: "transcriber", config: transcriberOptions(), reload: reloaded };
+    },
+    reload: reloadTranscriber
+  });
+
+  registerComponent("listen", {
+    keys: new Set(["bargeIn", "bargeInThreshold", "followUpSeconds", "speechThreshold", "speechLanguage"]),
+    status: () => ({
+      enabled,
+      phase: enabled ? phase : "off",
+      vadLoaded: Boolean(vad),
+      waitingForTap: pendingListen,
+      lastError
+    }),
+    config: () => {
+      const current = settings();
+      return { bargeIn: current.bargeIn, bargeInThreshold: current.bargeInThreshold, followUpSeconds: current.followUpSeconds, speechThreshold: current.speechThreshold, speechLanguage: current.speechLanguage };
+    },
+    configure(patch) {
+      for (const [key, value] of Object.entries(patch)) {
+        if (!setFaceVoiceSetting(key, value)) throw new Error("Could not set " + key);
+      }
+      try { vad?.setOptions(options()); } catch {}
+      syncSession("configure");
+      return { ok: true, name: "listen", config: { bargeIn: settings().bargeIn, bargeInThreshold: settings().bargeInThreshold, followUpSeconds: settings().followUpSeconds, speechThreshold: settings().speechThreshold, speechLanguage: settings().speechLanguage } };
+    },
+    async reload() {
+      if (enabled) {
+        stop();
+        const started = await start();
+        return { ok: Boolean(started), name: "listen", status: started ? "on" : "failed" };
+      }
+      return { ok: true, name: "listen", status: "off" };
+    }
+  });
+
   return {
     start,
     stop,
@@ -585,7 +717,9 @@ export function createVoice({ sendVoice, faceActive }) {
       vadLoaded: Boolean(vad),
       transcriberLoaded,
       waitingForTap: pendingListen,
-      transcriberModel: TRANSCRIBERS[settings().transcriber],
+      transcriberModel: transcriberOptions().source,
+      transcriberBackend: transcriberInfo?.device || transcriberOptions().backend,
+      transcriberMode: transcriberInfo?.mode || "",
       name: ecoName(),
       wakeWords: wakeNames(),
       recentTranscriptions: stats.transcriptions.slice(-STATUS_TRANSCRIPTIONS).map((item) => ({ at: item.at || "", text: String(item.text || "").slice(0, 200), seconds: item.seconds, ms: item.ms })),

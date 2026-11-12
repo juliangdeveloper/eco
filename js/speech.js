@@ -1,5 +1,6 @@
-import { emitActivity, faceVoiceSettings } from "./face-config.js";
+import { emitActivity, faceVoiceSettings, setFaceVoiceSetting } from "./face-config.js";
 import { requestHelp } from "./help.js";
+import { registerComponent } from "./runtime.js";
 
 const PIPER_URL = "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.5?deps=onnxruntime-web@1.22.0";
 const PIPER_PHONEMIZE = "https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize";
@@ -495,7 +496,6 @@ export function speak(text, { final = true } = {}) {
 
 export function speakNow(text) {
   gestured = true;
-  for (const type of ["pointerdown", "keydown", "touchend"]) window.removeEventListener(type, firstGesture, true);
   pending = [];
   stopSpeaking();
   return speak(text, { final: false });
@@ -544,19 +544,58 @@ export function queueUntilGesture(text, interrupt = false) {
   return pending.length;
 }
 
-function firstGesture() {
-  if (gestured) return;
-  gestured = true;
-  for (const type of ["pointerdown", "keydown", "touchend"]) window.removeEventListener(type, firstGesture, true);
-  if (listenSession) prepareListenSession("tap");
+const GESTURE_EVENTS = ["pointerdown", "pointerup", "touchstart", "touchend", "mousedown", "click", "keydown"];
+const PARENT_EVENTS = ["pointerdown", "pointerup", "touchstart", "touchend", "mousedown", "click"];
+const gestureBindings = [];
+
+function addGesture(target, type, handler) {
+  if (!target?.addEventListener) return;
+  target.addEventListener(type, handler, { capture: true, passive: true });
+  gestureBindings.push([target, type, handler]);
+}
+
+function onUserGesture() {
+  const items = pending.slice();
+  if (!items.length && gestured) return;
+  try { window.focus(); } catch {}
+  try { if (listenSession) prepareListenSession("tap"); } catch {}
   unlockSpeech();
-  const items = pending;
+  gestured = true;
+  if (!items.length) {
+    notifyIdle();
+    return;
+  }
   pending = [];
-  if (!items.length) notifyIdle();
   for (const text of items) speak(text, { final: false });
 }
 
-for (const type of ["pointerdown", "keydown", "touchend"]) window.addEventListener(type, firstGesture, true);
+function bindSpeechGestures() {
+  for (const type of GESTURE_EVENTS) {
+    addGesture(window, type, onUserGesture);
+    addGesture(document, type, onUserGesture);
+    addGesture(document.documentElement, type, onUserGesture);
+    addGesture(document.body, type, onUserGesture);
+  }
+  try {
+    if (window.parent && window.parent !== window) {
+      const parent = window.parent;
+      for (const type of PARENT_EVENTS) {
+        addGesture(parent, type, onUserGesture);
+        addGesture(parent.document, type, onUserGesture);
+        addGesture(parent.document.documentElement, type, onUserGesture);
+        addGesture(parent.document.body, type, onUserGesture);
+        addGesture(window.frameElement, type, onUserGesture);
+      }
+    }
+  } catch {}
+  if (typeof document !== "undefined" && !document.body && document.addEventListener) {
+    document.addEventListener("DOMContentLoaded", () => {
+      for (const type of GESTURE_EVENTS) addGesture(document.body, type, onUserGesture);
+    }, { once: true });
+  }
+}
+
+bindSpeechGestures();
 
 export function speechStatus() {
   return {
@@ -583,3 +622,24 @@ export function clearPendingSpeech() {
 export function hasAudioContext() {
   return Boolean(audioContext);
 }
+
+registerComponent("speech", {
+  keys: new Set(["voiceName", "neuralVoice", "speechRate", "speechPitch"]),
+  status: () => speechStatus(),
+  config: () => {
+    const current = faceVoiceSettings();
+    return { voiceName: current.voiceName, neuralVoice: current.neuralVoice, speechRate: current.speechRate, speechPitch: current.speechPitch };
+  },
+  configure(patch) {
+    for (const [key, value] of Object.entries(patch)) {
+      if (!setFaceVoiceSetting(key, value)) throw new Error("Could not set " + key);
+    }
+    const current = faceVoiceSettings();
+    return { ok: true, name: "speech", config: { voiceName: current.voiceName, neuralVoice: current.neuralVoice, speechRate: current.speechRate, speechPitch: current.speechPitch } };
+  },
+  reload() {
+    try { speechSynthesis.cancel(); } catch {}
+    return { ok: true, name: "speech", status: speechStatus() };
+  }
+});
+

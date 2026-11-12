@@ -8,6 +8,7 @@ import { distance, normalize, phonetic } from "./voice-match.js";
 import { speakTool } from "./voice-output.js";
 import { deviceCapabilities } from "./capabilities.js";
 import { queueUntilGesture, speechUnlocked, stopSpeaking } from "./speech.js";
+import { literalError, registerComponent, saveComponentConfig, storedConfig } from "./runtime.js";
 
 const STORE = "magic";
 const MAX_COMMANDS = 24;
@@ -272,6 +273,9 @@ function whenReady(run) {
   return { ok: true, status: "queued" };
 }
 
+let lastCameraError = null;
+const CAMERA_FACING = new Set(["user", "environment"]);
+
 async function capturePhoto(facing) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error("This device has no camera.");
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing } }, audio: false });
@@ -322,7 +326,11 @@ async function capturePhoto(facing) {
       canvas.height = Math.max(1, Math.floor(canvas.height * PHOTO_SCALE));
     } while (canvas.width > 1 && canvas.height > 1);
     if (!dataUrl.startsWith("data:image/jpeg;base64,") || dataUrl.length > MAX_PHOTO_BYTES) throw new Error("Could not compress the photo");
+    lastCameraError = null;
     return { dataUrl, mimeType: "image/jpeg", width: canvas.width, height: canvas.height };
+  } catch (error) {
+    lastCameraError = { message: literalError(error), at: new Date().toISOString() };
+    throw error;
   } finally {
     cleanup();
   }
@@ -434,3 +442,22 @@ export function stopMagic() {
   pending = null;
   api = {};
 }
+
+registerComponent("camera", {
+  keys: new Set(["facing"]),
+  status: () => ({
+    available: Boolean(navigator.mediaDevices?.getUserMedia),
+    lastError: lastCameraError
+  }),
+  config: () => ({ facing: CAMERA_FACING.has(storedConfig("camera").facing) ? storedConfig("camera").facing : "user" }),
+  configure(patch) {
+    if (patch.facing && !CAMERA_FACING.has(patch.facing)) throw new Error("facing must be user or environment");
+    const config = saveComponentConfig("camera", patch);
+    return { ok: true, name: "camera", config };
+  },
+  reload() {
+    lastCameraError = null;
+    return { ok: true, name: "camera", status: { available: Boolean(navigator.mediaDevices?.getUserMedia), lastError: null } };
+  }
+});
+

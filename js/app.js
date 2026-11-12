@@ -1,3 +1,4 @@
+import "./runtime.js";
 import { setupReload, resumeMarker, clearResumeMarker, prepareReload, commitReload, rememberAppVersion, reloadNotice } from "./reload.js";
 import { refreshMemoryPresence, startSecurityMemory, stopSecurityMemory } from "./passive-skills.js";
 import { ecoName, onEcoName } from "./identity.js";

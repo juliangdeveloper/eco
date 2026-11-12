@@ -22,7 +22,8 @@ const definitions = [
   ["magnetometer", "Magnetometer", ["magnetometer"], ["reading", "error"]],
   ["ambientLight", "AmbientLightSensor", ["ambient-light-sensor"], ["reading", "error"]],
   ["absoluteOrientation", "AbsoluteOrientationSensor", ["accelerometer", "gyroscope", "magnetometer"], ["reading", "error"]],
-  ["relativeOrientation", "RelativeOrientationSensor", ["accelerometer", "gyroscope"], ["reading", "error"]]
+  ["relativeOrientation", "RelativeOrientationSensor", ["accelerometer", "gyroscope"], ["reading", "error"]],
+  ["runtime", "ecoRuntime", []]
 ];
 
 export function featureDefinitions() {
@@ -58,7 +59,7 @@ export async function discoverEnvironment() {
     screen: { width: screen.width, height: screen.height, pixelRatio: devicePixelRatio, viewport: { width: innerWidth, height: innerHeight } },
     touchPoints: navigator.maxTouchPoints || 0, cores: navigator.hardwareConcurrency || null, memoryGB: navigator.deviceMemory || null,
     features: featureDefinitions().map((entry) => ({ ...entry, available: Boolean(featureValue(entry.path)), requestPermission: typeof featureValue(entry.path)?.requestPermission === "function", policies: Object.fromEntries(entry.policies.map((name) => [name, policyState(name)])) })),
-    permissions, execution: "Code isolated in a worker inside an opaque iframe. Only device.call/get/construct/listen/capture reach the browser. Access is automatic without confirmation except when the browser requires a tap. device.capture(stream) returns a JPEG with dataUrl, width and height and stops the tracks. There is no access to storage, Eco's DOM or credentials. Missing or blocked APIs cannot be enabled with code."
+    permissions, execution: "Code isolated in a worker inside an opaque iframe. Only device.call/get/construct/listen/capture reach the browser. Access is automatic without confirmation except when the browser requires a tap. device.capture(stream) returns a JPEG with dataUrl, width and height and stops the tracks. There is no access to storage, Eco's DOM or credentials. Missing or blocked APIs cannot be enabled with code. ecoRuntime is Eco's shared control for every runtime component (transcriber, speech, listen, camera and later ones): device.call(\"ecoRuntime.status\"|config|configure|set|reload, [...]) reads status and the literal last error, reads or sets that component's config keys, and retries or reloads it."
   };
 }
 
