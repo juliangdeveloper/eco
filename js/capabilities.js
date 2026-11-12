@@ -1,4 +1,5 @@
 import { faceVoiceSettings } from "./face-config.js";
+import { json } from "./storage.js";
 
 const RECHECK_MS = [0, 1500, 5000];
 const state = { listen: false, speak: false, microphones: 0, permission: "unknown", systemVoices: 0, piper: false, checked: false };
@@ -67,6 +68,24 @@ export function watchCapabilities() {
   watchPermission();
   for (const wait of RECHECK_MS.slice(1)) setTimeout(() => refreshCapabilities(), wait);
   return refreshCapabilities();
+}
+
+export const MICROPHONE_GRANTED_KEY = "microphoneGranted";
+
+export async function microphoneGranted() {
+  if (state.permission === "granted") return true;
+  if (state.permission === "denied") return false;
+  try {
+    const status = (await navigator.permissions.query({ name: "microphone" })).state;
+    if (status === "granted") { state.permission = "granted"; return true; }
+    if (status === "denied") { state.permission = "denied"; json(MICROPHONE_GRANTED_KEY, false); return false; }
+  } catch {}
+  return json(MICROPHONE_GRANTED_KEY) === true;
+}
+
+export function rememberMicrophoneGrant(granted) {
+  json(MICROPHONE_GRANTED_KEY, Boolean(granted));
+  if (granted) state.permission = "granted";
 }
 
 export const listenOn = () => state.listen && faceVoiceSettings().listen;

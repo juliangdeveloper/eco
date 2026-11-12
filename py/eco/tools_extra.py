@@ -44,6 +44,18 @@ async def speak_text(args):
     return json.loads(await ecoBridge.speakText(json.dumps(payload, ensure_ascii=False)))
 
 
+LISTEN_DESCRIPTION = "Turns the microphone on or off so Eco can listen. action=on starts listening; action=off stops it. Optional follow_up (seconds, 0-60) opens a window after Eco finishes speaking, or immediately if it is not speaking, where a reply is accepted without the wake name; if omitted, the Settings › Voice follow-up window is used. After hablar asks a question, call this with action=on to hear the answer. If the browser needs a tap, it returns status queued and starts on the next tap."
+
+
+async def listen_mic(args):
+    payload = {"action": str(args.get("action", ""))}
+    if "follow_up" in args and args.get("follow_up") is not None:
+        payload["follow_up"] = args.get("follow_up")
+    elif "listen_for" in args and args.get("listen_for") is not None:
+        payload["follow_up"] = args.get("listen_for")
+    return json.loads(await ecoBridge.listenMic(json.dumps(payload, ensure_ascii=False)))
+
+
 async def refresh_speech(registry):
     try:
         supported = bool(json.loads(await ecoBridge.speechSupported()).get("supported"))
@@ -53,6 +65,14 @@ async def refresh_speech(registry):
         registry.add("hablar", schema(SPEAK_DESCRIPTION, {"text": {"type": "string"}, "interrupt": {"type": "boolean"}}, ["text"]), speak_text)
     else:
         registry.items.pop("hablar", None)
+    try:
+        can_listen = bool(json.loads(await ecoBridge.listenSupported()).get("supported"))
+    except Exception:
+        can_listen = False
+    if can_listen:
+        registry.add("escuchar", schema(LISTEN_DESCRIPTION, {"action": {"type": "string", "enum": ["on", "off"]}, "follow_up": {"type": "number"}}, ["action"]), listen_mic)
+    else:
+        registry.items.pop("escuchar", None)
 
 
 DREAMING_DESCRIPTION = "Dreaming consolidates memory. It runs by itself when Eco is idle or when there is a lot to summarize; use action run when the person asks to dream now and status to read the settings and the last result. It programmatically selects shared-memory threads (messages and their acks) and local conversations without recent activity, writes one summary per thread or conversation, verifies it and only then deletes the originals; if anything fails nothing is deleted. The shared part needs a connected Google Sheets memory; otherwise local conversation summaries go to local memory."

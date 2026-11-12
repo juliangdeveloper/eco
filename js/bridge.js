@@ -31,6 +31,8 @@ let faceHandler = async () => ({ ok: false, error: "Face mode is not ready" });
 let voiceHandler = () => ({ error: "Voice is not ready" });
 let speakHandler = () => ({ ok: false, error: "Voice is not ready" });
 let speechSupport = () => false;
+let listenHandler = async () => ({ ok: false, error: "Voice is not ready" });
+let listenSupport = () => false;
 let dreamingHandler = async () => ({ ok: false, error: "Dreaming is not ready" });
 let dreamingOn = () => false;
 
@@ -46,6 +48,11 @@ export function setVoiceHandler(handler) {
 export function setSpeakHandler(handler, supported) {
   speakHandler = handler;
   speechSupport = supported;
+}
+
+export function setListenHandler(handler, supported) {
+  listenHandler = handler;
+  listenSupport = supported;
 }
 
 export function setFaceHandler(handler) {
@@ -336,6 +343,14 @@ window.ecoBridge = {
   },
   async speakText(argsJson) {
     try { return JSON.stringify(speakHandler(JSON.parse(String(argsJson || "{}")))); }
+    catch (error) { return JSON.stringify({ ok: false, error: String(error?.message || error) }); }
+  },
+  async listenSupported() {
+    try { return JSON.stringify({ supported: Boolean(listenSupport()) }); }
+    catch { return JSON.stringify({ supported: false }); }
+  },
+  async listenMic(argsJson) {
+    try { return JSON.stringify(await listenHandler(JSON.parse(String(argsJson || "{}")))); }
     catch (error) { return JSON.stringify({ ok: false, error: String(error?.message || error) }); }
   },
   async faceMode(action) {

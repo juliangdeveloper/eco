@@ -3,6 +3,7 @@ import { all, json, remove, store } from "./storage.js";
 import { isWiping } from "./security.js";
 
 const MARKER_KEY = "reloadResume";
+export const LAST_VERSION_KEY = "lastAppVersion";
 const OWNER_KEY = "eco.reloadOwner";
 const HISTORY_KEY = "reloadHistory";
 const MIN_RELOAD_INTERVAL_MS = 60000;
@@ -78,7 +79,7 @@ export async function commitReload(raw) {
     const marker = await api.checkpoint(check.motivo);
     const owner = crypto.randomUUID();
     sessionStorage.setItem(OWNER_KEY, owner);
-    await store("state", { id: MARKER_KEY, value: { ...marker, owner, before: APP_VERSION, reason: check.motivo, createdAt: Date.now() } });
+    await store("state", { id: MARKER_KEY, value: { ...marker, owner, before: lastAppVersion() || APP_VERSION, reason: check.motivo, createdAt: Date.now() } });
     const now = Date.now();
     json(HISTORY_KEY, [...(json(HISTORY_KEY) || []).filter((stamp) => now - stamp < RELOAD_WINDOW_MS), now]);
     api.stop();
@@ -91,4 +92,18 @@ export async function commitReload(raw) {
     await clearResumeMarker();
     throw error;
   }
+}
+
+export function lastAppVersion() {
+  const value = json(LAST_VERSION_KEY);
+  return typeof value === "string" ? value : "";
+}
+
+export function rememberAppVersion(version = APP_VERSION) {
+  json(LAST_VERSION_KEY, String(version || ""));
+}
+
+export function reloadNotice(before, current, reason) {
+  if (!before || before === current) return "";
+  return "Eco reloaded from " + before + " to " + current + ". Motivo: " + reason + ". Continue the pending work from the last saved point. Active subagents resume with the same id. Check the state of interrupted operations before repeating them; don't duplicate writes or tasks.";
 }

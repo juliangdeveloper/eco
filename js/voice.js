@@ -1,7 +1,7 @@
-import { emitActivity, faceVoiceSettings, TRANSCRIBERS } from "./face-config.js";
+import { emitActivity, faceVoiceSettings, setFaceVoiceSetting, TRANSCRIBERS } from "./face-config.js";
 import { isSpeaking, onSpeakingChange, setMicCapture, stopSpeaking, unlockSpeech } from "./speech.js";
 import { ecoName } from "./identity.js";
-import { deviceCapabilities, listenOn, refreshCapabilities } from "./capabilities.js";
+import { deviceCapabilities, listenOn, microphoneGranted, rememberMicrophoneGrant, refreshCapabilities } from "./capabilities.js";
 import { consumeMagicTranscript } from "./magic.js";
 import { byId } from "./ui.js";
 import { requestHelp } from "./help.js";
@@ -120,8 +120,67 @@ export function createVoice({ sendVoice, faceActive }) {
   let pendingTranscriptions = 0;
   let restarting = false;
   let starting = null;
+  let sharedStream = null;
+  let pendingListen = false;
+  let followFor = null;
+  let listeningGestures = false;
 
   const settings = () => faceVoiceSettings();
+
+  function followWindow() {
+    const value = followFor;
+    followFor = null;
+    const seconds = Number.isFinite(value) ? value : settings().followUpSeconds;
+    return Math.max(0, seconds) * 1000;
+  }
+
+  function armFollowUp(seconds) {
+    const value = Number(seconds);
+    const windowSec = Number.isFinite(value) ? value : settings().followUpSeconds;
+    if (isSpeaking()) followFor = windowSec;
+    else {
+      followFor = null;
+      followUntil = Date.now() + Math.max(0, windowSec) * 1000;
+    }
+  }
+
+  function needsGesture(error) {
+    const text = String(error?.name || "") + " " + String(error?.message || error || "");
+    return /NotAllowed|NotAllowedError|SecurityError|gesture|user activation|notallowed/i.test(text);
+  }
+
+  async function acquireStream() {
+    if (sharedStream && sharedStream.getTracks().some((track) => track.readyState === "live")) return sharedStream;
+    sharedStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    rememberMicrophoneGrant(true);
+    setMicCapture(true);
+    return sharedStream;
+  }
+
+  function releaseStream() {
+    if (sharedStream) {
+      for (const track of sharedStream.getTracks()) try { track.stop(); } catch {}
+      sharedStream = null;
+    }
+    setMicCapture(false);
+  }
+
+  function bindListenGesture() {
+    if (listeningGestures) return;
+    listeningGestures = true;
+    const onGesture = () => {
+      unlockSpeech();
+      if (!pendingListen) return;
+      pendingListen = false;
+      start({ auto: true }).catch(() => {});
+    };
+    for (const type of ["pointerdown", "keydown", "touchend"]) window.addEventListener(type, onGesture, true);
+  }
+
+  function queueListen() {
+    pendingListen = true;
+    bindListenGesture();
+  }
 
   function say(text) {
     if (text) lastError = { message: text, at: new Date().toISOString() };
@@ -306,7 +365,7 @@ export function createVoice({ sendVoice, faceActive }) {
       onnxWASMBasePath: ORT_BASE,
       submitUserSpeechOnPause: true,
       startOnLoad: false,
-      getStream: () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }),
+      getStream: () => acquireStream(),
       onSpeechStart: () => {
         speechStartedAt = Date.now();
         lastVoiceAt = speechStartedAt;
@@ -335,13 +394,18 @@ export function createVoice({ sendVoice, faceActive }) {
     try { await vad.pause(); if (enabled && !document.hidden) await vad.start(); } finally { restarting = false; }
   }
 
-  async function start() {
+  async function start({ auto = false } = {}) {
     if (enabled) return true;
     if (starting) return starting;
     unlockSpeech();
     if (!deviceCapabilities().checked) await refreshCapabilities();
     if (!listenOn()) return false;
     if (!navigator.mediaDevices?.getUserMedia) { say("This browser can't use the microphone."); return false; }
+    const granted = await microphoneGranted();
+    if (!granted && auto && !navigator.userActivation?.isActive) {
+      queueListen();
+      return false;
+    }
     starting = (async () => {
       try {
         vad ||= await createVad();
@@ -349,12 +413,22 @@ export function createVoice({ sendVoice, faceActive }) {
         if (vad.errored) throw new Error(vad.errored);
       } catch (error) {
         const denied = /denied|NotAllowed|Permission/i.test(String(error?.name || "") + String(error?.message || error));
-        say(denied ? "Microphone access is blocked. Allow it in the browser to talk to Eco." : "Listening could not start. Check the connection and try again.");
+        const stillGranted = await microphoneGranted();
+        if (stillGranted && (denied || needsGesture(error))) {
+          queueListen();
+          try { await vad?.destroy(); } catch {}
+          vad = null;
+          return false;
+        }
+        if (denied && !stillGranted) say("Microphone access is blocked. Allow it in the browser to talk to Eco.");
+        else say("Listening could not start: " + (error?.name ? error.name + ": " : "") + (error?.message || error || "unknown") + ".");
         try { await vad?.destroy(); } catch {}
         vad = null;
+        if (!sharedStream?.getTracks().some((track) => track.readyState === "live")) releaseStream();
         return false;
       }
       enabled = true;
+      pendingListen = false;
       phase = "attentive";
       setMicCapture(true);
       recover();
@@ -367,6 +441,38 @@ export function createVoice({ sendVoice, faceActive }) {
     return starting;
   }
 
+  async function autoStart() {
+    if (enabled || starting || pendingListen) return enabled;
+    if (!settings().listen) return false;
+    if (!deviceCapabilities().checked) await refreshCapabilities();
+    if (!listenOn()) return false;
+    if (!await microphoneGranted()) return false;
+    const ok = await start({ auto: true });
+    if (!ok && !enabled && listenOn()) queueListen();
+    return ok;
+  }
+
+  async function requestListen({ followUp } = {}) {
+    if (!deviceCapabilities().listen && !(await refreshCapabilities(), deviceCapabilities().listen)) {
+      return { ok: false, status: "unsupported", error: "This device has no microphone Eco can use." };
+    }
+    if (!settings().listen) setFaceVoiceSetting("listen", true);
+    const used = followUp !== undefined ? followUp : settings().followUpSeconds;
+    armFollowUp(used);
+    if (enabled) return { ok: true, status: "listening", active: true, waitingForTap: false, follow_up: used };
+    const granted = await microphoneGranted();
+    const hasGesture = Boolean(navigator.userActivation?.isActive);
+    const canTry = granted || hasGesture;
+    if (canTry) {
+      const ok = await start({ auto: !hasGesture });
+      if (ok) return { ok: true, status: "listening", active: true, waitingForTap: false, follow_up: used };
+      if (pendingListen) return { ok: true, status: "queued", waitingForTap: true, queued: 1, message: "Queued until first tap", follow_up: used };
+      return { ok: false, status: "error", error: lastError?.message || "Listening could not start.", waitingForTap: false };
+    }
+    queueListen();
+    return { ok: true, status: "queued", waitingForTap: true, queued: 1, message: "Queued until first tap", follow_up: used };
+  }
+
   async function stop(sleep = false) {
     enabled = false;
     phase = "attentive";
@@ -377,6 +483,8 @@ export function createVoice({ sendVoice, faceActive }) {
     clearInterval(housekeeping);
     try { await vad?.destroy(); } catch {}
     vad = null;
+    releaseStream();
+    pendingListen = false;
     unloadWorker();
     updateButton();
     showText("", true);
@@ -392,7 +500,7 @@ export function createVoice({ sendVoice, faceActive }) {
 
   onSpeakingChange((value) => {
     if (value) return;
-    followUntil = Date.now() + settings().followUpSeconds * 1000;
+    followUntil = Date.now() + followWindow();
     lastAliasAt = Date.now();
   });
 
@@ -413,14 +521,19 @@ export function createVoice({ sendVoice, faceActive }) {
   return {
     start,
     stop,
+    autoStart,
+    requestListen,
+    armFollowUp,
     get enabled() { return enabled; },
     get phase() { return phase; },
+    get pendingListen() { return pendingListen; },
     stats,
     status: () => ({
       enabled,
       phase: enabled ? phase : "off",
       vadLoaded: Boolean(vad),
       transcriberLoaded,
+      waitingForTap: pendingListen,
       transcriberModel: TRANSCRIBERS[settings().transcriber],
       name: ecoName(),
       wakeWords: wakeNames(),

@@ -20,6 +20,7 @@ export const TOOL_LABELS = {
   modo_cara: "Face mode",
   voz_estado: "Voice status",
   hablar: "Speak",
+  escuchar: "Listen",
   dreaming: "Dreaming",
   magia_listar: "Magic",
   magia_crear: "Magic",

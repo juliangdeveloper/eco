@@ -1,4 +1,4 @@
-import { setupReload, resumeMarker, clearResumeMarker, prepareReload, commitReload } from "./reload.js";
+import { setupReload, resumeMarker, clearResumeMarker, prepareReload, commitReload, rememberAppVersion, reloadNotice } from "./reload.js";
 import { refreshMemoryPresence, startSecurityMemory, stopSecurityMemory } from "./passive-skills.js";
 import { ecoName, onEcoName } from "./identity.js";
 import { pruneAttachments } from "./attachments.js";
@@ -9,9 +9,9 @@ import { clearVaultMemory } from "./vault.js";
 import { deleteStoredSession, flushSessions, recoverSessions, saveSession } from "./session-store.js";
 import { dreamingEnabled, dreamingTool, startDreaming, stopDreaming } from "./dreaming.js";
 import { createAgentPanel } from "./agentPanel.js";
-import { setBridgeState, setDreamingHandler, setFaceHandler, setSpeakHandler, setToolListener, setVoiceHandler } from "./bridge.js";
+import { setBridgeState, setDreamingHandler, setFaceHandler, setListenHandler, setSpeakHandler, setToolListener, setVoiceHandler } from "./bridge.js";
 import { deviceCapabilities, listenOn, onCapabilities, speakOn, watchCapabilities } from "./capabilities.js";
-import { speakTool, voiceState } from "./voice-output.js";
+import { bindListenApi, listenTool, speakTool, voiceState } from "./voice-output.js";
 import { startMagic, stopMagic } from "./magic.js";
 import { createFace } from "./face.js";
 import { emitActivity } from "./face-config.js";
@@ -262,14 +262,23 @@ async function main() {
   voice = createVoice({ sendVoice: (text) => window.ecoApp.ready.then(() => chat.send(text, { voice: true })), faceActive: () => face.active });
   setVoiceHandler(() => voiceState(voice));
   setSpeakHandler(speakTool, () => deviceCapabilities().speak);
+  bindListenApi({
+    requestListen: (options) => voice.requestListen(options),
+    async stopListen() {
+      await voice.stop();
+      return { ok: true, status: "off", active: false, waitingForTap: false };
+    }
+  });
+  setListenHandler(listenTool, () => deviceCapabilities().listen);
   const applyVoice = () => {
     byId("micButton").hidden = !listenOn();
-    if (!listenOn() && (voice.enabled || voice.phase === "turn")) voice.stop();
+    if (!listenOn() && (voice.enabled || voice.phase === "turn" || voice.pendingListen)) voice.stop();
+    else if (listenOn() && !voice.enabled) voice.autoStart();
     if (!speakOn()) { stopSpeaking(); clearPendingSpeech(); }
   };
   onCapabilities(applyVoice);
   window.addEventListener("eco-face-voice-settings", applyVoice);
-  watchCapabilities();
+  watchCapabilities().then(() => voice.autoStart());
   setFaceHandler(async (action) => {
     if (action === "on" || action === "off") await face.set(action === "on");
     return { ok: true, modo_cara: face.active ? "on" : "off", estado: face.state };
@@ -375,7 +384,7 @@ async function main() {
     stop: stopRoutines
   });
   if (reloadResume) {
-    const notice = "Eco reloaded from " + reloadResume.before + " a " + APP_VERSION + ". Motivo: " + reloadResume.reason + ". Continue the pending work from the last saved point. Active subagents resume with the same id. Check the state of interrupted operations before repeating them; don't duplicate writes or tasks.";
+    const notice = reloadNotice(reloadResume.before, APP_VERSION, reloadResume.reason);
     const owners = [];
     for (const item of reloadResume.sessions || []) {
       const owner = await resolveSession(item.id);
@@ -383,14 +392,16 @@ async function main() {
       for (const id of item.jobs) {
         const job = owner.subagents?.find((row) => row.id === id);
         if (job?.status !== "interrumpido") continue;
-        const result = JSON.parse(await pyodide.globals.get("job_control")(JSON.stringify({ session: owner.id, id, action: "modificar", instruction: notice, owner_instructions: job.owner_instructions || owner.messages.filter((message) => message.role === "user" && !message.event).map((message) => message.content).join("\n") })));
+        const instruction = notice || ("Eco reloaded. Motivo: " + reloadResume.reason + ". Continue the pending work from the last saved point.");
+        const result = JSON.parse(await pyodide.globals.get("job_control")(JSON.stringify({ session: owner.id, id, action: "modificar", instruction, owner_instructions: job.owner_instructions || owner.messages.filter((message) => message.role === "user" && !message.event).map((message) => message.content).join("\n") })));
         if (result.error) throw new Error(result.error);
       }
     }
     await clearResumeMarker();
     if (reloadResume.session) replaceSession(await resolveSession(reloadResume.session));
-    await chat.resume(owners, notice);
+    if (notice) await chat.resume(owners, notice);
   }
+  rememberAppVersion(APP_VERSION);
   chat.setSending(false);
   chat.loadSession(currentSession());
   chat.drain();
