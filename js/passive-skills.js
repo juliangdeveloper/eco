@@ -2,6 +2,7 @@ import { featureDefinitions, featureValue } from "./environment.js";
 import { isWiping, memoryConfigured, reportMemoryConnection, securityState, setMemoryHealth } from "./security.js";
 import { APP_VERSION, DEFAULT_MODEL } from "./config.js";
 import { ecoName, nameHandle } from "./identity.js";
+import { isMentionRecord, selectMentionWake } from "./mentions.js";
 import { json, setting } from "./storage.js";
 import { connectorFetch, connectorStatus, getConnector, saveConnector, STATUS } from "./connectors.js";
 import { showCredentialCard } from "./credentials.js";
@@ -20,7 +21,6 @@ const SHEET_TITLE = "Eco · Memoria";
 const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 const MAX_CANDIDATES = 10;
 const MAX_MENTION_BATCHES = 5;
-const BROADCAST = "*";
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ADAPTERS = Object.freeze({
   ...MEMORY_BACKENDS,
@@ -212,22 +212,35 @@ export async function dreamingMemory() {
   return { adapter: primary.adapter, eco: primary.config.eco, label: primary.label };
 }
 
+function mentionState(identity) {
+  const all = json("mentionProcessed") || {};
+  const entry = all[identity] || {};
+  return { all, identity, processed: { ids: Array.isArray(entry.ids) ? entry.ids.map(String) : [], seeded: Boolean(entry.seeded) } };
+}
+
+function saveMentionState(state, processed) {
+  json("mentionProcessed", { ...state.all, [state.identity]: processed });
+}
+
 export async function memoryMentions(cursor) {
   const set = await memorySet();
   if (!set) return null;
   const config = set.primary.config;
   const identity = set.primary.identity;
   let position = cursor?.identity === identity ? cursor.position : null;
-  const mention = "@" + config.eco;
-  const handle = nameHandle();
-  const named = handle && handle !== "eco" && handle !== config.eco ? new RegExp("@" + handle + "(?![a-z0-9-])", "i") : null;
-  const records = [];
+  const ident = { eco: config.eco, handle: nameHandle(), name: ecoName() };
+  const state = mentionState(identity);
+  const found = [];
+  let caughtUp = true;
   for (let batch = 0; batch < MAX_MENTION_BATCHES; batch += 1) {
     const result = await set.readNew(["messages", "acks"], { load: () => position, save: value => { position = value; } }, "mentionCursor");
-    records.push(...result.records.filter((record) => ["message", "ack"].includes(record.type) && record.eco_author !== config.eco && (record.to === config.eco || record.to === BROADCAST || record.content.includes(mention) || (named && (record.to === handle || named.test(record.content))))));
+    found.push(...result.records.filter((record) => isMentionRecord(record, ident)));
     if (!result.hay_mas) break;
+    if (batch === MAX_MENTION_BATCHES - 1) caughtUp = false;
   }
-  return { records, cursor: { identity, position } };
+  const { wake, processed } = selectMentionWake(found, state.processed, Date.now(), { caughtUp });
+  saveMentionState(state, processed);
+  return { records: wake, cursor: { identity, position } };
 }
 
 export async function findExistingSheet(definition = ADAPTERS["google-drive"]) {

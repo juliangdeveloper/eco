@@ -4,7 +4,7 @@ from .registry import schema
 
 CHECK_SCHEMA = {
     "type": "object",
-    "description": "Check that runs only with code, without the model. tipo memoria_menciones: no other fields; detects new records in the connected memory addressed to you (para equal to your name or *, or @your-name in the content) written by another Eco. tipo conector: requires conector (id of a saved HTTP connector) and operacion (name of a read-only GET operation); optional params with fixed values; optional ruta with a dotted path inside the response, for example items.0.id; optional contiene: triggers when the value contains that text; without contiene it triggers when the value changes from the previous run.",
+    "description": "Check that runs only with code, without the model. tipo memoria_menciones: no other fields; detects new records in the connected memory addressed to you (to equal to your id, your name, todos, all or *, or your id or name as a whole word in the content, with or without @) written by another Eco. tipo conector: requires conector (id of a saved HTTP connector) and operacion (name of a read-only GET operation); optional params with fixed values; optional ruta with a dotted path inside the response, for example items.0.id; optional contiene: triggers when the value contains that text; without contiene it triggers when the value changes from the previous run.",
     "properties": {
         "tipo": {"type": "string", "enum": ["memoria_menciones", "conector"]},
         "conector": {"type": "string"},
