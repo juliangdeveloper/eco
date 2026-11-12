@@ -1,6 +1,7 @@
 import { isWiping } from "./security.js";
 import { featureDefinitions, featureValue, policyState } from "./environment.js";
 import { sandboxDocument } from "./device-sandbox.js";
+import { browserFeature, encodeSpeechEvent, isSafeBrowserPath, listSafeCapabilities, SAFE_EVENTS } from "./browser-capabilities.js";
 
 const MAX_BYTES = 131072;
 const STARTUP_TIMEOUT_MS = 5000;
@@ -16,7 +17,7 @@ const ACTIVATION_FEATURES = new Set(["nfc"]);
 const STORAGE_READ_METHODS = new Set(["estimate", "persisted"]);
 const executions = new Set();
 const normalizeArgs = args => args === undefined ? [] : Array.isArray(args) ? args : [args];
-const CALL_SIGNATURE = "Use device.call(path, [args])";
+const CALL_SIGNATURE = "Use device.call(path, [args]), device.get(path), device.set(path, value), device.construct(path, [args]) or device.listen(path, event)";
 const BLOCKED_ERRORS = new Set(["NotAllowedError", "SecurityError"]);
 const DENIED_MESSAGE = "The browser is blocking access to: ";
 const DENIED_HELP = ". Allow it for this site in Settings > Safari > Camera or Microphone (or from the aA icon in the address bar) and try again.";
@@ -30,7 +31,7 @@ const forbidden = new Set(["composedPath", "watchPosition", "addEventListener", 
 const bytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
 const validPart = value => /^[A-Za-z][A-Za-z0-9]*$/.test(value) && !forbidden.has(value);
 
-export async function executeDeviceTool(tool, params, signal) {
+export async function executeDeviceTool(tool, params, signal, options = {}) {
   if (isWiping()) return { ok: false, error: "Access cancelled" };
   if (isWiping()) return Promise.resolve({ ok: false, error: "Access cancelled" });
   return new Promise((resolve) => {
@@ -40,6 +41,7 @@ export async function executeDeviceTool(tool, params, signal) {
     frame.setAttribute("aria-hidden", "true");
     const channel = new MessageChannel();
     const handles = new Map();
+    const streamListeners = new Map();
     const cards = new Set();
     const cleanups = new Set();
     let settled = false;
@@ -78,7 +80,7 @@ export async function executeDeviceTool(tool, params, signal) {
     };
     const abort = () => finish({ ok: false, error: "Device access cancelled" });
     const startupTimer = setTimeout(() => finish({ ok: false, error: "The isolated tool could not start in this browser. Update Safari and try again." }), STARTUP_TIMEOUT_MS);
-    const timer = setTimeout(() => finish({ ok: false, error: cards.size ? "Device access has not been authorized yet. Authorize it and try again." : "The device tool did not finish. Try again." }), Math.min(60000, Math.max(1000, tool.timeout_ms || 30000)));
+    const timer = options.untilAbort ? 0 : setTimeout(() => finish({ ok: false, error: cards.size ? "Device access has not been authorized yet. Authorize it and try again." : "The device tool did not finish. Try again." }), Math.min(options.untilAbort ? 86400000 : 60000, Math.max(1000, tool.timeout_ms || 30000)));
     executions.add(abort);
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener("abort", abort, { once: true });
@@ -90,11 +92,18 @@ export async function executeDeviceTool(tool, params, signal) {
       if (typeof value !== "object" || depth > 8) throw new Error("Result is not serializable");
       if (seen.has(value)) return null;
       seen.add(value);
+      const speech = encodeSpeechEvent(value);
+      if (speech) return speech;
       if (ArrayBuffer.isView(value)) return { $bytes: Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)) };
       if (value instanceof ArrayBuffer) return { $bytes: Array.from(new Uint8Array(value)) };
       if (Array.isArray(value)) return value.map(item => encode(item, feature, depth + 1, new Set(seen)));
       const prototype = Object.getPrototypeOf(value);
-      if (prototype === Object.prototype || prototype === null) return Object.fromEntries(Object.entries(value).filter(([key]) => validPart(key)).map(([key, item]) => [key, encode(item, feature, depth + 1, new Set(seen))]));
+      if (prototype === Object.prototype || prototype === null) {
+        const methods = Object.entries(value).filter(([key, item]) => validPart(key) && typeof item === "function").map(([key]) => key);
+        const encoded = Object.fromEntries(Object.entries(value).filter(([key, item]) => validPart(key) && typeof item !== "function").map(([key, item]) => [key, encode(item, feature, depth + 1, new Set(seen))]));
+        if (methods.length) encoded.methods = methods;
+        return encoded;
+      }
       if (typeof value.toJSON === "function") return encode(value.toJSON(), feature, depth + 1, new Set(seen));
       let current = prototype;
       const fields = new Set();
@@ -144,7 +153,10 @@ export async function executeDeviceTool(tool, params, signal) {
         remaining = parts.slice(2);
       } else {
         feature = features.find(entry => path === entry.path || path.startsWith(entry.path + "."));
-        if (!feature) throw new Error("Path outside the allowed capabilities");
+        if (!feature) {
+          if (!isSafeBrowserPath(path)) throw new Error("Path outside the allowed capabilities");
+          feature = browserFeature(path);
+        }
         value = featureValue(feature.path);
         remaining = parts.slice(feature.path.split(".").length);
       }
@@ -180,19 +192,47 @@ export async function executeDeviceTool(tool, params, signal) {
           return;
         }
         if (message.kind === "get") { respond(entry.value); return; }
+        if (message.kind === "set") {
+          const member = String(message.path.split(".").pop() || "");
+          if (!validPart(member) || typeof entry.owner !== "object" || entry.owner == null) throw new Error("This property cannot be set");
+          if (typeof entry.owner[member] === "function") throw new Error("Methods cannot be replaced");
+          entry.owner[member] = args[0];
+          respond(args[0] ?? null);
+          return;
+        }
+        if (message.kind === "unlisten") {
+          const id = args[0];
+          const stop = streamListeners.get(id);
+          if (stop) { stop(); streamListeners.delete(id); }
+          respond(true);
+          return;
+        }
         if (message.kind === "listen") {
           const event = args[0];
-          if (!entry.feature.events.includes(event)) throw new Error("Event not allowed for this capability");
+          const stream = Boolean(args[1] && args[1].stream);
+          if (!entry.feature.events.includes(event) && !(entry.feature.name === "browser" && SAFE_EVENTS.includes(event))) throw new Error("Event not allowed for this capability");
           const target = entry.feature.eventTarget === "window" ? window : entry.value;
           if (!target?.addEventListener) throw new Error("This capability does not support events");
-          const listener = value => { cleanup(); respond(value); };
-          const cleanup = () => { target.removeEventListener(event, listener); cleanups.delete(cleanup); };
+          const listener = value => {
+            let payload;
+            try { payload = encode(value, entry.feature); } catch { payload = encodeSpeechEvent(value) || { type: String(value?.type || event) }; }
+            if (stream) {
+              if (settled || cancelled()) { cleanup(); return; }
+              channel.port1.postMessage({ kind: "response", id: message.id, result: payload, more: true });
+              return;
+            }
+            cleanup();
+            if (settled || cancelled()) return;
+            try { done(payload); } catch (error) { fail(error); }
+          };
+          const cleanup = () => { target.removeEventListener(event, listener); cleanups.delete(cleanup); streamListeners.delete(message.id); };
           cleanups.add(cleanup);
-          target.addEventListener(event, listener, { once: true });
+          if (stream) streamListeners.set(message.id, cleanup);
+          target.addEventListener(event, listener, stream ? undefined : { once: true });
           return;
         }
         if (typeof entry.value !== "function") throw new Error("The method does not exist in this browser");
-        if (message.kind === "construct" && message.path !== entry.feature.path) throw new Error("Constructor not allowed");
+        if (message.kind === "construct" && message.path !== entry.feature.path && !(entry.feature.name === "browser" && message.path === entry.feature.path)) throw new Error("Constructor not allowed");
         const result = message.kind === "construct" ? Reflect.construct(entry.value, args) : Reflect.apply(entry.value, entry.owner, args);
         const callbacks = JSON.stringify(message.args).includes('"$callback"');
         if (result?.then) result.then(respond, reject);
@@ -263,10 +303,15 @@ export async function executeDeviceTool(tool, params, signal) {
       }
     }
 
+    function recognitionPath(path) {
+      return /(^|\.)(webkit)?SpeechRecognition$/i.test(String(path || "").split(".").slice(0, -1).join(".") ) || /^(webkit)?SpeechRecognition$/i.test(String(path || "").split(".")[0] || "");
+    }
+
     function canRunWithoutTap(message) {
       const entry = locate(message.path);
       const method = message.path.split(".").pop();
-      if (message.kind === "get" || message.kind === "capture") return true;
+      if (message.kind === "get" || message.kind === "capture" || message.kind === "set" || message.kind === "unlisten" || message.kind === "listen") return true;
+      if (method === "start" && recognitionPath(message.path) && !navigator.userActivation?.isActive) return false;
       return !ACTIVATION_METHODS.has(method) && !ACTIVATION_FEATURES.has(entry.feature.name);
     }
 
@@ -388,12 +433,12 @@ export async function executeDeviceTool(tool, params, signal) {
         if (bytes(data) > MAX_BYTES) throw new Error("Message too large");
         if (data.kind === "ready") { if (started) throw new Error("Duplicate start"); started = true; clearTimeout(startupTimer); channel.port1.postMessage({ kind: "run", code: tool.code, params }); return; }
         if (data.kind === "done") { finish(data.error ? { ok: false, error: data.error } : { ok: true, data: data.result }); return; }
-        if (!["call", "get", "construct", "listen", "capture"].includes(data.kind)) throw new Error("kind must be call, get, construct, listen or capture. " + CALL_SIGNATURE);
+        if (!["call", "get", "set", "construct", "listen", "unlisten", "capture"].includes(data.kind)) throw new Error("kind must be call, get, set, construct, listen or capture. " + CALL_SIGNATURE);
         if (!Number.isInteger(data.id) || data.id < 1) throw new Error("id must be a positive integer. " + CALL_SIGNATURE);
         data.args = normalizeArgs(data.args);
         if (requestIds.has(data.id)) throw new Error("Repeated id: each request needs a unique id");
         requestIds.add(data.id);
-        if (++operations > 40 || cards.size >= 8) throw new Error("Too many device requests");
+        if (++operations > 200 || cards.size >= 8) throw new Error("Too many device requests");
         locate(data.path);
         requestAccess(data).catch(error => finish({ ok: false, error: String(error.message || error) }));
       } catch (error) { finish({ ok: false, error: String(error.message || error) }); }

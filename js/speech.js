@@ -43,6 +43,7 @@ const MAX_PENDING = 5;
 const START_MIC_MS = 50;
 let pending = [];
 let gestured = false;
+let speechHost = typeof window !== "undefined" ? window : null;
 let lastError = null;
 let lastVoice = "";
 let lastUtterance = null;
@@ -247,14 +248,75 @@ function langMatches(voice, language) {
   return Boolean(prefix && String(voice?.lang || "").toLowerCase().startsWith(prefix));
 }
 
-function pickVoice(language) {
-  const voices = speechSynthesis.getVoices();
-  const chosen = faceVoiceSettings().voiceName;
-  const named = chosen && voices.find((voice) => voice.name === chosen);
-  if (named && langMatches(named, language)) return named;
-  const prefix = String(language || "").slice(0, 2).toLowerCase();
-  return voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix) && voice.localService) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix)) || null;
+function foldVoiceName(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
+
+function voiceAliases(name) {
+  const folded = foldVoiceName(name);
+  const aliases = new Set([folded, ...folded.split(" ")]);
+  if (folded.includes("montse") || folded.includes("montserrat")) ["monica", "monica es", "montse", "montserrat"].forEach((item) => aliases.add(item));
+  if (folded.includes("monica")) ["montse", "montserrat", "monica"].forEach((item) => aliases.add(item));
+  return aliases;
+}
+
+function voicesOf(synth) {
+  try {
+    const first = synth?.getVoices?.() || [];
+    if (first.length) return first;
+    return synth?.getVoices?.() || [];
+  } catch {
+    return [];
+  }
+}
+
+export function pickVoice(language, synth = activeSynth(), name = faceVoiceSettings().voiceName) {
+  const voices = voicesOf(synth);
+  const chosen = String(name || "").trim();
+  if (chosen) {
+    const aliases = voiceAliases(chosen);
+    const named = voices.find((voice) => foldVoiceName(voice.name) === foldVoiceName(chosen))
+      || voices.find((voice) => aliases.has(foldVoiceName(voice.name)) || aliases.has(foldVoiceName(voice.name).split(" ")[0]) || foldVoiceName(voice.name).split(" ").some((part) => aliases.has(part)));
+    if (named) return named;
+  }
+  const prefix = String(language || "").slice(0, 2).toLowerCase();
+  return voices.find((voice) => langMatches(voice, language) && voice.localService) || voices.find((voice) => langMatches(voice, language)) || null;
+}
+
+function hostFromEvent(event) {
+  try {
+    if (event?.view && event.view !== window && window.parent && event.view === window.parent) return window.parent;
+    const target = event?.currentTarget || event?.target;
+    if (window.parent && window.parent !== window && (target === window.parent || target === window.parent.document || target === window.parent.document.documentElement || target === window.parent.document.body || target === window.frameElement)) return window.parent;
+  } catch {}
+  return window;
+}
+
+function activeHost() {
+  return speechHost && speechHost.speechSynthesis ? speechHost : window;
+}
+
+function activeSynth() {
+  try { return activeHost().speechSynthesis || window.speechSynthesis; } catch { return window.speechSynthesis; }
+}
+
+function activeUtterance(text) {
+  const host = activeHost();
+  const Ctor = host.SpeechSynthesisUtterance || window.SpeechSynthesisUtterance;
+  return new Ctor(text);
+}
+
+function bindVoiceLists() {
+  const attach = (synth) => {
+    if (!synth?.addEventListener) return;
+    try { synth.getVoices(); } catch {}
+    try { synth.addEventListener("voiceschanged", () => { try { synth.getVoices(); } catch {} }); } catch {}
+  };
+  try { attach(window.speechSynthesis); } catch {}
+  try { if (window.parent && window.parent !== window) attach(window.parent.speechSynthesis); } catch {}
+}
+
+bindVoiceLists();
 
 export function displayMode() {
   try {
@@ -268,7 +330,8 @@ export function displayMode() {
 
 export function snapshotSynthesis() {
   try {
-    return { speaking: Boolean(speechSynthesis.speaking), pending: Boolean(speechSynthesis.pending), paused: Boolean(speechSynthesis.paused) };
+    const synth = activeSynth();
+    return { speaking: Boolean(synth.speaking), pending: Boolean(synth.pending), paused: Boolean(synth.paused) };
   } catch {
     return { speaking: false, pending: false, paused: false };
   }
@@ -299,7 +362,7 @@ function release(utterance) {
 function startKeepAlive() {
   clearInterval(keepAlive);
   keepAlive = setInterval(() => {
-    try { if (speechSynthesis.paused || speaking || draining) speechSynthesis.resume(); } catch {}
+    try { const synth = activeSynth(); if (synth.paused || speaking || draining) synth.resume(); } catch {}
   }, KEEP_ALIVE_MS);
 }
 
@@ -310,16 +373,18 @@ function stopKeepAlive() {
 
 function systemSay(sentence, language, run) {
   return new Promise((resolve) => {
-    if (!("speechSynthesis" in window) || run !== generation) { resolve(); return; }
+    const synth = activeSynth();
+    if (!synth || run !== generation) { resolve(); return; }
     currentSentence = sentence;
     currentLanguage = language;
     const t0 = performance.now();
-    try { speechSynthesis.cancel(); } catch {}
-    try { speechSynthesis.resume(); } catch {}
+    try { if (synth.speaking || synth.pending) synth.cancel(); } catch {}
+    try { synth.resume(); } catch {}
+    try { voicesOf(synth); } catch {}
     prepareAudioSession();
     let startTimer = 0;
     let settled = false;
-    const utterance = new SpeechSynthesisUtterance(sentence);
+    const utterance = activeUtterance(sentence);
     const finish = () => {
       if (settled) return;
       settled = true;
@@ -334,7 +399,7 @@ function systemSay(sentence, language, run) {
       resolve();
     };
     try {
-      const voice = pickVoice(language);
+      const voice = pickVoice(language, synth);
       const lang = voice?.lang || localeFor(language);
       utterance.lang = lang;
       utterance.volume = 1;
@@ -400,12 +465,12 @@ function systemSay(sentence, language, run) {
         if (settled || trace.started) return;
         const syn = snapshotSynthesis();
         noticeVoice("The system voice did not start (" + (START_TIMEOUT_MS / 1000).toFixed(1) + " s). speaking=" + syn.speaking + " pending=" + syn.pending + " paused=" + syn.paused + ".");
-        try { speechSynthesis.cancel(); } catch {}
+        try { if (synth.speaking || synth.pending) synth.cancel(); } catch {}
         if (run === generation) setSpeaking(false);
         finish();
       }, START_TIMEOUT_MS);
       if (run !== generation) { finish(); return; }
-      speechSynthesis.speak(utterance);
+      synth.speak(utterance);
     } catch (error) {
       noticeVoice("The system voice failed: " + (error?.message || "unknown") + ".");
       if (run === generation) setSpeaking(false);
@@ -505,7 +570,7 @@ export function stopSpeaking() {
   generation += 1;
   queue = [];
   draining = false;
-  try { speechSynthesis.cancel(); } catch {}
+  try { activeSynth().cancel(); } catch {}
   try { currentSource?.stop(); } catch {}
   clearInterval(levelTimer);
   stopKeepAlive();
@@ -526,13 +591,15 @@ export function unlockSpeech() {
     } catch {}
   }
   try {
-    if (!("speechSynthesis" in window)) return;
-    try { if (speechSynthesis.paused) speechSynthesis.resume(); } catch {}
+    const synth = activeSynth();
+    if (!synth) return;
+    try { voicesOf(synth); } catch {}
+    try { synth.resume(); } catch {}
   } catch {}
 }
 
 export function systemVoices() {
-  try { return speechSynthesis.getVoices().map((voice) => ({ name: voice.name, lang: voice.lang, localService: Boolean(voice.localService) })); } catch { return []; }
+  try { return voicesOf(activeSynth()).map((voice) => ({ name: voice.name, lang: voice.lang, localService: Boolean(voice.localService) })); } catch { return []; }
 }
 
 export const speechUnlocked = () => gestured;
@@ -554,13 +621,15 @@ function addGesture(target, type, handler) {
   gestureBindings.push([target, type, handler]);
 }
 
-function onUserGesture() {
+function onUserGesture(event) {
   const items = pending.slice();
   if (!items.length && gestured) return;
-  try { window.focus(); } catch {}
+  speechHost = hostFromEvent(event);
+  try { activeHost().focus(); } catch {}
   try { if (listenSession) prepareListenSession("tap"); } catch {}
   unlockSpeech();
   gestured = true;
+  try { window.dispatchEvent(new Event("eco-user-gesture")); } catch {}
   if (!items.length) {
     notifyIdle();
     return;
@@ -611,7 +680,8 @@ export function speechStatus() {
     displayMode: displayMode(),
     audioSession: audioSessionInfo(),
     micCapture,
-    iframe: inIframe()
+    iframe: inIframe(),
+    speechHost: speechHost && speechHost !== window ? "parent" : "self"
   };
 }
 
@@ -638,7 +708,7 @@ registerComponent("speech", {
     return { ok: true, name: "speech", config: { voiceName: current.voiceName, neuralVoice: current.neuralVoice, speechRate: current.speechRate, speechPitch: current.speechPitch } };
   },
   reload() {
-    try { speechSynthesis.cancel(); } catch {}
+    try { activeSynth().cancel(); } catch {}
     return { ok: true, name: "speech", status: speechStatus() };
   }
 });

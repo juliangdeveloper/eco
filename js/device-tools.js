@@ -94,12 +94,12 @@ export async function manageDeviceTool(args) {
   return { ok: true, name: tool.name, nativeTool: "dispositivo_" + tool.name };
 }
 
-export async function callDeviceTool(name, params, signal) {
+export async function callDeviceTool(name, params, signal, options = {}) {
   try {
     const tool = (await listDeviceTools(name))[0];
     if (!tool) return { ok: false, error: "Tool not found on this device" };
     if (maxSize(params) > 65536) throw new Error("Parameters larger than 64 KiB");
     validateDeviceParams(params, tool.parameters);
-    return await executeDeviceTool(tool, params, signal);
+    return await executeDeviceTool(tool, params, signal, options);
   } catch (error) { return { ok: false, untrusted: true, error: String(error.message || error) }; }
 }

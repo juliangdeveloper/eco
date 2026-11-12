@@ -1,4 +1,6 @@
 import { json } from "./storage.js";
+import { APP_VERSION } from "./config.js";
+import { isSafeBrowserPath, listSafeCapabilities, speechRecognitionCtor } from "./browser-capabilities.js";
 
 const STORE = "runtimeComponents";
 const components = new Map();
@@ -79,13 +81,39 @@ export async function reloadComponent(name) {
   return entry.reload();
 }
 
+const sinks = new Map();
+
+export function onComponentPush(name, handler) {
+  sinks.set(name, handler);
+  return () => { if (sinks.get(name) === handler) sinks.delete(name); };
+}
+
+export function pushComponent(name, payload) {
+  const handler = sinks.get(name);
+  if (!handler) throw new Error("No listener for " + name);
+  return handler(payload);
+}
+
 export const ecoRuntime = {
-  list() { return listComponents(); },
-  status(name) { return componentStatus(name); },
+  version: APP_VERSION,
+  list() {
+    return { version: APP_VERSION, components: listComponents() };
+  },
+  status(name) { return name ? { version: APP_VERSION, ...componentStatus(name) } : { version: APP_VERSION, components: componentStatus() }; },
   config(name) { return name ? componentConfig(name) : componentConfig(); },
   configure(name, patch) { return configureComponent(name, patch); },
   set(name, key, value) { return configureComponent(name, { [key]: value }); },
-  reload(name) { return reloadComponent(name); }
+  reload(name) { return reloadComponent(name); },
+  use(path) {
+    if (!isSafeBrowserPath(path)) throw new Error("Path outside the allowed capabilities");
+    const value = path.split(".").reduce((current, part) => current?.[part], window);
+    if (value === undefined || value === null) throw new Error("This API is not available in this browser");
+    return { ok: true, path, available: true };
+  },
+  capabilities() {
+    return { version: APP_VERSION, browser: listSafeCapabilities(), speechRecognition: Boolean(speechRecognitionCtor()), components: listComponents() };
+  },
+  push(name, payload) { return pushComponent(name, payload); }
 };
 
 if (typeof window !== "undefined") window.ecoRuntime = ecoRuntime;

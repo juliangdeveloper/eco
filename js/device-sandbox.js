@@ -10,11 +10,42 @@ const request = (kind, path, args) => new Promise((resolve, reject) => {
   pending.set(id, { resolve, reject });
   postMessage(message);
 });
+const listenStream = (path, event) => {
+  const id = ++sequence;
+  const queue = [];
+  const waiters = [];
+  let stopped = false;
+  pending.set(id, {
+    resolve: (value) => {
+      if (waiters.length) waiters.shift().resolve(value);
+      else queue.push(value);
+    },
+    reject: (error) => {
+      stopped = true;
+      pending.delete(id);
+      while (waiters.length) waiters.shift().reject(error);
+    }
+  });
+  postMessage({ kind: "listen", id, path, args: [event, { stream: true }] });
+  return {
+    next: () => new Promise((resolve, reject) => {
+      if (stopped && !queue.length) return reject(new Error("Listener stopped"));
+      if (queue.length) return resolve(queue.shift());
+      waiters.push({ resolve, reject });
+    }),
+    stop: () => request("unlisten", path, [id]).then(() => {
+      stopped = true;
+      pending.delete(id);
+      while (waiters.length) waiters.shift().reject(new Error("Listener stopped"));
+    })
+  };
+};
 const device = Object.freeze({
   call: (path, args) => request("call", path, args),
   get: path => request("get", path),
+  set: (path, value) => request("set", path, [value]),
   construct: (path, args) => request("construct", path, args),
-  listen: (path, event) => request("listen", path, [event]),
+  listen: (path, event, options) => options && options.stream ? listenStream(path, event) : request("listen", path, [event]),
   capture: (stream, options) => request("capture", "handles." + stream?.$handle, [options || {}]),
   callback: kind => ({ $callback: kind })
 });
@@ -22,7 +53,7 @@ onmessage = async ({ data }) => {
   if (data.kind === "response") {
     const item = pending.get(data.id);
     if (!item) return;
-    pending.delete(data.id);
+    if (!data.more) pending.delete(data.id);
     if (data.error) item.reject(new Error(data.error)); else item.resolve(data.result);
     return;
   }

@@ -1,6 +1,6 @@
 let wiping = false;
-const CACHE_NAME = "eco-v0.26.8";
-const VERSION_QUERY = "?v=0.26.8";
+const CACHE_NAME = "eco-v0.26.9";
+const VERSION_QUERY = "?v=0.26.9";
 const SHELL_FILES = [
   "./",
   "index.html",
