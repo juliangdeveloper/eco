@@ -89,7 +89,7 @@ export function createFace({ getSession }) {
   const sprite = new Sprite(byId("faceSprite"), "face");
   const crowd = byId("faceCharacters");
   const subtitle = byId("faceSubtitle");
-  const flags = { alert: false, asking: false, tool: null, reaction: null, speaking: false, writingUntil: 0, listening: false, thinking: false, attentive: false, routineUntil: 0 };
+  const flags = { alert: false, asking: false, tool: null, reaction: null, speaking: false, writingUntil: 0, listening: false, thinking: false, attentive: false, routineUntil: 0, magicUntil: 0 };
   const characters = new Map();
   const toolTokens = new Map();
   let pack = null;
@@ -223,6 +223,7 @@ export function createFace({ getSession }) {
     const now = Date.now();
     if (flags.alert) return "alert";
     if (flags.reaction?.type === "error" && now < flags.reaction.until) return "error";
+    if (now < flags.magicUntil) return pack?.face.states.startle ? "startle" : "happy";
     if (flags.asking) return "asking";
     if (flags.tool) return "tool_" + flags.tool.family;
     if (flags.reaction?.type === "happy" && now < flags.reaction.until) return "happy";
@@ -490,6 +491,14 @@ export function createFace({ getSession }) {
       case "listening": flags.listening = Boolean(detail.on); break;
       case "attentive": flags.attentive = Boolean(detail.on); break;
       case "sleep": lastActivity = 0; break;
+      case "magic": {
+        const length = settings().reactionMs;
+        flags.magicUntil = Date.now() + length;
+        flags.reaction = { type: detail.status === "error" ? "error" : "happy", until: Date.now() + length };
+        layer.classList.toggle("magicFlash", detail.status !== "error");
+        setTimeout(() => { layer.classList.remove("magicFlash"); render(); }, length + 20);
+        break;
+      }
       case "routine":
         if (active && IDLE_STATES.has(compute()) && compute() === "idle" && !transient && pack) {
           const state = pack.face.states.routine;

@@ -12,6 +12,7 @@ import { createAgentPanel } from "./agentPanel.js";
 import { setBridgeState, setDreamingHandler, setFaceHandler, setSpeakHandler, setToolListener, setVoiceHandler } from "./bridge.js";
 import { deviceCapabilities, listenOn, onCapabilities, speakOn, watchCapabilities } from "./capabilities.js";
 import { speakTool, voiceState } from "./voice-output.js";
+import { startMagic, stopMagic } from "./magic.js";
 import { createFace } from "./face.js";
 import { emitActivity } from "./face-config.js";
 import { bindFaceVoiceSettings } from "./face-settings.js";
@@ -209,7 +210,7 @@ function bindComposer() {
 
 async function main() {
   setSecurityShutdown(() => {
-    for (const stop of [() => voice?.stop(), stopSpeaking, stopDreaming, stopRoutines, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
+    for (const stop of [() => voice?.stop(), stopSpeaking, stopDreaming, stopRoutines, stopMagic, stopSecurityMemory, stopSubagents, stopDeviceTools, abortNetwork, closeDatabase, clearVaultMemory]) { try { stop(); } catch {} }
     for (const item of interactions.splice(0)) item.resolve("");
     for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close("cancelled");
     pyodide = null;
@@ -249,6 +250,14 @@ async function main() {
     statsSave
   });
   face = createFace({ getSession: currentSession });
+  startMagic({
+    getSession: currentSession,
+    append: (session, message) => chat.append(session, message),
+    triggerTurn: chat.trigger,
+    toggleFace: async () => { await face.set(!face.active); return face.active; },
+    modelReady: () => Boolean(pyodide && localStorage.getItem("eco.openrouterKey")),
+    onChange: () => window.dispatchEvent(new Event("eco-magic-change"))
+  });
   voice = createVoice({ sendVoice: (text) => window.ecoApp.ready.then(() => chat.send(text, { voice: true })), faceActive: () => face.active });
   setVoiceHandler(() => voiceState(voice));
   setSpeakHandler(speakTool, () => deviceCapabilities().speak);

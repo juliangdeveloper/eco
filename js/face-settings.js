@@ -1,4 +1,4 @@
-import { FACE_VOICE_SETTINGS, TRANSCRIBERS, faceVoiceSettings, resetFaceVoiceSettings, setFaceVoiceSetting } from "./face-config.js";
+import { FACE_VOICE_SETTINGS, SPEECH_LANGUAGES, TRANSCRIBERS, faceVoiceSettings, resetFaceVoiceSettings, setFaceVoiceSetting } from "./face-config.js";
 import { activePackId, deletePack, DEFAULT_PACK_ID, exportPack, importPack, isBuiltin, listPacks, loadPack, selectPack } from "./face-packs.js";
 import { systemVoices } from "./speech.js";
 import { deviceCapabilities, onCapabilities } from "./capabilities.js";
@@ -132,7 +132,7 @@ export function renderFaceVoiceSettings() {
   const parts = [];
   const switches = document.createElement("div");
   switches.className = "voiceSwitches";
-  if (caps.listen) switches.append(toggle("listen", "Listen", "Microphone, hands-free listening and the wake word.", values.listen));
+  if (caps.listen) switches.append(toggle("listen", "Listen", "Microphone, hands-free listening, the wake word and Magic phrases.", values.listen));
   if (caps.speak) switches.append(toggle("speak", "Speak", "Reads replies to voice turns aloud and speaks when asked.", values.speak));
   if (switches.children.length) parts.push(switches);
   else {
@@ -144,9 +144,10 @@ export function renderFaceVoiceSettings() {
   }
   if (caps.listen) {
     const transcriber = select("fv-transcriber", Object.keys(TRANSCRIBERS).map((key) => [key, TRANSCRIBER_LABELS[key]]), values.transcriber, (value) => setFaceVoiceSetting("transcriber", value));
+    const language = select("fv-speechLanguage", SPEECH_LANGUAGES, SPEECH_LANGUAGES.some((item) => item[0] === values.speechLanguage) ? values.speechLanguage : "auto", (value) => setFaceVoiceSetting("speechLanguage", value));
     const top = document.createElement("div");
     top.className = "stepLimits";
-    top.append(field("Transcriber", transcriber));
+    top.append(field("Transcriber", transcriber), field("Speech language", language));
     parts.push(top);
   }
   const voices = systemVoices();

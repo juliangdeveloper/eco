@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.25.1
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.26.0
 
-<img src="assets/screenshot.png?v=0.25.1" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.26.0" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
@@ -26,7 +26,7 @@ The subagents button only counts work that is running or finished and not yet se
 
 ## Photos and images
 
-Photos a device tool takes, and any image a tool returns, appear in the chat and stay on your device with the conversation; the model only gets a short reference. With the Google Drive memory connected, Eco can upload them to your Drive and share the link.
+Photos a Magic command or a device tool takes, and any image a tool returns, appear in the chat and stay on your device with the conversation; the model only gets a short reference. With the Google Drive memory connected, Eco can upload them to your Drive and share the link.
 
 ## Name
 
@@ -34,7 +34,11 @@ In **Settings › Name** you give this Eco its own name (Eco by default). It is 
 
 ## Face and voice
 
-The face button shows Eco's animated face over the chat: it fills the area below the header, scales with the window, reacts to what Eco is doing and each running subagent appears as a small character. **Settings › Voice** has two separate switches. **Listen** turns on the microphone for hands-free listening: detection and transcription run on your device, and Eco only gets what you say after its name. **Speak** lets Eco answer aloud when you spoke to it, and say things aloud when asked, even while listening is off. Each switch only appears when the device has a usable microphone or voice output. If voice stops working, a notice stays on screen until it works again or you dismiss it. **Settings › Face mode** and **Settings › Voice** have every timing with Reset to defaults. Face mode includes a Default pack and a Spaceship pack, and you can export and import packs to share looks.
+The face button shows Eco's animated face over the chat: it fills the area below the header, scales with the window, reacts to what Eco is doing and each running subagent appears as a small character. **Settings › Voice** has two separate switches. **Listen** turns on the microphone for hands-free listening: detection and transcription run on your device, and Eco only gets what you say after its name, or a Magic phrase. You can set the speech language there (Automatic uses the device language). **Speak** lets Eco answer aloud when you spoke to it, and say things aloud when asked, even while listening is off. Each switch only appears when the device has a usable microphone or voice output. If voice stops working, a notice stays on screen until it works again or you dismiss it. **Settings › Face mode** and **Settings › Voice** have every timing with Reset to defaults. Face mode includes a Default pack and a Spaceship pack, and you can export and import packs to share looks.
+
+## Magic
+
+In **Settings › Magic** you add short phrases that run a command. While Listen is on, saying the phrase is enough; you can also type the exact phrase in the chat. A local command runs on the device without calling the model, for example a front or rear photo, speaking a line, stopping speech, toggling face mode, running a routine or calling a device tool. Other commands start a turn with an instruction you saved. Photos stay with the conversation on your device.
 
 ## Secure wipe
 
@@ -53,7 +57,7 @@ In **Settings › Secure wipe** you choose a word that erases everything Eco sto
 | Voice chat ([#7](https://github.com/juliangdeveloper/eco/issues/7)) | Untested |
 | Vault ([#8](https://github.com/juliangdeveloper/eco/issues/8)) | Design |
 | Local LLM ([#9](https://github.com/juliangdeveloper/eco/issues/9)) | Design |
-| Magic ([#10](https://github.com/juliangdeveloper/eco/issues/10)) | Design |
+| Magic ([#10](https://github.com/juliangdeveloper/eco/issues/10)) | Functional |
 
 ## Before using it
 

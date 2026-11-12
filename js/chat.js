@@ -7,6 +7,7 @@ import { renderSubagents } from "./subagents.js";
 import { emitActivity } from "./face-config.js";
 import { speak } from "./speech.js";
 import { speakOn } from "./capabilities.js";
+import { interceptMagic } from "./magic.js";
 
 const RESULT_PREVIEW_CHARS = 1600;
 const messageId = () => "m-" + crypto.randomUUID();
@@ -70,7 +71,10 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
   async function send(text, options = {}) {
     if (isWiping() || await interceptSecurityCommand(text)) return;
     const content = text.trim();
-    if (!content || !getPyodide()) return;
+    if (!content) return;
+    const magic = await interceptMagic(content, Boolean(options.voice));
+    if (magic?.handled) return magic.result;
+    if (!getPyodide()) return;
     if (!localStorage.getItem("eco.openrouterKey")) { byId("settings").showModal(); return; }
     const session = getSession();
     const message = { id: messageId(), role: "user", content, ...(options.voice ? { voice: true } : {}), ...(session.replyDraft ? { replyTo: session.replyDraft } : {}) };
@@ -219,5 +223,5 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
 
   function currentTodos() { return getSession().todos || []; }
   async function setTodos(todos) { getSession().todos = todos; renderTodos(todos); await persist(getSession()); }
-  return { resume, currentTodos, drain, loadSession, receiveJob, replyTo, send, setSending, setTodos, trigger, updateTurn };
+  return { append, resume, currentTodos, drain, loadSession, receiveJob, replyTo, send, setSending, setTodos, trigger, updateTurn };
 }

@@ -1131,3 +1131,15 @@ dialog { z-index: 30; }
 .subagentRow { display: grid; gap: 2px; width: 100%; margin-top: 8px; padding: 10px 12px; text-align: left; border-radius: 12px; background: var(--surface); }
 .subagentRow strong { font-size: 14px; overflow-wrap: anywhere; }
 .subagentRow small { color: var(--text-muted); font-size: 12px; }
+
+.magicForm { display: grid; gap: 10px; margin-top: 10px; }
+.magicForm label { display: grid; gap: 4px; }
+.magicForm textarea { width: 100%; min-height: 4.5em; resize: vertical; }
+#faceLayer.magicFlash .faceStage { animation: magicFlash 0.7s ease; }
+@keyframes magicFlash {
+  0%, 100% { filter: none; }
+  40% { filter: brightness(1.4) saturate(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #faceLayer.magicFlash .faceStage { animation: none; }
+}

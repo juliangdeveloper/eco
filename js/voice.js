@@ -2,7 +2,9 @@ import { emitActivity, faceVoiceSettings, TRANSCRIBERS } from "./face-config.js"
 import { isSpeaking, onSpeakingChange, stopSpeaking, unlockSpeech } from "./speech.js";
 import { ecoName } from "./identity.js";
 import { deviceCapabilities, listenOn, refreshCapabilities } from "./capabilities.js";
+import { consumeMagicTranscript } from "./magic.js";
 import { byId } from "./ui.js";
+import { distance, isTruncation, normalize, phonetic } from "./voice-match.js";
 
 const ORT_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js";
 const VAD_BASE = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/";
@@ -33,27 +35,7 @@ const HALLUCINATION = /^\s*[[(].*[\])]\s*$/;
 const MAX_TRANSCRIPTIONS = 20;
 const STATUS_TRANSCRIPTIONS = 5;
 
-export function normalize(text) {
-  return String(text || "").normalize("NFD").replace(/\p{M}+/gu, "").toLocaleLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-}
-
-function phonetic(word) {
-  return word.replace(/h/g, "").replace(/k|q/g, "c").replace(/z/g, "s").replace(/v/g, "b").replace(/y/g, "i").replace(/(.)\1+/g, "$1");
-}
-
-function distance(a, b) {
-  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= a.length; i++) {
-    let previous = row[0];
-    row[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const current = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
-      previous = current;
-    }
-  }
-  return row[b.length];
-}
+export { normalize } from "./voice-match.js";
 
 export function wakeNames() {
   const names = new Set();
@@ -72,7 +54,7 @@ export function findAlias(text, names = wakeNames(), tolerance = faceVoiceSettin
     for (let index = 0; index + parts.length <= plain.length; index++) {
       const candidate = plain.slice(index, index + parts.length).join(" ");
       const target = parts.join(" ");
-      if (distance(candidate, target) <= Math.floor(target.length * tolerance)) {
+      if (distance(candidate, target) <= Math.floor(target.length * tolerance) && !isTruncation(candidate.replace(/ /g, ""), target.replace(/ /g, ""))) {
         const last = words[index + parts.length - 1];
         const after = original.slice(last.index + last[0].length).replace(/^[\s,.:;!?¡¿-]+/, "").trim();
         return { index, after };
@@ -202,7 +184,8 @@ export function createVoice({ sendVoice, faceActive }) {
     const seconds = Math.round(audio.length / 1600) / 10;
     try {
       await ensureWorker();
-      const language = (navigator.language || "").slice(0, 2).toLowerCase();
+      const chosen = settings().speechLanguage;
+      const language = chosen && chosen !== "auto" ? chosen : (navigator.language || "").slice(0, 2).toLowerCase();
       const result = await request({ type: "transcribe", audio, language, model: TRANSCRIBERS[settings().transcriber] });
       stats.transcriptions.push({ ms: Math.round(performance.now() - started), seconds, text: result.text, at: new Date().toISOString() });
       if (stats.transcriptions.length > MAX_TRANSCRIPTIONS) stats.transcriptions.splice(0, stats.transcriptions.length - MAX_TRANSCRIPTIONS);
@@ -263,6 +246,7 @@ export function createVoice({ sendVoice, faceActive }) {
     if (!enabled || !text) return;
     const values = settings();
     if (clarifyOpen()) { answerClarify(text); return; }
+    if (await consumeMagicTranscript(text)) return;
     if (phase === "turn") {
       buffer = (buffer + " " + text).trim();
       showText(buffer);

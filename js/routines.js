@@ -173,6 +173,14 @@ export async function tick() {
   }
 }
 
+export async function runRoutineById(id) {
+  const routine = (await listRoutines()).find((item) => item.id === id);
+  if (!routine) return fail("Routine not found.");
+  if (!routine.activa) return fail("Routine is paused.");
+  await runRoutine(routine);
+  return { ok: true, id: routine.id };
+}
+
 export function onRoutinesChange(listener) {
   changeListener = listener;
 }

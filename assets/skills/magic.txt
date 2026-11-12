@@ -1,5 +1,13 @@
 Magic
 
-When it applies: the person mentions Magic or Eco's magic mode.
+When it applies: the person mentions Magic, a magic word, a magic phrase or a spoken command that should run without saying Eco's name; or a shared-memory message asks this Eco to create, change or remove one.
 
-Magic is in design and doesn't do anything yet. Tell them in one sentence and ask what they expect it to do, without making up features.
+What it is: Magic commands are short phrases the person chooses. While Listen is on, saying the phrase is enough: the name is not required. Typing the exact phrase in the chat also runs it. Local commands run on the device without calling the model. Model commands start a turn with the saved instruction; any words said or typed after the phrase are attached as data, not as orders.
+
+Local actions: foto_frontal and foto_trasera take a photo with the front or rear camera and keep it in the conversation; hablar says the saved text aloud (queued until the first tap on Safari, like hablar); callar stops speech; modo_cara turns face mode on or off; rutina runs an existing routine by id; herramienta runs an existing device tool by name with optional params. A command that needs a camera, voice output, routine or tool that this device does not have stays unavailable until that changes.
+
+How to manage them: magia_listar, magia_crear, magia_editar and magia_borrar. frases is a list of trigger phrases; tipo is local or model; for local set accion.kind and the fields that kind needs (texto, rutina, herramienta, params); for model set instruccion. Optional respuesta is spoken after a successful local run. origen is user by default; when you create a command because a shared-memory message asked for it, set origen to shared_memory. The person can also add, edit, test and delete commands in Settings › Magic.
+
+Matching: voice matching allows one small typo across the whole phrase and keeps the words in order; a shorter word such as “panel” does not stand in for a longer one such as “panelo”. Typed commands must match the phrase exactly, aside from capitalization and punctuation. A phrase cannot be this Eco's name.
+
+Don't invent Magic commands the person did not ask for. Don't claim a local command called the model, or that a model command ran only on the device.

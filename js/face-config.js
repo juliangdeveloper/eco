@@ -30,7 +30,8 @@ export const FACE_VOICE_SETTINGS = Object.freeze([
   { group: "voice", name: "speechPitch", label: "Speech pitch", default: 1, min: 0.5, max: 2, step: 0.05 }
 ]);
 
-export const VOICE_TEXT_SETTINGS = Object.freeze({ voiceName: "", transcriber: "whisper-tiny", neuralVoice: false });
+export const SPEECH_LANGUAGES = Object.freeze([["auto", "Automatic (device language)"], ["es", "Spanish"], ["en", "English"], ["pt", "Portuguese"], ["fr", "French"], ["de", "German"], ["it", "Italian"]]);
+export const VOICE_TEXT_SETTINGS = Object.freeze({ voiceName: "", transcriber: "whisper-tiny", speechLanguage: "auto", neuralVoice: false });
 export const VOICE_SWITCHES = Object.freeze({ listen: true, speak: true });
 export const TRANSCRIBERS = Object.freeze({ "whisper-tiny": "onnx-community/whisper-tiny", "whisper-base": "onnx-community/whisper-base" });
 
@@ -44,6 +45,7 @@ export function faceVoiceSettings() {
   for (const [name, fallback] of Object.entries(VOICE_TEXT_SETTINGS)) result[name] = typeof stored[name] === typeof fallback ? stored[name] : fallback;
   for (const [name, fallback] of Object.entries(VOICE_SWITCHES)) result[name] = typeof stored[name] === "boolean" ? stored[name] : typeof stored.enabled === "boolean" ? stored.enabled : fallback;
   if (!TRANSCRIBERS[result.transcriber]) result.transcriber = VOICE_TEXT_SETTINGS.transcriber;
+  if (!SPEECH_LANGUAGES.some((item) => item[0] === result.speechLanguage)) result.speechLanguage = VOICE_TEXT_SETTINGS.speechLanguage;
   if (result.idleMaxSeconds < result.idleMinSeconds) result.idleMaxSeconds = result.idleMinSeconds;
   if (result.asleepMinutes <= result.sleepyMinutes) result.asleepMinutes = result.sleepyMinutes + 0.5;
   return result;

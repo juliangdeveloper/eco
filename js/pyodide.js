@@ -14,6 +14,7 @@ const FILES = [
   "results.py",
   "passive_skills.py",
   "tools_routines.py",
+  "tools_magic.py",
   "agent.py"
 ];
 

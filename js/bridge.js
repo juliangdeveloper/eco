@@ -15,6 +15,7 @@ import { connectorFetch, deleteConnector, getConnector, normalizeConnector, publ
 import { showCredentialCard } from "./credentials.js";
 import { searchSessions } from "./sessions.js";
 import { routinesCall } from "./routines.js";
+import { magicCall } from "./magic.js";
 import { callMcpTool, probeMcp, verifyMcp } from "./mcp.js";
 
 const MCP_KIND = "mcp";
@@ -285,6 +286,13 @@ window.ecoBridge = {
       return JSON.stringify(await routinesCall(String(action), parsed(argsJson)));
     } catch {
       return JSON.stringify({ ok: false, error: "Could not save the routine" });
+    }
+  },
+  async magic(action, argsJson) {
+    try {
+      return JSON.stringify(await magicCall(String(action), parsed(argsJson)));
+    } catch {
+      return JSON.stringify({ ok: false, error: "Could not save the Magic command" });
     }
   },
   async skills() {
