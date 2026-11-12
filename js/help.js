@@ -4,8 +4,11 @@ import { json } from "./storage.js";
 
 export const HELP_DEDUPE_MS = 60 * 60 * 1000;
 export const HELP_THREAD = "h-help";
+export const HELP_RETRIES = 3;
 const SKIP = new Set(["tap to continue."]);
 const SECRET = /(?:sk-[\w-]{8,}|AIza[\w-]{20,}|ya29\.[\w.-]+|gh[pousr]_[\w]+|github_pat_[\w]+|eyJ[\w-]+\.[\w-]+\.[\w-]+|Bearer\s+\S+|(?:api[_ -]?key|token|secret|password|contraseña|clave)\s*[:=]\s*[^\n,;]+)/gi;
+const inflight = new Map();
+const pendingIds = new Map();
 
 export function foldHelp(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -77,17 +80,44 @@ function rememberHelp(notice, now = Date.now()) {
   return reports;
 }
 
-export function requestHelp(text) {
+export function helpSaved(result) {
+  return Boolean(result && !result.error && (result.ok || result.id) && !result.en_cola);
+}
+
+async function defaultHelpSave(payload) {
+  const { memoryCall } = await import("./passive-skills.js");
+  return memoryCall("guardar", payload);
+}
+
+export async function sendHelpRecord(notice, save = defaultHelpSave, pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))) {
+  const key = foldHelp(notice);
+  const id = pendingIds.get(key) || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "00000000-0000-4000-8000-000000000000");
+  pendingIds.set(key, id);
+  const payload = { id, type: "help", to: "todos", thread: HELP_THREAD, tags: "help", content: helpContent(notice) };
+  for (let attempt = 1; attempt <= HELP_RETRIES; attempt++) {
+    try {
+      const result = await save(payload);
+      if (helpSaved(result)) {
+        rememberHelp(notice);
+        pendingIds.delete(key);
+        return true;
+      }
+      throw new Error(result?.error || result?.aviso || "Help record was not saved.");
+    } catch {
+      if (attempt >= HELP_RETRIES) return false;
+      await pause(400 * attempt);
+    }
+  }
+  return false;
+}
+
+export function requestHelp(text, save, pause) {
   const notice = sanitizeHelpText(text);
   if (!shouldReportHelp(notice, json("helpReports") || {})) return Promise.resolve(false);
   try { if (isWiping() || !memoryConfigured()) return Promise.resolve(false); } catch { return Promise.resolve(false); }
-  rememberHelp(notice);
-  const content = helpContent(notice);
-  return import("./passive-skills.js").then(({ memoryCall }) => memoryCall("guardar", {
-    type: "help",
-    to: "todos",
-    thread: HELP_THREAD,
-    tags: "help",
-    content
-  }).then((result) => result || true)).catch(() => false);
+  const key = foldHelp(notice);
+  if (inflight.has(key)) return inflight.get(key);
+  const job = sendHelpRecord(notice, save || defaultHelpSave, pause).finally(() => inflight.delete(key));
+  inflight.set(key, job);
+  return job;
 }

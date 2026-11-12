@@ -1,5 +1,5 @@
 import { emitActivity, faceVoiceSettings, setFaceVoiceSetting, TRANSCRIBERS } from "./face-config.js";
-import { isSpeaking, onSpeakingChange, setMicCapture, stopSpeaking, unlockSpeech } from "./speech.js";
+import { afterSpeechStarts, isSpeaking, onSpeechIdle, onSpeakingChange, onUtteranceStart, restartCurrentUtterance, setMicCapture, speechBusy, stopSpeaking, unlockSpeech } from "./speech.js";
 import { ecoName } from "./identity.js";
 import { deviceCapabilities, listenOn, microphoneGranted, rememberMicrophoneGrant, refreshCapabilities } from "./capabilities.js";
 import { consumeMagicTranscript } from "./magic.js";
@@ -124,6 +124,9 @@ export function createVoice({ sendVoice, faceActive }) {
   let pendingListen = false;
   let followFor = null;
   let listeningGestures = false;
+  let bargePending = false;
+  let speechBeganAt = 0;
+  let listenAfterStart = false;
 
   const settings = () => faceVoiceSettings();
 
@@ -137,7 +140,7 @@ export function createVoice({ sendVoice, faceActive }) {
   function armFollowUp(seconds) {
     const value = Number(seconds);
     const windowSec = Number.isFinite(value) ? value : settings().followUpSeconds;
-    if (isSpeaking()) followFor = windowSec;
+    if (isSpeaking() || speechBusy()) followFor = windowSec;
     else {
       followFor = null;
       followUntil = Date.now() + Math.max(0, windowSec) * 1000;
@@ -170,9 +173,13 @@ export function createVoice({ sendVoice, faceActive }) {
     listeningGestures = true;
     const onGesture = () => {
       unlockSpeech();
-      if (!pendingListen) return;
-      pendingListen = false;
-      start({ auto: true }).catch(() => {});
+      if (!pendingListen || listenAfterStart) return;
+      listenAfterStart = true;
+      afterSpeechStarts(() => {
+        listenAfterStart = false;
+        if (!pendingListen) return;
+        start({ auto: true }).catch(() => {});
+      });
     };
     for (const type of ["pointerdown", "keydown", "touchend"]) window.addEventListener(type, onGesture, true);
   }
@@ -338,15 +345,17 @@ export function createVoice({ sendVoice, faceActive }) {
       return;
     }
     const alias = findAlias(text);
-    if (alias) { beginTurn(alias.after); return; }
+    if (alias) { bargePending = false; beginTurn(alias.after); return; }
+    if (bargePending) { bargePending = false; beginTurn(text); return; }
     if (!isSpeaking() && startedAt <= followUntil) beginTurn(text);
   }
 
   function options() {
     const values = settings();
+    const positive = values.bargeIn && isSpeaking() ? Math.max(values.speechThreshold, values.bargeInThreshold) : values.speechThreshold;
     return {
-      positiveSpeechThreshold: values.speechThreshold,
-      negativeSpeechThreshold: Math.max(0.05, values.speechThreshold - 0.15),
+      positiveSpeechThreshold: positive,
+      negativeSpeechThreshold: Math.max(0.05, positive - 0.15),
       redemptionMs: values.phraseSilenceSeconds * 1000,
       minSpeechMs: values.minSpeechMs,
       preSpeechPadMs: values.preSpeechPadMs
@@ -373,6 +382,11 @@ export function createVoice({ sendVoice, faceActive }) {
         ensureWorker().catch(() => {});
         clearTimeout(segmentTimer);
         segmentTimer = setTimeout(cutSegment, settings().maxSegmentSeconds * 1000);
+        const values = settings();
+        if (values.bargeIn && isSpeaking() && (speechBeganAt === 0 || speechStartedAt - speechBeganAt >= 300)) {
+          bargePending = true;
+          stopSpeaking();
+        }
       },
       onSpeechEnd: (audio) => {
         clearTimeout(segmentTimer);
@@ -381,6 +395,7 @@ export function createVoice({ sendVoice, faceActive }) {
       },
       onVADMisfire: () => {
         clearTimeout(segmentTimer);
+        if (bargePending) bargePending = false;
         if (phase === "turn") scheduleTurnEnd(Math.max(0, settings().turnSilenceSeconds - settings().phraseSilenceSeconds) * 1000);
       }
     });
@@ -408,6 +423,9 @@ export function createVoice({ sendVoice, faceActive }) {
     }
     starting = (async () => {
       try {
+        await acquireStream();
+        const retried = await restartCurrentUtterance();
+        if (retried.retried && lastError && retried.ok) recover();
         vad ||= await createVad();
         await vad.start();
         if (vad.errored) throw new Error(vad.errored);
@@ -498,8 +516,15 @@ export function createVoice({ sendVoice, faceActive }) {
     if (phase !== "turn" && !isSpeaking() && now - lastAliasAt > values.autoOffMinutes * 60000) stop(true);
   }
 
+  onUtteranceStart(() => { speechBeganAt = Date.now(); try { vad?.setOptions(options()); } catch {} });
   onSpeakingChange((value) => {
+    try { vad?.setOptions(options()); } catch {}
     if (value) return;
+    followUntil = Date.now() + followWindow();
+    lastAliasAt = Date.now();
+  });
+  onSpeechIdle(() => {
+    if (followFor == null) return;
     followUntil = Date.now() + followWindow();
     lastAliasAt = Date.now();
   });

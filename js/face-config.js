@@ -23,6 +23,7 @@ export const FACE_VOICE_SETTINGS = Object.freeze([
   { group: "voice", name: "autoOffMinutes", label: "Stop listening after (min)", default: 10, min: 1, max: 120, step: 1 },
   { group: "voice", name: "followUpSeconds", label: "Follow-up window (s)", default: 8, min: 0, max: 60, step: 0.5 },
   { group: "voice", name: "speechThreshold", label: "Voice detection threshold", default: 0.5, min: 0.1, max: 0.95, step: 0.05 },
+  { group: "voice", name: "bargeInThreshold", label: "Barge-in threshold", default: 0.7, min: 0.1, max: 0.95, step: 0.05 },
   { group: "voice", name: "minSpeechMs", label: "Min speech (ms)", default: 250, min: 50, max: 2000, step: 50 },
   { group: "voice", name: "preSpeechPadMs", label: "Audio before speech (ms)", default: 300, min: 0, max: 2000, step: 50 },
   { group: "voice", name: "aliasTolerance", label: "Name match tolerance", default: 0.25, min: 0, max: 0.6, step: 0.05 },
@@ -32,7 +33,7 @@ export const FACE_VOICE_SETTINGS = Object.freeze([
 
 export const SPEECH_LANGUAGES = Object.freeze([["auto", "Automatic (device language)"], ["es", "Spanish"], ["en", "English"], ["pt", "Portuguese"], ["fr", "French"], ["de", "German"], ["it", "Italian"]]);
 export const VOICE_TEXT_SETTINGS = Object.freeze({ voiceName: "", transcriber: "whisper-tiny", speechLanguage: "auto", neuralVoice: false });
-export const VOICE_SWITCHES = Object.freeze({ listen: true, speak: true });
+export const VOICE_SWITCHES = Object.freeze({ listen: true, speak: true, bargeIn: true });
 export const TRANSCRIBERS = Object.freeze({ "whisper-tiny": "onnx-community/whisper-tiny", "whisper-base": "onnx-community/whisper-base" });
 
 const definitions = new Map(FACE_VOICE_SETTINGS.map((entry) => [entry.name, entry]));

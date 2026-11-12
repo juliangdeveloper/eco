@@ -1,4 +1,5 @@
 import { emitActivity, faceVoiceSettings } from "./face-config.js";
+import { requestHelp } from "./help.js";
 
 const PIPER_URL = "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.5?deps=onnxruntime-web@1.22.0";
 const PIPER_PHONEMIZE = "https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize";
@@ -32,12 +33,18 @@ let keepAlive = null;
 let held = [];
 let micCapture = false;
 const listeners = new Set();
+const startListeners = new Set();
+const idleListeners = new Set();
 const MAX_PENDING = 5;
+const START_MIC_MS = 50;
 let pending = [];
 let gestured = false;
 let lastError = null;
 let lastVoice = "";
 let lastUtterance = null;
+let currentSentence = "";
+let currentLanguage = "";
+let micRetryUsed = false;
 export const speechStats = { neural: null };
 
 function fail(message) {
@@ -47,6 +54,62 @@ function fail(message) {
 function noticeVoice(message) {
   fail(message);
   window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: message }));
+  requestHelp(message);
+}
+
+function notifyStart() {
+  for (const listener of startListeners) { try { listener(); } catch {} }
+}
+
+function notifyIdle() {
+  if (speechBusy()) return;
+  for (const listener of [...idleListeners]) { try { listener(); } catch {} }
+}
+
+export function onUtteranceStart(listener) { startListeners.add(listener); return () => startListeners.delete(listener); }
+
+export function onSpeechIdle(listener) { idleListeners.add(listener); return () => idleListeners.delete(listener); }
+
+export function speechBusy() {
+  return pending.length > 0 || queue.length > 0 || draining || speaking || held.length > 0;
+}
+
+export function afterSpeechStarts(fn) {
+  if (!speechBusy() || speaking) { fn(); return; }
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    unsub();
+    fn();
+  };
+  const unsub = onUtteranceStart(go);
+  const timer = setTimeout(go, START_MIC_MS);
+}
+
+export async function restartCurrentUtterance() {
+  if (micRetryUsed || !currentSentence) return { retried: false };
+  if (lastUtterance?.started && !lastUtterance.ended && !lastUtterance.error) return { retried: false, ok: true };
+  if (draining && lastUtterance && !lastUtterance.started && !lastUtterance.ended && !lastUtterance.error) {
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (done) return; done = true; clearTimeout(timer); unsub(); resolve(); };
+      const unsub = onUtteranceStart(finish);
+      const timer = setTimeout(finish, 400);
+    });
+    if (lastUtterance?.started && !lastUtterance.ended && !lastUtterance.error) return { retried: false, ok: true };
+  }
+  const failed = !lastUtterance || !lastUtterance.started || lastUtterance.error || (lastUtterance.ended && (!lastUtterance.started || (lastUtterance.endMs - (lastUtterance.startMs || 0)) <= INSTANT_END_MS));
+  if (!failed) return { retried: false, ok: true };
+  micRetryUsed = true;
+  if (lastUtterance) lastUtterance.micRetry = { attempted: true, afterMic: true, reason: lastUtterance.error || (lastUtterance.started ? "ended" : "did-not-start"), audioSession: audioSessionInfo() };
+  const prior = lastUtterance;
+  const run = generation;
+  await systemSay(currentSentence, currentLanguage, run);
+  const ok = Boolean(lastUtterance?.started && !lastUtterance.error);
+  if (lastUtterance) lastUtterance.micRetry = { ...(prior?.micRetry || lastUtterance.micRetry || {}), attempted: true, afterMic: true, ok };
+  return { retried: true, ok, utterance: lastUtterance };
 }
 
 export function onSpeakingChange(listener) { listeners.add(listener); return () => listeners.delete(listener); }
@@ -56,6 +119,7 @@ function setSpeaking(value) {
   speaking = value;
   emitActivity("speaking", { on: value });
   for (const listener of listeners) { try { listener(value); } catch {} }
+  if (!value) notifyIdle();
 }
 
 export const isSpeaking = () => speaking;
@@ -180,6 +244,8 @@ function stopKeepAlive() {
 function systemSay(sentence, language, run) {
   return new Promise((resolve) => {
     if (!("speechSynthesis" in window) || run !== generation) { resolve(); return; }
+    currentSentence = sentence;
+    currentLanguage = language;
     const t0 = performance.now();
     try { speechSynthesis.cancel(); } catch {}
     try { speechSynthesis.resume(); } catch {}
@@ -236,6 +302,7 @@ function systemSay(sentence, language, run) {
         trace.synthesis = snapshotSynthesis();
         if (run === generation) setSpeaking(true);
         emitActivity("mouth", {});
+        notifyStart();
       };
       utterance.onboundary = () => emitActivity("mouth", {});
       utterance.onend = () => {
@@ -335,7 +402,7 @@ async function drain(run) {
       const { sentence, language } = queue.shift();
       if (faceVoiceSettings().neuralVoice && !appleWebKit()) {
         try { await neuralSay(sentence, language, run); continue; }
-        catch (error) { fail("The neural voice could not load."); speechStats.neural = { error: String(error?.message || error).slice(0, 200) }; window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: "The neural voice could not load. Using the system voice." })); }
+        catch (error) { speechStats.neural = { error: String(error?.message || error).slice(0, 200) }; noticeVoice("The neural voice could not load. Using the system voice."); }
       }
       await systemSay(sentence, language, run);
     }
@@ -343,6 +410,7 @@ async function drain(run) {
     if (run === generation) {
       draining = false;
       if (!held.length) setSpeaking(false);
+      notifyIdle();
     }
   }
 }
@@ -353,6 +421,7 @@ export function speak(text, { final = true } = {}) {
   if (skipped && final) sentences.push(DETAILS[language] || DETAILS.en);
   if (!sentences.length) return false;
   const idle = !draining;
+  micRetryUsed = false;
   queue.push(...sentences.map((sentence) => ({ sentence, language })));
   if (idle) drain(generation);
   return true;
@@ -376,6 +445,7 @@ export function stopSpeaking() {
   stopKeepAlive();
   held = [];
   setSpeaking(false);
+  notifyIdle();
 }
 
 export function unlockSpeech() {
@@ -415,6 +485,7 @@ function firstGesture() {
   unlockSpeech();
   const items = pending;
   pending = [];
+  if (!items.length) notifyIdle();
   for (const text of items) speak(text, { final: false });
 }
 

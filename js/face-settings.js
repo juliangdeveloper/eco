@@ -5,6 +5,7 @@ import { deviceCapabilities, onCapabilities } from "./capabilities.js";
 import { byId } from "./ui.js";
 
 const SPEECH_FIELDS = new Set(["speechRate", "speechPitch"]);
+const BARGE_FIELDS = new Set(["bargeInThreshold"]);
 const TRANSCRIBER_LABELS = { "whisper-tiny": "Whisper tiny (faster)", "whisper-base": "Whisper base (more accurate)" };
 
 function field(label, input) {
@@ -134,6 +135,7 @@ export function renderFaceVoiceSettings() {
   switches.className = "voiceSwitches";
   if (caps.listen) switches.append(toggle("listen", "Listen", "Microphone, hands-free listening, the wake word and Magic phrases.", values.listen));
   if (caps.speak) switches.append(toggle("speak", "Speak", "Reads replies to voice turns aloud and speaks when asked.", values.speak));
+  if (caps.listen && caps.speak) switches.append(toggle("bargeIn", "Barge-in", "Stop Eco and listen when you start talking while it speaks. Raise the barge-in threshold if Eco hears itself.", values.bargeIn));
   if (switches.children.length) parts.push(switches);
   else {
     const note = document.createElement("p");
@@ -165,7 +167,12 @@ export function renderFaceVoiceSettings() {
   }
   const grid = document.createElement("div");
   grid.className = "stepLimits";
-  grid.append(...FACE_VOICE_SETTINGS.filter((entry) => entry.group === "voice" && (SPEECH_FIELDS.has(entry.name) ? caps.speak : caps.listen)).map((entry) => numberField(entry, values)));
+  grid.append(...FACE_VOICE_SETTINGS.filter((entry) => {
+    if (entry.group !== "voice") return false;
+    if (SPEECH_FIELDS.has(entry.name)) return caps.speak;
+    if (BARGE_FIELDS.has(entry.name)) return caps.listen && caps.speak;
+    return caps.listen;
+  }).map((entry) => numberField(entry, values)));
   if (grid.children.length) parts.push(grid);
   if (caps.speak) {
     const test = document.createElement("button");
