@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.26.3
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.26.4
 
-<img src="assets/screenshot.png?v=0.26.3" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.26.4" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
@@ -34,7 +34,9 @@ In **Settings › Name** you give this Eco its own name (Eco by default). It is 
 
 ## Face and voice
 
-The face button shows Eco's animated face over the chat: it fills the area below the header, scales with the window, reacts to what Eco is doing and each running subagent appears as a small character. **Settings › Voice** has two separate switches. **Listen** turns on the microphone for hands-free listening: detection and transcription run on your device, and Eco only gets what you say after its name, or a Magic phrase. You can set the speech language there (Automatic uses the device language). **Speak** lets Eco answer aloud when you spoke to it, and say things aloud when asked, even while listening is off. Each switch only appears when the device has a usable microphone or voice output. If voice stops working, a notice stays on screen until it works again or you dismiss it. **Settings › Face mode** and **Settings › Voice** have every timing with Reset to defaults. Face mode includes a Default pack and a Spaceship pack, and you can export and import packs to share looks.
+The face button shows Eco's animated face over the chat: it fills the area below the header, scales with the window, reacts to what Eco is doing and each running subagent appears as a small character. **Settings › Voice** has two separate switches. **Listen** turns on the microphone for hands-free listening: detection and transcription run on your device, and Eco only gets what you say after its name, or a Magic phrase. You can set the speech language there (Automatic uses the device language). **Speak** lets Eco answer aloud when you spoke to it, and say things aloud when asked, even while listening is off. Each switch only appears when the device has a usable microphone or voice output. If voice stops working, a notice stays on screen until it works again or you dismiss it, with the reason when the system voice does not start, fails or ends immediately. **Settings › Voice** has a Test voice button that speaks a short sentence in that same tap. **Settings › Face mode** and **Settings › Voice** have every timing with Reset to defaults. Face mode includes a Default pack and a Spaceship pack, and you can export and import packs to share looks.
+
+To embed Eco in another page, put it in an iframe with `allow="autoplay; microphone; camera"` (add `clipboard-write` and `fullscreen` if you need them) and set the iframe `src` to Eco's URL. Speech, the microphone and what Eco stores stay in that embedded context, so the person should keep using the same frame. They need to tap inside the embedded Eco to start the voice.
 
 ## Magic
 

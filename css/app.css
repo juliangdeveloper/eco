@@ -1101,6 +1101,7 @@ dialog { z-index: 30; }
 .faceVoiceSection summary, .securitySection summary { cursor: pointer; font-weight: 600; }
 .faceVoiceSection select { width: 100%; min-height: 36px; border: 0; border-radius: var(--radius); background: var(--surface-muted); color: var(--text); font: inherit; padding: 0 8px; }
 .resetDefaults { margin-top: 12px; padding: 0 12px; }
+.testVoice { margin-top: 12px; padding: 0 12px; }
 .facePackControls { display: grid; grid-template-columns: auto 1fr; gap: 0 12px; align-items: end; }
 .facePackControls > label { margin-top: 10px; }
 .facePackControls .facePackActions, .facePackControls small { grid-column: 1 / -1; }

@@ -1,6 +1,6 @@
 import { FACE_VOICE_SETTINGS, SPEECH_LANGUAGES, TRANSCRIBERS, faceVoiceSettings, resetFaceVoiceSettings, setFaceVoiceSetting } from "./face-config.js";
 import { activePackId, deletePack, DEFAULT_PACK_ID, exportPack, importPack, isBuiltin, listPacks, loadPack, selectPack } from "./face-packs.js";
-import { systemVoices } from "./speech.js";
+import { speakNow, systemVoices, TEST_VOICE_TEXT } from "./speech.js";
 import { deviceCapabilities, onCapabilities } from "./capabilities.js";
 import { byId } from "./ui.js";
 
@@ -167,6 +167,15 @@ export function renderFaceVoiceSettings() {
   grid.className = "stepLimits";
   grid.append(...FACE_VOICE_SETTINGS.filter((entry) => entry.group === "voice" && (SPEECH_FIELDS.has(entry.name) ? caps.speak : caps.listen)).map((entry) => numberField(entry, values)));
   if (grid.children.length) parts.push(grid);
+  if (caps.speak) {
+    const test = document.createElement("button");
+    test.type = "button";
+    test.id = "fv-testVoice";
+    test.className = "testVoice";
+    test.textContent = "Test voice";
+    test.onclick = () => { speakNow(TEST_VOICE_TEXT); };
+    parts.push(test);
+  }
   voiceFields.replaceChildren(...parts, resetButton("voice"));
   renderPacks().catch(() => {});
 }

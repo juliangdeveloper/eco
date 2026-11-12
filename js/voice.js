@@ -1,5 +1,5 @@
 import { emitActivity, faceVoiceSettings, TRANSCRIBERS } from "./face-config.js";
-import { isSpeaking, onSpeakingChange, stopSpeaking, unlockSpeech } from "./speech.js";
+import { isSpeaking, onSpeakingChange, setMicCapture, stopSpeaking, unlockSpeech } from "./speech.js";
 import { ecoName } from "./identity.js";
 import { deviceCapabilities, listenOn, refreshCapabilities } from "./capabilities.js";
 import { consumeMagicTranscript } from "./magic.js";
@@ -356,6 +356,7 @@ export function createVoice({ sendVoice, faceActive }) {
       }
       enabled = true;
       phase = "attentive";
+      setMicCapture(true);
       recover();
       lastAliasAt = Date.now();
       clearInterval(housekeeping);
@@ -369,6 +370,7 @@ export function createVoice({ sendVoice, faceActive }) {
   async function stop(sleep = false) {
     enabled = false;
     phase = "attentive";
+    setMicCapture(false);
     buffer = "";
     clearTimeout(turnTimer);
     clearTimeout(segmentTimer);
@@ -396,7 +398,7 @@ export function createVoice({ sendVoice, faceActive }) {
 
   document.addEventListener("visibilitychange", () => {
     if (!enabled || !vad) return;
-    if (document.hidden) vad.pause().catch(() => {}); else vad.start().catch(() => {});
+    if (document.hidden) { setMicCapture(false); vad.pause().catch(() => {}); } else { vad.start().catch(() => {}); setMicCapture(true); }
   });
   window.addEventListener("eco-voice-notice", (event) => say(String(event.detail || "")));
   window.addEventListener("eco-face-voice-settings", () => { try { vad?.setOptions(options()); } catch {} });

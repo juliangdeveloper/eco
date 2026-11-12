@@ -13,8 +13,14 @@ const WORDS = {
   it: /\b(il|lo|gli|che|di|e|un|una|è|per|con|non|sono|ciao|sì)\b/g,
   en: /\b(the|and|is|are|you|to|of|in|that|it|for|with|this|can|hello|yes)\b/g
 };
+const LOCALES = { en: "en-US", es: "es-ES", pt: "pt-BR", fr: "fr-FR", de: "de-DE", it: "it-IT" };
+export const START_TIMEOUT_MS = 3000;
+export const INSTANT_END_MS = 80;
+export const TEST_VOICE_TEXT = "This is Eco's voice.";
+const KEEP_ALIVE_MS = 4000;
 let queue = [];
 let speaking = false;
+let draining = false;
 let generation = 0;
 let piper = null;
 let piperSession = null;
@@ -22,16 +28,25 @@ let piperVoice = "";
 let audioContext = null;
 let currentSource = null;
 let levelTimer = null;
+let keepAlive = null;
+let held = [];
+let micCapture = false;
 const listeners = new Set();
 const MAX_PENDING = 5;
 let pending = [];
 let gestured = false;
 let lastError = null;
 let lastVoice = "";
+let lastUtterance = null;
 export const speechStats = { neural: null };
 
 function fail(message) {
-  lastError = { message: String(message).slice(0, 200), at: new Date().toISOString() };
+  lastError = { message: String(message).slice(0, 240), at: new Date().toISOString() };
+}
+
+function noticeVoice(message) {
+  fail(message);
+  window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: message }));
 }
 
 export function onSpeakingChange(listener) { listeners.add(listener); return () => listeners.delete(listener); }
@@ -69,8 +84,6 @@ export function speakable(text) {
   return { sentences, skipped };
 }
 
-const LOCALES = { en: "en-US", es: "es-ES", pt: "pt-BR", fr: "fr-FR", de: "de-DE", it: "it-IT" };
-
 function localeFor(language) {
   const value = String(language || "");
   if (value.includes("-")) return value;
@@ -85,36 +98,185 @@ export function appleWebKit(source = typeof navigator === "undefined" ? {} : nav
   return iOS || safari;
 }
 
+export function inIframe() {
+  try { return window.self !== window.top; } catch { return true; }
+}
+
+
+export function setMicCapture(value) {
+  micCapture = Boolean(value);
+}
+
+export const micCaptureActive = () => micCapture;
+
+function langMatches(voice, language) {
+  const prefix = String(language || "").slice(0, 2).toLowerCase();
+  return Boolean(prefix && String(voice?.lang || "").toLowerCase().startsWith(prefix));
+}
+
 function pickVoice(language) {
   const voices = speechSynthesis.getVoices();
   const chosen = faceVoiceSettings().voiceName;
+  const named = chosen && voices.find((voice) => voice.name === chosen);
+  if (named && langMatches(named, language)) return named;
   const prefix = String(language || "").slice(0, 2).toLowerCase();
-  return voices.find((voice) => voice.name === chosen) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix) && voice.localService) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix)) || null;
+  return voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix) && voice.localService) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix)) || null;
+}
+
+export function displayMode() {
+  try {
+    if (typeof navigator !== "undefined" && navigator.standalone) return "standalone";
+    if (window.matchMedia("(display-mode: standalone)").matches) return "standalone";
+    if (window.matchMedia("(display-mode: fullscreen)").matches) return "fullscreen";
+    if (window.matchMedia("(display-mode: minimal-ui)").matches) return "minimal-ui";
+  } catch {}
+  return "browser";
+}
+
+export function snapshotSynthesis() {
+  try {
+    return { speaking: Boolean(speechSynthesis.speaking), pending: Boolean(speechSynthesis.pending), paused: Boolean(speechSynthesis.paused) };
+  } catch {
+    return { speaking: false, pending: false, paused: false };
+  }
+}
+
+function audioContextState() {
+  return audioContext ? String(audioContext.state || "unknown") : "none";
+}
+
+function audioSessionInfo() {
+  const session = typeof navigator !== "undefined" ? navigator.audioSession : null;
+  if (!session) return { supported: false, type: "", micCapture };
+  return { supported: true, type: String(session.type || ""), micCapture };
+}
+
+function prepareAudioSession() {
+  const session = typeof navigator !== "undefined" ? navigator.audioSession : null;
+  if (!session) return;
+  try { session.type = micCapture ? "play-and-record" : "playback"; } catch {}
+}
+
+function hold(utterance) {
+  held.push(utterance);
+}
+
+function release(utterance) {
+  held = held.filter((item) => item !== utterance);
+}
+
+function startKeepAlive() {
+  clearInterval(keepAlive);
+  keepAlive = setInterval(() => {
+    try { if (speechSynthesis.paused || speaking || draining) speechSynthesis.resume(); } catch {}
+  }, KEEP_ALIVE_MS);
+}
+
+function stopKeepAlive() {
+  clearInterval(keepAlive);
+  keepAlive = null;
 }
 
 function systemSay(sentence, language, run) {
   return new Promise((resolve) => {
     if (!("speechSynthesis" in window) || run !== generation) { resolve(); return; }
-    try { if (speechSynthesis.paused) speechSynthesis.resume(); } catch {}
-    try {
+    const t0 = performance.now();
+    try { speechSynthesis.cancel(); } catch {}
+    try { speechSynthesis.resume(); } catch {}
+    prepareAudioSession();
+    let startTimer = 0;
+    let settled = false;
     const utterance = new SpeechSynthesisUtterance(sentence);
-    const values = faceVoiceSettings();
-    const voice = pickVoice(language);
-    utterance.lang = localeFor(language);
-    try {
-      if (voice) {
-        utterance.voice = voice;
-        if (voice.lang) utterance.lang = voice.lang;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startTimer);
+      release(utterance);
+      if (!held.length) stopKeepAlive();
+      if (lastUtterance) {
+        lastUtterance.synthesis = snapshotSynthesis();
+        lastUtterance.audioContext = audioContextState();
+        lastUtterance.audioSession = audioSessionInfo();
       }
-    } catch {}
-    lastVoice = voice?.name || "system default";
-    utterance.rate = values.speechRate;
-    utterance.pitch = values.speechPitch;
-    utterance.onboundary = () => emitActivity("mouth", {});
-    utterance.onend = () => resolve();
-    utterance.onerror = (event) => { if (!/interrupted|canceled/.test(event?.error || "")) fail("The system voice failed: " + (event?.error || "unknown")); resolve(); };
-    speechSynthesis.speak(utterance);
-    } catch (error) { fail("The system voice failed: " + (error?.message || "unknown")); resolve(); }
+      resolve();
+    };
+    try {
+      const voice = pickVoice(language);
+      const lang = voice?.lang || localeFor(language);
+      utterance.lang = lang;
+      utterance.volume = 1;
+      utterance.rate = appleWebKit() ? 1 : faceVoiceSettings().speechRate;
+      utterance.pitch = appleWebKit() ? 1 : faceVoiceSettings().speechPitch;
+      let assigned = false;
+      if (voice) {
+        try { utterance.voice = voice; assigned = true; } catch {}
+      }
+      lastVoice = assigned ? voice.name : "system default";
+      lastUtterance = {
+        text: String(sentence).slice(0, 80),
+        voice: { name: assigned ? voice.name : "", lang, localService: assigned ? Boolean(voice.localService) : false },
+        started: false,
+        ended: false,
+        error: "",
+        startMs: null,
+        endMs: null,
+        errorMs: null,
+        synthesis: snapshotSynthesis(),
+        audioContext: audioContextState(),
+        displayMode: displayMode(),
+        audioSession: audioSessionInfo(),
+        iframe: inIframe(),
+        at: new Date().toISOString()
+      };
+      const trace = lastUtterance;
+      utterance.onstart = () => {
+        if (trace.started) return;
+        trace.started = true;
+        trace.startMs = Math.round(performance.now() - t0);
+        trace.synthesis = snapshotSynthesis();
+        if (run === generation) setSpeaking(true);
+        emitActivity("mouth", {});
+      };
+      utterance.onboundary = () => emitActivity("mouth", {});
+      utterance.onend = () => {
+        trace.ended = true;
+        trace.endMs = Math.round(performance.now() - t0);
+        trace.synthesis = snapshotSynthesis();
+        const duration = trace.started ? (trace.endMs - (trace.startMs || 0)) : trace.endMs;
+        const instant = !trace.started || duration <= INSTANT_END_MS;
+        if (run === generation && !trace.error && instant) {
+          const syn = snapshotSynthesis();
+          noticeVoice("The system voice ended immediately (" + duration + " ms). speaking=" + syn.speaking + " pending=" + syn.pending + " paused=" + syn.paused + ".");
+        }
+        if (run === generation) setSpeaking(false);
+        finish();
+      };
+      utterance.onerror = (event) => {
+        const error = String(event?.error || "unknown");
+        trace.error = error;
+        trace.errorMs = Math.round(performance.now() - t0);
+        trace.synthesis = snapshotSynthesis();
+        if (run === generation && !/interrupted|canceled/.test(error)) noticeVoice("The system voice failed: " + error + ".");
+        if (run === generation) setSpeaking(false);
+        finish();
+      };
+      hold(utterance);
+      startKeepAlive();
+      startTimer = setTimeout(() => {
+        if (settled || trace.started) return;
+        const syn = snapshotSynthesis();
+        noticeVoice("The system voice did not start (" + (START_TIMEOUT_MS / 1000).toFixed(1) + " s). speaking=" + syn.speaking + " pending=" + syn.pending + " paused=" + syn.paused + ".");
+        try { speechSynthesis.cancel(); } catch {}
+        if (run === generation) setSpeaking(false);
+        finish();
+      }, START_TIMEOUT_MS);
+      if (run !== generation) { finish(); return; }
+      speechSynthesis.speak(utterance);
+    } catch (error) {
+      noticeVoice("The system voice failed: " + (error?.message || "unknown") + ".");
+      if (run === generation) setSpeaking(false);
+      finish();
+    }
   });
 }
 
@@ -159,22 +321,30 @@ async function neuralSay(sentence, language, run) {
       for (const sample of data) sum += ((sample - 128) / 128) ** 2;
       emitActivity("mouth", { level: Math.sqrt(sum / data.length) });
     }, 60);
-    source.onended = () => { clearInterval(levelTimer); emitActivity("mouth", { level: -1 }); resolve(); };
+    source.onended = () => { clearInterval(levelTimer); emitActivity("mouth", { level: -1 }); setSpeaking(false); resolve(); };
     currentSource = source;
+    setSpeaking(true);
     source.start();
   });
 }
 
 async function drain(run) {
-  while (queue.length && run === generation) {
-    const { sentence, language } = queue.shift();
-    if (faceVoiceSettings().neuralVoice && !appleWebKit()) {
-      try { await neuralSay(sentence, language, run); continue; }
-      catch (error) { fail("The neural voice could not load."); speechStats.neural = { error: String(error?.message || error).slice(0, 200) }; window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: "The neural voice could not load. Using the system voice." })); }
+  draining = true;
+  try {
+    while (queue.length && run === generation) {
+      const { sentence, language } = queue.shift();
+      if (faceVoiceSettings().neuralVoice && !appleWebKit()) {
+        try { await neuralSay(sentence, language, run); continue; }
+        catch (error) { fail("The neural voice could not load."); speechStats.neural = { error: String(error?.message || error).slice(0, 200) }; window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: "The neural voice could not load. Using the system voice." })); }
+      }
+      await systemSay(sentence, language, run);
     }
-    await systemSay(sentence, language, run);
+  } finally {
+    if (run === generation) {
+      draining = false;
+      if (!held.length) setSpeaking(false);
+    }
   }
-  if (run === generation) setSpeaking(false);
 }
 
 export function speak(text, { final = true } = {}) {
@@ -182,52 +352,51 @@ export function speak(text, { final = true } = {}) {
   const language = detectLanguage(text);
   if (skipped && final) sentences.push(DETAILS[language] || DETAILS.en);
   if (!sentences.length) return false;
-  const idle = !speaking;
+  const idle = !draining;
   queue.push(...sentences.map((sentence) => ({ sentence, language })));
-  if (idle) { setSpeaking(true); drain(generation); }
+  if (idle) drain(generation);
   return true;
+}
+
+export function speakNow(text) {
+  gestured = true;
+  for (const type of ["pointerdown", "keydown", "touchend"]) window.removeEventListener(type, firstGesture, true);
+  pending = [];
+  stopSpeaking();
+  return speak(text, { final: false });
 }
 
 export function stopSpeaking() {
   generation += 1;
   queue = [];
+  draining = false;
   try { speechSynthesis.cancel(); } catch {}
   try { currentSource?.stop(); } catch {}
   clearInterval(levelTimer);
+  stopKeepAlive();
+  held = [];
   setSpeaking(false);
 }
 
 export function unlockSpeech() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (Ctx) {
-      audioContext ||= new Ctx();
-      const resume = audioContext.resume();
-      if (resume && typeof resume.catch === "function") resume.catch(() => {});
-    }
-  } catch {}
+  if (!appleWebKit()) {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) {
+        audioContext ||= new Ctx();
+        const resume = audioContext.resume();
+        if (resume && typeof resume.catch === "function") resume.catch(() => {});
+      }
+    } catch {}
+  }
   try {
     if (!("speechSynthesis" in window)) return;
     try { if (speechSynthesis.paused) speechSynthesis.resume(); } catch {}
-    if (speaking || pending.length || queue.length) return;
-    const language = (typeof navigator !== "undefined" && navigator.language || "en").slice(0, 2).toLowerCase();
-    const utterance = new SpeechSynthesisUtterance(" ");
-    utterance.volume = 0;
-    utterance.rate = 1;
-    utterance.lang = localeFor(language);
-    try {
-      const voice = pickVoice(language);
-      if (voice) {
-        utterance.voice = voice;
-        if (voice.lang) utterance.lang = voice.lang;
-      }
-    } catch {}
-    speechSynthesis.speak(utterance);
   } catch {}
 }
 
 export function systemVoices() {
-  try { return speechSynthesis.getVoices().map((voice) => ({ name: voice.name, lang: voice.lang })); } catch { return []; }
+  try { return speechSynthesis.getVoices().map((voice) => ({ name: voice.name, lang: voice.lang, localService: Boolean(voice.localService) })); } catch { return []; }
 }
 
 export const speechUnlocked = () => gestured;
@@ -252,9 +421,27 @@ function firstGesture() {
 for (const type of ["pointerdown", "keydown", "touchend"]) window.addEventListener(type, firstGesture, true);
 
 export function speechStatus() {
-  return { speaking, queued: pending.length + queue.length, waitingForTap: pending.length, voice: lastVoice || (faceVoiceSettings().neuralVoice && !appleWebKit() ? "Piper" : faceVoiceSettings().voiceName || "automatic"), neural: faceVoiceSettings().neuralVoice, lastError };
+  return {
+    speaking,
+    queued: pending.length + queue.length,
+    waitingForTap: pending.length,
+    voice: lastVoice || (faceVoiceSettings().neuralVoice && !appleWebKit() ? "Piper" : faceVoiceSettings().voiceName || "automatic"),
+    neural: faceVoiceSettings().neuralVoice,
+    lastError,
+    utterance: lastUtterance,
+    synthesis: snapshotSynthesis(),
+    audioContext: audioContextState(),
+    displayMode: displayMode(),
+    audioSession: audioSessionInfo(),
+    micCapture,
+    iframe: inIframe()
+  };
 }
 
 export function clearPendingSpeech() {
   pending = [];
+}
+
+export function hasAudioContext() {
+  return Boolean(audioContext);
 }
