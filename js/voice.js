@@ -4,6 +4,7 @@ import { ecoName } from "./identity.js";
 import { deviceCapabilities, listenOn, refreshCapabilities } from "./capabilities.js";
 import { consumeMagicTranscript } from "./magic.js";
 import { byId } from "./ui.js";
+import { requestHelp } from "./help.js";
 import { distance, isTruncation, normalize, phonetic } from "./voice-match.js";
 
 const ORT_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js";
@@ -126,6 +127,7 @@ export function createVoice({ sendVoice, faceActive }) {
     if (text) lastError = { message: text, at: new Date().toISOString() };
     noticeText.textContent = text;
     notice.hidden = !text;
+    if (text) requestHelp(text);
   }
 
   function recover() {

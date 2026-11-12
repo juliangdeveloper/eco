@@ -8,6 +8,7 @@ import { emitActivity } from "./face-config.js";
 import { speak } from "./speech.js";
 import { speakOn } from "./capabilities.js";
 import { interceptMagic } from "./magic.js";
+import { requestHelp } from "./help.js";
 
 const RESULT_PREVIEW_CHARS = 1600;
 const messageId = () => "m-" + crypto.randomUUID();
@@ -143,7 +144,7 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
     const item = pending.shift();
     setSending(true);
     try { await run(item); }
-    catch { await append(item.session, { role: "assistant", content: "The response could not be saved or completed. Close other Eco tabs and try again." }).catch(() => {}); }
+    catch { const notice = "The response could not be saved or completed. Close other Eco tabs and try again."; requestHelp(notice); await append(item.session, { role: "assistant", content: notice }).catch(() => {}); }
     finally { setSending(false); item.resolve(); drain(); }
   }
 
@@ -162,10 +163,10 @@ export function createChat({ getPyodide, persist, statsSave, incrementMessages, 
       const raw = await getPyodide().globals.get("run_turn")(JSON.stringify({ session: session.id, messages, owner_instructions: instructions, results: session.results || {} }));
       const result = JSON.parse(raw);
       merge(session, result);
-      if (result.error) await append(session, { role: "assistant", content: "Error: " + result.error });
+      if (result.error) { const notice = "Error: " + result.error; requestHelp(notice); await append(session, { role: "assistant", content: notice }); }
       if (result.compressed && session === getSession()) updateToolCard("contexto", "resumido", "Context summarized");
     } catch (error) {
-      await append(session, { role: "assistant", content: "The response could not be completed: " + error.message });
+      const notice = "The response could not be completed: " + error.message; requestHelp(notice); await append(session, { role: "assistant", content: notice });
     } finally {
       voiceTurn = false;
       session.pendingTurns = (session.pendingTurns || []).filter((item) => item.id !== turn.id);

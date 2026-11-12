@@ -31,6 +31,7 @@ import { createSessions } from "./sessions.js";
 import { bindSettings, renderConnectors } from "./settings.js";
 import { all, closeDatabase, flushWrites, json, retryFailedWrites } from "./storage.js";
 import { autoExpand, bindReplyGestures, byId, updateToolCard } from "./ui.js";
+import { requestHelp } from "./help.js";
 
 const DEFAULT_TITLE = "New conversation";
 const NAME_SYNC_MS = 1500;
@@ -192,7 +193,7 @@ function bindCloseButtons() {
 
 async function refreshCredentials() {
   try { await Promise.all([renderConnectors(), renderReconnectNotice()]); }
-  catch { byId("reconnectNotice").hidden = false; byId("reconnectText").textContent = "Saved access could not be read. You can keep using Eco."; }
+  catch { byId("reconnectNotice").hidden = false; byId("reconnectText").textContent = "Saved access could not be read. You can keep using Eco."; requestHelp("Saved access could not be read. You can keep using Eco."); }
 }
 
 function bindComposer() {
@@ -330,9 +331,11 @@ async function main() {
   window.addEventListener("eco-reconnect-finished", () => { renderConnectors().catch(() => {}); });
   window.addEventListener("eco-storage-error", (event) => {
     byId("storageNotice").hidden = false;
-    byId("storageText").textContent = event.detail?.name === "QuotaExceededError"
+    const storageText = event.detail?.name === "QuotaExceededError"
       ? "There is no space left to save. Old results were already cleared. Don't close Eco until your messages are saved."
       : "The latest changes could not be saved. Don't close Eco; try saving again.";
+    byId("storageText").textContent = storageText;
+    requestHelp(storageText);
   });
   window.addEventListener("eco-storage-saved", () => { byId("storageNotice").hidden = true; });
   byId("storageRetry").onclick = async () => {
@@ -358,6 +361,7 @@ async function main() {
     pyodide = loaded;
   } catch (error) {
     if (byId("empty")) byId("empty").textContent = LOAD_ERROR;
+    requestHelp(LOAD_ERROR);
     throw error;
   }
   setupReload({
@@ -399,6 +403,7 @@ async function main() {
 window.ecoApp = {
   ready: main().catch(() => {
     byId("chat").textContent = "Storage could not be opened or Eco could not be prepared. Close other tabs and reload.";
+    requestHelp("Storage could not be opened or Eco could not be prepared. Close other tabs and reload.");
     byId("send").disabled = true;
     return false;
   }),

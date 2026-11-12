@@ -246,7 +246,7 @@ export class ObsidianMemory extends MemoryBackend {
     const table = requireTable(this.structure, TYPE_TABS[args.type]);
     const path = this.path(table.name, id + ".md");
     const record = Object.fromEntries(MEMORY_COLUMNS.map(key => [key, String(args[key] || "")]));
-    Object.assign(record, { id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario || "", tags: listTags(args.tags).join(",") });
+    Object.assign(record, { id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: args.type === "help" ? "" : (this.config.usuario || ""), tags: listTags(args.tags).join(",") });
     try {
       if ((await this.list(this.path(table.name))).includes(id + ".md")) throw new Error("A note with that id already exists; it is not overwritten.");
       await this.files.write(path, this.encode(table, record));

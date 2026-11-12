@@ -248,7 +248,7 @@ export class DriveMemory extends MemoryBackend {
     const replacing = replacementCheck({ ...args, id }, args.replaces && !isDreamingRecord(args) ? (await this.search({ id: args.replaces }, RECORD_TABS, true)).records[0] : null, !args.copia);
     const table = requireTable(this.structure, TYPE_TABS[args.type]);
     const { copia, ...fields } = args;
-    const record = { ...fields, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: this.config.usuario };
+    const record = { ...fields, id, date: new Date().toISOString(), eco_author: this.config.eco, user_author: args.type === "help" ? "" : this.config.usuario };
     try { await this.call("POST", this.path(quoteTab(table.name) + "!A:" + columnLetter(table.headers.length - 1)) + ":append", { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" }, { values: [encodeRow(table, record)] }); }
     catch (error) { return { error: error.message, id, reintentar: "Repeat memoria_guardar with this same id." }; }
     if (!replacing) return { ok: true, id };

@@ -69,28 +69,52 @@ export function speakable(text) {
   return { sentences, skipped };
 }
 
+const LOCALES = { en: "en-US", es: "es-ES", pt: "pt-BR", fr: "fr-FR", de: "de-DE", it: "it-IT" };
+
+function localeFor(language) {
+  const value = String(language || "");
+  if (value.includes("-")) return value;
+  const code = value.slice(0, 2).toLowerCase();
+  return LOCALES[code] || (typeof navigator !== "undefined" && navigator.language) || "en-US";
+}
+
+export function appleWebKit(source = typeof navigator === "undefined" ? {} : navigator) {
+  const ua = String(source.userAgent || "");
+  const iOS = /iPad|iPhone|iPod/.test(ua) || (source.platform === "MacIntel" && (source.maxTouchPoints || 0) > 1);
+  const safari = /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Android/i.test(ua);
+  return iOS || safari;
+}
+
 function pickVoice(language) {
   const voices = speechSynthesis.getVoices();
   const chosen = faceVoiceSettings().voiceName;
-  return voices.find((voice) => voice.name === chosen) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(language) && voice.localService) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(language)) || null;
+  const prefix = String(language || "").slice(0, 2).toLowerCase();
+  return voices.find((voice) => voice.name === chosen) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix) && voice.localService) || voices.find((voice) => voice.lang?.toLowerCase().startsWith(prefix)) || null;
 }
 
 function systemSay(sentence, language, run) {
   return new Promise((resolve) => {
-    if (!("speechSynthesis" in window)) { resolve(); return; }
+    if (!("speechSynthesis" in window) || run !== generation) { resolve(); return; }
+    try { if (speechSynthesis.paused) speechSynthesis.resume(); } catch {}
+    try {
     const utterance = new SpeechSynthesisUtterance(sentence);
     const values = faceVoiceSettings();
     const voice = pickVoice(language);
-    if (voice) utterance.voice = voice;
+    utterance.lang = localeFor(language);
+    try {
+      if (voice) {
+        utterance.voice = voice;
+        if (voice.lang) utterance.lang = voice.lang;
+      }
+    } catch {}
     lastVoice = voice?.name || "system default";
-    utterance.lang = voice?.lang || language;
     utterance.rate = values.speechRate;
     utterance.pitch = values.speechPitch;
     utterance.onboundary = () => emitActivity("mouth", {});
     utterance.onend = () => resolve();
     utterance.onerror = (event) => { if (!/interrupted|canceled/.test(event?.error || "")) fail("The system voice failed: " + (event?.error || "unknown")); resolve(); };
-    if (run !== generation) { resolve(); return; }
     speechSynthesis.speak(utterance);
+    } catch (error) { fail("The system voice failed: " + (error?.message || "unknown")); resolve(); }
   });
 }
 
@@ -114,8 +138,9 @@ async function neuralSay(sentence, language, run) {
   const wav = await session.predict(sentence);
   speechStats.neural ||= { voiceId, firstMs: Math.round(performance.now() - started), downloadBytes: downloaded };
   if (run !== generation) return;
-  audioContext ||= new AudioContext();
-  if (audioContext.state === "suspended") await audioContext.resume().catch(() => {});
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (Ctx) audioContext ||= new Ctx();
+  if (audioContext?.state === "suspended") await audioContext.resume().catch(() => {});
   const buffer = await audioContext.decodeAudioData(await wav.arrayBuffer());
   if (run !== generation) return;
   await new Promise((resolve) => {
@@ -143,7 +168,7 @@ async function neuralSay(sentence, language, run) {
 async function drain(run) {
   while (queue.length && run === generation) {
     const { sentence, language } = queue.shift();
-    if (faceVoiceSettings().neuralVoice) {
+    if (faceVoiceSettings().neuralVoice && !appleWebKit()) {
       try { await neuralSay(sentence, language, run); continue; }
       catch (error) { fail("The neural voice could not load."); speechStats.neural = { error: String(error?.message || error).slice(0, 200) }; window.dispatchEvent(new CustomEvent("eco-voice-notice", { detail: "The neural voice could not load. Using the system voice." })); }
     }
@@ -173,8 +198,32 @@ export function stopSpeaking() {
 }
 
 export function unlockSpeech() {
-  try { if ("speechSynthesis" in window && !speaking) { const utterance = new SpeechSynthesisUtterance(""); utterance.volume = 0; speechSynthesis.speak(utterance); } } catch {}
-  try { audioContext ||= new AudioContext(); audioContext.resume().catch(() => {}); } catch {}
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) {
+      audioContext ||= new Ctx();
+      const resume = audioContext.resume();
+      if (resume && typeof resume.catch === "function") resume.catch(() => {});
+    }
+  } catch {}
+  try {
+    if (!("speechSynthesis" in window)) return;
+    try { if (speechSynthesis.paused) speechSynthesis.resume(); } catch {}
+    if (speaking || pending.length || queue.length) return;
+    const language = (typeof navigator !== "undefined" && navigator.language || "en").slice(0, 2).toLowerCase();
+    const utterance = new SpeechSynthesisUtterance(" ");
+    utterance.volume = 0;
+    utterance.rate = 1;
+    utterance.lang = localeFor(language);
+    try {
+      const voice = pickVoice(language);
+      if (voice) {
+        utterance.voice = voice;
+        if (voice.lang) utterance.lang = voice.lang;
+      }
+    } catch {}
+    speechSynthesis.speak(utterance);
+  } catch {}
 }
 
 export function systemVoices() {
@@ -203,7 +252,7 @@ function firstGesture() {
 for (const type of ["pointerdown", "keydown", "touchend"]) window.addEventListener(type, firstGesture, true);
 
 export function speechStatus() {
-  return { speaking, queued: pending.length + queue.length, waitingForTap: pending.length, voice: lastVoice || (faceVoiceSettings().neuralVoice ? "Piper" : faceVoiceSettings().voiceName || "automatic"), neural: faceVoiceSettings().neuralVoice, lastError };
+  return { speaking, queued: pending.length + queue.length, waitingForTap: pending.length, voice: lastVoice || (faceVoiceSettings().neuralVoice && !appleWebKit() ? "Piper" : faceVoiceSettings().voiceName || "automatic"), neural: faceVoiceSettings().neuralVoice, lastError };
 }
 
 export function clearPendingSpeech() {

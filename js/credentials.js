@@ -1,6 +1,7 @@
 import { connectorStatus, getConnector, listConnectors, openOAuthWindow, redirectUri, saveManualCredential, startOAuth, STATUS } from "./connectors.js";
 import { verifyMcp } from "./mcp.js";
 import { deleteSecret } from "./vault.js";
+import { requestHelp } from "./help.js";
 
 const ERROR_TEXT = "Could not connect. Try again.";
 const CONNECTED_TEXT = "Connected";
@@ -251,6 +252,7 @@ export async function renderReconnectNotice() {
   notice.hidden = !expired;
   if (!expired) return;
   text.textContent = expired.id === "eco-memory-drive" ? "Drive offline · local memory" : expired.name + " offline";
+  requestHelp(text.textContent);
   button.disabled = false;
   button.textContent = "Reconnect";
   button.onclick = async () => {
@@ -260,9 +262,9 @@ export async function renderReconnectNotice() {
     try {
       const ok = await startOAuth(expired.id, expired.auth.client_id, popup);
       if (ok) notice.hidden = true;
-      else text.textContent = "Could not reconnect. You can keep using Eco and try again.";
+      else { text.textContent = "Could not reconnect. You can keep using Eco and try again."; requestHelp(text.textContent); }
     } catch {
-      text.textContent = "Could not save the access. Close other Eco tabs and try again.";
+      text.textContent = "Could not save the access. Close other Eco tabs and try again."; requestHelp(text.textContent);
     } finally {
       reconnecting = false;
       button.disabled = false;

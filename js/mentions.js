@@ -39,7 +39,7 @@ export function contentHasMention(content, tokens) {
 }
 
 export function isMentionRecord(record, { eco, handle, name } = {}) {
-  if (!record || !["message", "ack"].includes(record.type)) return false;
+  if (!record || !["message", "ack", "help"].includes(record.type)) return false;
   if (String(record.eco_author || "").trim() === String(eco || "").trim()) return false;
   const to = String(record.to || "").trim();
   if (isBroadcastTo(to) || to === String(eco || "").trim() || (handle && foldMention(to) === foldMention(handle))) return true;

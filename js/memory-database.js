@@ -175,7 +175,7 @@ export class DatabaseMemory extends MemoryBackend {
     const replacing = replacementCheck({ ...args, id }, args.replaces && UUID.test(args.replaces) ? (await this.search({ id: args.replaces })).records[0] : null, !args.copia);
     const record = Object.fromEntries(MEMORY_COLUMNS.filter(key => key !== "date").map(key => [key, String(args[key] || "")]));
     record.tags = tags(record.tags);
-    Object.assign(record, { id, eco_author: this.config.eco, user_author: this.config.usuario });
+    Object.assign(record, { id, eco_author: this.config.eco, user_author: args.type === "help" ? "" : this.config.usuario });
     try { await this.execute("save", { table: TYPE_TABS[args.type], record }); }
     catch (error) { return { error: error.message, id, reintentar: "Repeat memoria_guardar with this same id; don't generate another." }; }
     if (!replacing) return { ok: true, id };
