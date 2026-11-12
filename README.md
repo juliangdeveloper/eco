@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.26.0
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.26.1
 
-<img src="assets/screenshot.png?v=0.26.0" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.26.1" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 

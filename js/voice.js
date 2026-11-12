@@ -147,9 +147,7 @@ export function createVoice({ sendVoice, faceActive }) {
     else { byId("prompt").value = text; byId("prompt").dispatchEvent(new Event("input")); }
   }
 
-  function ensureWorker() {
-    lastVoiceAt = Date.now();
-    if (workerReady) return workerReady;
+  function bindWorker() {
     worker = new Worker(new URL("./voice-worker.js", import.meta.url), { type: "module" });
     worker.onmessage = (event) => {
       const data = event.data || {};
@@ -159,9 +157,34 @@ export function createVoice({ sendVoice, faceActive }) {
       if (data.type === "error") entry.reject(new Error(data.error)); else entry.resolve(data);
     };
     worker.onerror = () => { for (const entry of waiting.values()) entry.reject(new Error("Transcriber stopped")); waiting.clear(); };
-    const model = TRANSCRIBERS[settings().transcriber];
-    workerReady = request({ type: "load", model }).then((info) => { stats.transcriber = { model, ...info }; transcriberLoaded = true; recover(); return info; }).catch((error) => { unloadWorker(); say("The voice transcriber could not load. Check the connection."); throw error; });
+  }
+
+  function ensureWorker() {
+    lastVoiceAt = Date.now();
+    if (workerReady) return workerReady;
+    workerReady = startWorker();
     return workerReady;
+  }
+
+  async function startWorker(device) {
+    bindWorker();
+    const model = TRANSCRIBERS[settings().transcriber];
+    try {
+      const info = await request({ type: "load", model, device });
+      stats.transcriber = { model, ...info };
+      transcriberLoaded = true;
+      recover();
+      return info;
+    } catch (error) {
+      unloadWorker(true);
+      if (device !== "wasm") {
+        workerReady = startWorker("wasm");
+        return workerReady;
+      }
+      workerReady = null;
+      say("The voice transcriber could not load. Check the connection.");
+      throw error;
+    }
   }
 
   function request(message) {
@@ -169,13 +192,13 @@ export function createVoice({ sendVoice, faceActive }) {
     return new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); worker.postMessage({ ...message, id }, message.audio ? [message.audio.buffer] : []); });
   }
 
-  function unloadWorker() {
+  function unloadWorker(keepReady = false) {
     worker?.terminate();
     worker = null;
-    workerReady = null;
     transcriberLoaded = false;
     for (const entry of waiting.values()) entry.reject(new Error("Transcriber unloaded"));
     waiting.clear();
+    if (!keepReady) workerReady = null;
   }
 
   async function transcribe(audio) {
