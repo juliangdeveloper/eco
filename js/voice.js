@@ -1,5 +1,5 @@
 import { emitActivity, faceVoiceSettings, setFaceVoiceSetting, TRANSCRIBERS } from "./face-config.js";
-import { afterSpeechStarts, isSpeaking, onSpeechIdle, onSpeakingChange, onUtteranceStart, restartCurrentUtterance, setMicCapture, speechBusy, stopSpeaking, unlockSpeech } from "./speech.js";
+import { afterSpeechStarts, isSpeaking, onSpeechIdle, onSpeakingChange, onUtteranceStart, restartCurrentUtterance, setAudioSessionType, setListenSession, setMicCapture, speechBusy, stopSpeaking, unlockSpeech } from "./speech.js";
 import { ecoName } from "./identity.js";
 import { deviceCapabilities, listenOn, microphoneGranted, rememberMicrophoneGrant, refreshCapabilities } from "./capabilities.js";
 import { consumeMagicTranscript } from "./magic.js";
@@ -130,6 +130,17 @@ export function createVoice({ sendVoice, faceActive }) {
 
   const settings = () => faceVoiceSettings();
 
+  function syncSession(reason = "listen") {
+    const values = settings();
+    const needed = pendingListen || enabled || starting || (values.listen && (listenOn() || values.bargeIn));
+    return setListenSession(Boolean(needed), reason);
+  }
+
+  function isAudioSessionError(error) {
+    const text = String(error?.name || "") + " " + String(error?.message || error || "");
+    return /InvalidStateError/i.test(text) && /AudioSession|audio session|not compatible with audio capture/i.test(text);
+  }
+
   function followWindow() {
     const value = followFor;
     followFor = null;
@@ -154,7 +165,14 @@ export function createVoice({ sendVoice, faceActive }) {
 
   async function acquireStream() {
     if (sharedStream && sharedStream.getTracks().some((track) => track.readyState === "live")) return sharedStream;
-    sharedStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    const constraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } };
+    try {
+      sharedStream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      if (!isAudioSessionError(error)) throw error;
+      setAudioSessionType("play-and-record", "getUserMedia", { force: true });
+      sharedStream = await navigator.mediaDevices.getUserMedia(constraints);
+    }
     rememberMicrophoneGrant(true);
     setMicCapture(true);
     return sharedStream;
@@ -172,6 +190,7 @@ export function createVoice({ sendVoice, faceActive }) {
     if (listeningGestures) return;
     listeningGestures = true;
     const onGesture = () => {
+      if (pendingListen) syncSession("tap");
       unlockSpeech();
       if (!pendingListen || listenAfterStart) return;
       listenAfterStart = true;
@@ -187,6 +206,7 @@ export function createVoice({ sendVoice, faceActive }) {
   function queueListen() {
     pendingListen = true;
     bindListenGesture();
+    syncSession("queued");
   }
 
   function say(text) {
@@ -449,6 +469,7 @@ export function createVoice({ sendVoice, faceActive }) {
       pendingListen = false;
       phase = "attentive";
       setMicCapture(true);
+      syncSession("start");
       recover();
       lastAliasAt = Date.now();
       clearInterval(housekeeping);
@@ -475,6 +496,7 @@ export function createVoice({ sendVoice, faceActive }) {
       return { ok: false, status: "unsupported", error: "This device has no microphone Eco can use." };
     }
     if (!settings().listen) setFaceVoiceSetting("listen", true);
+    syncSession("escuchar");
     const used = followUp !== undefined ? followUp : settings().followUpSeconds;
     armFollowUp(used);
     if (enabled) return { ok: true, status: "listening", active: true, waitingForTap: false, follow_up: used };
@@ -505,6 +527,7 @@ export function createVoice({ sendVoice, faceActive }) {
     pendingListen = false;
     unloadWorker();
     updateButton();
+    syncSession("stop");
     showText("", true);
     if (sleep) emitActivity("sleep");
   }
@@ -524,6 +547,7 @@ export function createVoice({ sendVoice, faceActive }) {
     lastAliasAt = Date.now();
   });
   onSpeechIdle(() => {
+    syncSession("idle");
     if (followFor == null) return;
     followUntil = Date.now() + followWindow();
     lastAliasAt = Date.now();
@@ -534,8 +558,9 @@ export function createVoice({ sendVoice, faceActive }) {
     if (document.hidden) { setMicCapture(false); vad.pause().catch(() => {}); } else { vad.start().catch(() => {}); setMicCapture(true); }
   });
   window.addEventListener("eco-voice-notice", (event) => say(String(event.detail || "")));
-  window.addEventListener("eco-face-voice-settings", () => { try { vad?.setOptions(options()); } catch {} });
+  window.addEventListener("eco-face-voice-settings", () => { try { vad?.setOptions(options()); } catch {} syncSession("settings"); });
 
+  syncSession("load");
   button.onclick = async () => {
     unlockSpeech();
     if (!enabled) { if (await start()) beginTurn(); return; }
@@ -549,6 +574,7 @@ export function createVoice({ sendVoice, faceActive }) {
     autoStart,
     requestListen,
     armFollowUp,
+    syncSession,
     get enabled() { return enabled; },
     get phase() { return phase; },
     get pendingListen() { return pendingListen; },

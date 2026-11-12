@@ -274,6 +274,7 @@ async function main() {
     byId("micButton").hidden = !listenOn();
     if (!listenOn() && (voice.enabled || voice.phase === "turn" || voice.pendingListen)) voice.stop();
     else if (listenOn() && !voice.enabled) voice.autoStart();
+    voice.syncSession("settings");
     if (!speakOn()) { stopSpeaking(); clearPendingSpeech(); }
   };
   onCapabilities(applyVoice);

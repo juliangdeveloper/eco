@@ -49,6 +49,28 @@ export function replacementCheck(args, target, strict = true) {
   if (!target || target.type !== "fact" || target.id === args.id) throw new Error("replaces must be the id of an existing fact.");
   return true;
 }
+
+export function normalizeMemoryMessage(args, { eco = "", reply = null, replaced = null } = {}) {
+  if (!args || args.type !== "message") return args;
+  const next = { ...args };
+  const self = String(eco || "");
+  const replacedOwn = Boolean(replaced && replaced.type === "message" && replaced.eco_author === self);
+  if (!next.reply_to && next.replaces && replaced && replaced.type === "message" && !replacedOwn) {
+    next.reply_to = String(next.replaces);
+    next.replaces = "";
+  }
+  const link = (next.reply_to && reply && reply.id === next.reply_to ? reply : null) || (!replacedOwn && replaced) || (next.reply_to && replaced && replaced.id === next.reply_to ? replaced : null) || reply;
+  if (!String(next.to || "").trim() && link?.eco_author) next.to = link.eco_author;
+  if (!String(next.thread || "").trim() && link?.thread) next.thread = link.thread;
+  return next;
+}
+
+export function isDuplicateMessage(args, existing, eco = "") {
+  if (!args || !existing || args.type !== "message" || existing.type !== "message") return false;
+  if (eco && existing.eco_author && existing.eco_author !== eco) return false;
+  return String(existing.thread || "") === String(args.thread || "") && String(existing.content || "") === String(args.content || "") && existing.id !== args.id;
+}
+
 export class MemoryBackend {
   constructor({ config, loadCursor, saveCursor }) {
     this.config = config;

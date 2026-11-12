@@ -1,4 +1,4 @@
-import { TYPE_TABS, isDreamingRecord } from "./memory-protocol.js";
+import { TYPE_TABS, isDreamingRecord, isDuplicateMessage, normalizeMemoryMessage } from "./memory-protocol.js";
 import { isSecurityCommand, isWiping } from "./security.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -105,10 +105,29 @@ export class MemorySet {
     }));
     return { main, copied, pending };
   }
+  async findRecord(id) {
+    if (!id) return null;
+    try {
+      const result = await this.search({ id });
+      return result?.records?.find((row) => row.id === id) || null;
+    } catch {
+      return null;
+    }
+  }
   async save(input = {}) {
     const { copia, ...fields } = input;
     const args = { ...fields, id: fields.id || crypto.randomUUID() };
     this.check(args);
+    if (args.type === "message") {
+      const reply = args.reply_to ? await this.findRecord(args.reply_to) : null;
+      const replaced = args.replaces ? await this.findRecord(args.replaces) : null;
+      Object.assign(args, normalizeMemoryMessage(args, { eco: this.primary.config.eco, reply, replaced }));
+      try {
+        const result = await this.search({ type: "message", thread: args.thread, eco_author: this.primary.config.eco });
+        const twin = (result?.records || []).find((row) => isDuplicateMessage(args, row, this.primary.config.eco));
+        if (twin) return { ok: true, id: twin.id, duplicado: true };
+      } catch {}
+    }
     const entry = { op: "save", args };
     const { main, copied, pending } = await this.replicate(entry, adapter => adapter.save(args));
     if (main.value) return pending ? { ...main.value, copias_pendientes: pending } : main.value;

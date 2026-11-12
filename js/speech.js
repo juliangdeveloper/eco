@@ -32,6 +32,9 @@ let levelTimer = null;
 let keepAlive = null;
 let held = [];
 let micCapture = false;
+let listenSession = false;
+const sessionHistory = [];
+const SESSION_HISTORY = 12;
 const listeners = new Set();
 const startListeners = new Set();
 const idleListeners = new Set();
@@ -173,6 +176,71 @@ export function setMicCapture(value) {
 
 export const micCaptureActive = () => micCapture;
 
+export const listenSessionWanted = () => listenSession;
+
+function currentSessionType() {
+  try {
+    const session = typeof navigator !== "undefined" ? navigator.audioSession : null;
+    return session ? String(session.type || "") : "";
+  } catch {
+    return "";
+  }
+}
+
+function recordSession(entry) {
+  sessionHistory.push({ at: new Date().toISOString(), ...entry });
+  if (sessionHistory.length > SESSION_HISTORY) sessionHistory.splice(0, sessionHistory.length - SESSION_HISTORY);
+}
+
+function utteranceActive() {
+  return speaking || held.length > 0;
+}
+
+export function setAudioSessionType(wanted, reason = "", { force = false } = {}) {
+  const session = typeof navigator !== "undefined" ? navigator.audioSession : null;
+  if (!session) {
+    recordSession({ type: "", wanted, reason, supported: false });
+    return { supported: false, type: "", wanted };
+  }
+  if (!force && utteranceActive()) {
+    recordSession({ type: currentSessionType(), wanted, reason, skipped: "utterance" });
+    return { supported: true, type: currentSessionType(), wanted, skipped: "utterance" };
+  }
+  const previous = currentSessionType();
+  if (previous === wanted) return { supported: true, type: previous, wanted };
+  try {
+    session.type = wanted;
+    recordSession({ type: currentSessionType(), previous, wanted, reason });
+    return { supported: true, type: currentSessionType(), wanted };
+  } catch (error) {
+    if (wanted === "play-and-record") {
+      try {
+        session.type = "auto";
+        recordSession({ type: currentSessionType(), previous, wanted, reason, fallback: "auto", error: String(error?.message || error) });
+        return { supported: true, type: currentSessionType(), wanted, fallback: "auto", error: String(error?.message || error) };
+      } catch (error2) {
+        recordSession({ type: currentSessionType(), previous, wanted, reason, error: String(error2?.message || error2) });
+        return { supported: true, type: currentSessionType(), wanted, error: String(error2?.message || error2) };
+      }
+    }
+    recordSession({ type: currentSessionType(), previous, wanted, reason, error: String(error?.message || error) });
+    return { supported: true, type: currentSessionType(), wanted, error: String(error?.message || error) };
+  }
+}
+
+export function applyAudioSession(reason = "", options = {}) {
+  return setAudioSessionType(listenSession ? "play-and-record" : "playback", reason, options);
+}
+
+export function setListenSession(on, reason = "listen") {
+  listenSession = Boolean(on);
+  return applyAudioSession(reason);
+}
+
+export function prepareListenSession(reason = "tap") {
+  return applyAudioSession(reason, { force: true });
+}
+
 function langMatches(voice, language) {
   const prefix = String(language || "").slice(0, 2).toLowerCase();
   return Boolean(prefix && String(voice?.lang || "").toLowerCase().startsWith(prefix));
@@ -211,14 +279,12 @@ function audioContextState() {
 
 function audioSessionInfo() {
   const session = typeof navigator !== "undefined" ? navigator.audioSession : null;
-  if (!session) return { supported: false, type: "", micCapture };
-  return { supported: true, type: String(session.type || ""), micCapture };
+  if (!session) return { supported: false, type: "", micCapture, history: sessionHistory.slice() };
+  return { supported: true, type: currentSessionType(), micCapture, history: sessionHistory.slice() };
 }
 
 function prepareAudioSession() {
-  const session = typeof navigator !== "undefined" ? navigator.audioSession : null;
-  if (!session) return;
-  try { session.type = micCapture ? "play-and-record" : "playback"; } catch {}
+  applyAudioSession("speak");
 }
 
 function hold(utterance) {
@@ -482,6 +548,7 @@ function firstGesture() {
   if (gestured) return;
   gestured = true;
   for (const type of ["pointerdown", "keydown", "touchend"]) window.removeEventListener(type, firstGesture, true);
+  if (listenSession) prepareListenSession("tap");
   unlockSpeech();
   const items = pending;
   pending = [];
