@@ -69,6 +69,6 @@ It works in any modern browser and needs internet. To run it locally: `python3 -
 
 ---
 
-More projects: https://juliangdeveloper.github.io/
+Más proyectos: https://juliangdeveloper.github.io/
 
-Made with ❤️ and 🌱
+Hecho con ❤️ y 🌱
