@@ -233,17 +233,29 @@ export async function executeDeviceTool(tool, params, signal, options = {}) {
         }
         if (typeof entry.value !== "function") throw new Error("The method does not exist in this browser");
         if (message.kind === "construct" && message.path !== entry.feature.path && !(entry.feature.name === "browser" && message.path === entry.feature.path)) throw new Error("Constructor not allowed");
+        const isNative = entry.feature.name === "ecoNative" || message.path === "ecoNative.invoke" || message.path === "eco.native.invoke";
+        if (isNative && message.kind !== "get") {
+          const category = args[0];
+          const nativeObj = window.ecoNative || window.eco?.native;
+          const policy = nativeObj?.caps?.[category]?.policy;
+          if (policy === "ask" && typeof nativeObj?.request === "function") {
+            const wait = new Promise((_, reject) => setTimeout(() => reject(new Error("Llamada nativa esperando permiso de Eco Desktop. Autoriza en la ventana Permiso y reintenta con el mismo comando.")), 12000));
+            Promise.race([Promise.resolve(nativeObj.request(category)), wait]).then(outcome => {
+              if (outcome === "denied") throw new Error("Permiso de Eco Desktop denegado para " + category + ". Autoriza en la ventana Permiso y reintenta.");
+              const result = Reflect.apply(entry.value, entry.owner, args);
+              if (result?.then) result.then(respond, reject);
+              else respond(result);
+            }).catch(reject);
+          } else {
+            const result = message.kind === "construct" ? Reflect.construct(entry.value, args) : Reflect.apply(entry.value, entry.owner, args);
+            if (result?.then) result.then(respond, reject);
+            else respond(result);
+          }
+          return;
+        }
         const result = message.kind === "construct" ? Reflect.construct(entry.value, args) : Reflect.apply(entry.value, entry.owner, args);
         const callbacks = JSON.stringify(message.args).includes('"$callback"');
-        const isNative = entry.feature.name === "ecoNative" || message.path === "ecoNative.invoke" || message.path === "eco.native.invoke";
-        if (result?.then) {
-          if (isNative) {
-            const wait = new Promise((_, reject) => setTimeout(() => reject(new Error("Llamada nativa esperando permiso de Eco Desktop. Autoriza en la ventana Permiso y reintenta con el mismo comando.")), 12000));
-            Promise.race([result, wait]).then(respond, reject);
-          } else {
-            result.then(respond, reject);
-          }
-        }
+        if (result?.then) result.then(respond, reject);
         else if (!callbacks) respond(result);
       });
     }
@@ -351,10 +363,11 @@ export async function executeDeviceTool(tool, params, signal, options = {}) {
       if (denied) { channel.port1.postMessage({ kind: "response", id: message.id, error: denied }); return; }
       if (automatic) {
         let cancelled = false;
+        const limit = Math.max(BROWSER_RESPONSE_TIMEOUT_MS, tool.timeout_ms || 30000);
         const timeout = setTimeout(() => {
           cancelled = true;
           finish({ ok: false, error: "The browser did not respond to the access request. Check its permissions and try again." });
-        }, BROWSER_RESPONSE_TIMEOUT_MS);
+        }, limit);
         const cleanup = () => clearTimeout(timeout);
         cleanups.add(cleanup);
         let task;
