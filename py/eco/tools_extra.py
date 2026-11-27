@@ -75,18 +75,11 @@ async def refresh_speech(registry):
         registry.items.pop("escuchar", None)
 
 
-DREAMING_DESCRIPTION = "Dreaming consolidates memory. It runs by itself when Eco is idle or when there is a lot to summarize; use action run when the person asks to dream now and status to read the settings and the last result. It programmatically selects shared-memory threads (messages and their acks) and local conversations without recent activity, writes one summary per thread or conversation, verifies it and only then deletes the originals; if anything fails nothing is deleted. The shared part needs a connected Google Sheets memory; otherwise local conversation summaries go to local memory."
+DREAMING_DESCRIPTION = "Dreaming consolidates memory. It runs by itself when Eco is idle or when there is a lot to summarize; use action run when the person asks to dream now and status to read the settings and the last result. It programmatically selects local conversations without recent activity and, only when Settings › Dreaming is on and a shared memory is connected, shared-memory threads (messages and their acks), writes one summary per item, verifies it and only then deletes the originals; if anything fails nothing is deleted. Without that, only local conversation summaries are saved. Shared work needs a connected memory."
 
 
 async def refresh_dreaming(registry):
-    try:
-        enabled = bool(json.loads(await ecoBridge.dreamingEnabled()).get("enabled"))
-    except Exception:
-        enabled = False
-    if enabled:
-        registry.add("dreaming", schema(DREAMING_DESCRIPTION, {"action": {"type": "string", "enum": ["run", "status"]}}), dreaming)
-    else:
-        registry.items.pop("dreaming", None)
+    registry.add("dreaming", schema(DREAMING_DESCRIPTION, {"action": {"type": "string", "enum": ["run", "status"]}}), dreaming)
 
 
 async def dreaming(args):

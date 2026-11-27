@@ -278,13 +278,13 @@ function describe(report) {
 
 async function dream(reason) {
   const values = dreamingSettings();
-  if (!values.enabled) return { reason, threads: 0, rows: 0, conversations: 0, shared: "", error: "Dreaming is off on this Eco.", disabled: true, text: "Dreaming is off on this Eco. Turn it on in Settings › Dreaming." };
+  const sharedEnabled = Boolean(values.enabled);
   const now = Date.now();
   const report = { reason, threads: 0, rows: 0, conversations: 0, shared: "", error: "" };
   try {
     if (!setting("openrouterKey")) throw new Error("Add your OpenRouter key in Settings to dream.");
     const memory = await dreamingMemory().catch(() => null);
-    if (memory?.adapter) {
+    if (sharedEnabled && memory?.adapter) {
       const lease = await acquireLease(memory.adapter, memory.eco);
       if (lease.ok) {
         try {
@@ -298,11 +298,13 @@ async function dream(reason) {
           }
         } finally { await releaseLease(memory.adapter, memory.eco); }
       } else report.shared = "Another Eco (" + lease.held + ") is dreaming, so shared memory was skipped.";
-    } else if (memory?.unsupported) report.shared = "Shared memory dreaming needs a Google Sheets memory.";
+    } else if (sharedEnabled && memory?.unsupported) report.shared = "Shared memory dreaming needs a Google Sheets memory.";
+    else if (!sharedEnabled) report.shared = "Shared memory dreaming is off; only local conversations were summarized.";
+    else if (!memory?.adapter) report.shared = "Shared memory is not connected; only local conversations were summarized.";
     if (!report.error) {
       for (const session of await selectConversations(values, now)) {
         if (isWiping()) break;
-        await dreamConversation(memory?.adapter ? memory : null, session);
+        await dreamConversation(sharedEnabled && memory?.adapter ? memory : null, session);
         report.conversations += 1;
       }
     }
@@ -318,7 +320,6 @@ async function dream(reason) {
 
 export function runDreaming(reason = "manual") {
   if (running) return running;
-  if (!dreamingEnabled()) return Promise.resolve({ reason, disabled: true, error: "Dreaming is off on this Eco.", text: "Dreaming is off on this Eco. Turn it on in Settings › Dreaming." });
   const work = navigator.locks?.request ? navigator.locks.request("eco-dreaming", { ifAvailable: true }, (lock) => lock ? dream(reason) : { reason, skipped: true, text: "Dreaming is already running in another tab." }) : dream(reason);
   running = Promise.resolve(work).finally(() => { running = null; });
   return running;
@@ -346,12 +347,12 @@ export async function dreamingTick() {
   if (!api || running || isWiping()) return null;
   const values = dreamingSettings();
   await api.compact?.(values.detailHours * HOUR).catch(() => {});
-  if (!values.enabled || !values.auto || api.busy()) return null;
+  if (!values.auto || api.busy()) return null;
   const now = Date.now();
   let reason = "";
   if (now - lastActivity >= values.idleMinutes * 60000 && now - (dreamingState().lastRun || 0) >= values.everyHours * HOUR) reason = "idle";
   else if ((await selectConversations(values, now)).some((session) => (session.messages || []).length > values.conversationMessages)) reason = "conversation";
-  else if (await sharedTooLarge(values).catch(() => false)) reason = "shared";
+  else if (values.enabled && await sharedTooLarge(values).catch(() => false)) reason = "shared";
   if (!reason) return null;
   const report = await runDreaming(reason);
   notify(report, false);
@@ -359,7 +360,6 @@ export async function dreamingTick() {
 }
 
 export async function dreamingTool(args = {}) {
-  if (!dreamingEnabled()) return { ok: false, enabled: false, error: "Dreaming is off on this Eco. The person can turn it on in Settings › Dreaming." };
   const action = String(args.action || "status");
   if (action === "run") {
     const report = await runDreaming("tool");
@@ -368,7 +368,7 @@ export async function dreamingTool(args = {}) {
   const values = dreamingSettings();
   const memory = await dreamingMemory().catch(() => null);
   const state = dreamingState();
-  return { ok: true, automatic: values.auto, settings: values, shared_memory: memory?.adapter ? "connected" : memory?.unsupported ? "unsupported" : "none", running: Boolean(running), last_run: state.lastAt || "", last_result: state.lastResult || "" };
+  return { ok: true, automatic: values.auto, enabled: Boolean(values.enabled), shared_enabled: Boolean(values.enabled), settings: values, shared_memory: memory?.adapter ? "connected" : memory?.unsupported ? "unsupported" : "none", running: Boolean(running), last_run: state.lastAt || "", last_result: state.lastResult || "" };
 }
 
 function numberField(entry, values) {
@@ -397,7 +397,7 @@ function masterSwitch(values) {
   const title = document.createElement("strong");
   title.textContent = "Dreaming";
   const small = document.createElement("small");
-  small.textContent = "Off by default. Turn it on for the Ecos that should consolidate memory; this Eco only dreams when it is on.";
+  small.textContent = "Only for the shared memory. Local conversations are always tidied.";
   text.append(title, small);
   const wrapper = document.createElement("label");
   wrapper.className = "checkLabel voiceSwitch";
@@ -418,10 +418,6 @@ function resetButton() {
 export function renderDreamingSettings() {
   const values = dreamingSettings();
   const master = masterSwitch(values);
-  if (!values.enabled) {
-    byId("dreamingFields").replaceChildren(master, resetButton());
-    return;
-  }
   const auto = document.createElement("input");
   auto.type = "checkbox";
   auto.id = "dr-auto";

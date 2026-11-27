@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.27.3
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.27.4
 
-<img src="assets/screenshot.png?v=0.27.3" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.27.4" alt="Eco home screen on a phone" width="320">
 
 ## Get started
 
@@ -18,7 +18,7 @@ If you want Eco to remember across devices and talk with other Ecos or with agen
 
 ## Dreaming
 
-Dreaming is off by default; turn it on in **Settings › Dreaming** on each Eco that should take part. While you are away, an Eco with Dreaming on consolidates its memory. Old shared-memory threads and conversations you have not touched in a while are summarized, keeping decisions, facts, pending items, dates and people. Each summary is saved and checked before the originals are deleted, and if anything fails nothing is deleted. Without shared memory, conversation summaries go to local memory. Only one Eco dreams at a time. Once it is on, the same section has every threshold and a Run now button.
+Local conversations are always tidied. Old conversations you have not touched in a while are summarized locally, keeping decisions, facts, pending items, dates and people; each summary is checked before the conversation is deleted. Old shared-memory threads are summarized only when shared-memory dreaming is turned on in **Settings › Dreaming** and a shared memory is connected. Only one Eco dreams on shared memory at a time.
 
 ## Subagents
 
