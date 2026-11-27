@@ -220,12 +220,14 @@ window.ecoBridge = {
       return JSON.stringify({ ok: false, error: "Could not save the connector" });
     }
   },
-  async requestSignIn(id, sessionId, jobId) {
+  async requestSignIn(id, method, sessionId, jobId) {
     const connector = await getConnector(String(id));
     if (!connector) {
       return JSON.stringify({ ok: false, error: "Connector not found" });
     }
-    const status = await showCredentialCard(connector, jobId ? { jobId: String(jobId) } : {});
+    const options = jobId ? { jobId: String(jobId) } : {};
+    if (method === "google_service_account") options.method = method;
+    const status = await showCredentialCard(connector, options);
     stateApi?.refreshConnectors();
     return JSON.stringify({ ok: true, id: connector.id, status });
   },

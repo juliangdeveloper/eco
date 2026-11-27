@@ -514,6 +514,7 @@ h2 {
 .panel input,
 .panel textarea,
 .credentialCard input,
+.credentialCard textarea,
 dialog input,
 dialog textarea {
   width: 100%;
@@ -1144,3 +1145,7 @@ dialog { z-index: 30; }
 @media (prefers-reduced-motion: reduce) {
   #faceLayer.magicFlash .faceStage { animation: none; }
 }
+
+.credentialCard textarea.secretText { min-height: 96px; resize: vertical; font-family: ui-monospace, monospace; font-size: 0.8rem; -webkit-text-security: disc; }
+
+.credentialCard .serviceKey { display: grid; gap: 8px; margin-top: 8px; }

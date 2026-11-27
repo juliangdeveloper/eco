@@ -1,6 +1,7 @@
 import { connectorStatus, getConnector, listConnectors, openOAuthWindow, redirectUri, saveManualCredential, startOAuth, STATUS } from "./connectors.js";
 import { verifyMcp } from "./mcp.js";
 import { deleteSecret } from "./vault.js";
+import { parseServiceAccount } from "./service-account.js";
 import { requestHelp } from "./help.js";
 
 const ERROR_TEXT = "Could not connect. Try again.";
@@ -27,6 +28,9 @@ const GENERIC_STEPS = [
   ["Choose the “web application” or “public client” type."],
   ["Add these two values and copy the Client ID it gives you:"]
 ];
+const SERVICE_TYPE = "google_service_account";
+const SERVICE_INVALID_TEXT = "That is not a valid service account key. Paste the whole JSON file.";
+const SERVICE_REJECTED_TEXT = "Google rejected the key. Check that it is active and that its APIs are enabled.";
 const FIELDS = {
   bearer: [{ name: "token", label: "Token", secret: true }],
   api_key: [{ name: "key", label: "API key", secret: true }],
@@ -54,6 +58,35 @@ function field(spec) {
   input.spellcheck = false;
   label.append(input);
   return { label, input };
+}
+
+function serviceField() {
+  const label = create("label", "Service account key (JSON)");
+  const input = document.createElement("textarea");
+  input.name = "service_account";
+  input.className = "secretText";
+  input.rows = 4;
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.setAttribute("autocapitalize", "off");
+  input.setAttribute("autocorrect", "off");
+  label.append(input);
+  const file = document.createElement("input");
+  file.type = "file";
+  file.accept = ".json,application/json";
+  file.hidden = true;
+  const pick = create("button", "Import JSON file");
+  pick.type = "button";
+  pick.onclick = () => file.click();
+  file.onchange = async () => {
+    const chosen = file.files?.[0];
+    file.value = "";
+    if (chosen) input.value = await chosen.text();
+  };
+  const hint = create("small", "Share the files and sheets Eco should use with the key's client_email.");
+  const box = create("div", "", "serviceKey");
+  box.append(label, pick, file, hint);
+  return { nodes: [box], input };
 }
 
 function copyRow(label, value) {
@@ -155,12 +188,33 @@ function renderCredentialCard(connector, options = {}) {
   const inputs = [];
   form.append(title, note);
   const type = connector.auth.type;
-  if (type === "oauth2") {
+  let serviceInput = null;
+  let googleHost = "";
+  try {
+    googleHost = new URL(connector.auth.authorize_url).host;
+  } catch {
+    googleHost = "";
+  }
+  if (type === SERVICE_TYPE || (type === "oauth2" && options.method === SERVICE_TYPE)) {
+    const service = serviceField();
+    serviceInput = service.input;
+    inputs.push(serviceInput);
+    form.append(...service.nodes);
+  } else if (type === "oauth2") {
     if (!connector.auth.client_id) {
       const client = field({ name: "client_id", label: "OAuth Client ID", secret: false });
       inputs.push(client.input);
       const hint = create("small", "Use the Client ID of your own OAuth app.");
       form.append(client.label, hint, guide(connector));
+    }
+    if (googleHost === GOOGLE_HOST) {
+      const details = create("details", "", "oauthGuide");
+      details.append(create("summary", "Use a service account key"));
+      const service = serviceField();
+      serviceInput = service.input;
+      inputs.push(serviceInput);
+      details.append(...service.nodes);
+      form.append(details);
     }
   } else {
     for (const spec of FIELDS[type] || []) {
@@ -172,7 +226,7 @@ function renderCredentialCard(connector, options = {}) {
   const actions = create("div", "", "actions");
   const skip = create("button", "Not now");
   skip.type = "button";
-  const submit = create("button", type === "oauth2" ? "Sign in" : "Save", "primary");
+  const submit = create("button", type === "oauth2" && !(serviceInput && !serviceInput.closest("details")) ? "Sign in" : "Save", "primary");
   submit.type = "submit";
   actions.append(skip, submit);
   form.append(error, actions);
@@ -198,17 +252,26 @@ function renderCredentialCard(connector, options = {}) {
     skip.onclick = () => done(SKIPPED_TEXT, STATUS.DISCONNECTED);
     form.onsubmit = async (event) => {
       event.preventDefault();
-      const popup = type === "oauth2" ? openOAuthWindow() : null;
+      const serviceText = serviceInput ? serviceInput.value.trim() : "";
+      const useService = Boolean(serviceText) || type === SERVICE_TYPE || Boolean(serviceInput && !serviceInput.closest("details"));
+      if (useService && !parseServiceAccount(serviceText)) {
+        error.textContent = SERVICE_INVALID_TEXT;
+        error.hidden = false;
+        return;
+      }
+      const popup = type === "oauth2" && !useService ? openOAuthWindow() : null;
       activePopup = popup;
       submit.disabled = true;
       error.hidden = true;
-      const values = Object.fromEntries(inputs.map((input) => [input.name, input.value.trim()]));
+      const values = Object.fromEntries(inputs.filter((input) => input !== serviceInput).map((input) => [input.name, input.value.trim()]));
+      if (useService) values.service_account = serviceText;
       let ok = false;
       let rejected = false;
       try {
-        ok = type === "oauth2"
+        ok = type === "oauth2" && !useService
           ? await startOAuth(connector.id, values.client_id || connector.auth.client_id, popup)
           : await saveManualCredential(connector.id, values);
+        rejected = useService && !ok;
         if (ok && connector.kind === MCP_KIND) {
           const check = await verifyMcp(connector.id);
           if (!check.ok) {
@@ -226,7 +289,7 @@ function renderCredentialCard(connector, options = {}) {
         done(CONNECTED_TEXT, STATUS.CONNECTED);
         return;
       }
-      error.textContent = rejected ? REJECTED_TEXT : ERROR_TEXT;
+      error.textContent = useService && rejected ? SERVICE_REJECTED_TEXT : rejected ? REJECTED_TEXT : ERROR_TEXT;
       error.hidden = false;
     };
   });

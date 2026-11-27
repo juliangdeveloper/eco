@@ -4,7 +4,8 @@ from urllib.parse import quote, urlparse
 from .runtime import bridge as ecoBridge
 from .registry import schema
 
-AUTH_TYPES = ["none", "bearer", "api_key", "basic", "oauth2"]
+AUTH_TYPES = ["none", "bearer", "api_key", "basic", "oauth2", "google_service_account"]
+SERVICE_TYPE = "google_service_account"
 METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 PARAM_LOCATIONS = ["path", "query", "body"]
 NOT_CONNECTED = "not_connected"
@@ -27,7 +28,7 @@ DEFINITION_SCHEMA = {
         "auth": {
             "type": "object",
             "properties": {
-                "type": {"type": "string", "enum": AUTH_TYPES},
+                "type": {"type": "string", "enum": AUTH_TYPES, "description": "google_service_account for Google APIs with a service account JSON key; the person pastes it in the secure form and Eco renews access on its own."},
                 "header": {"type": "string", "description": "Header for api_key."},
                 "query_param": {"type": "string", "description": "Query parameter for api_key."},
                 "prefix": {"type": "string", "description": "Prefix for bearer, 'Bearer ' by default."},
@@ -69,6 +70,7 @@ AUTH_ALIASES = {
     "oauth": "oauth2", "oauth2": "oauth2", "oauth20": "oauth2", "google": "oauth2", "openid": "oauth2",
     "bearer": "bearer", "token": "bearer", "bearertoken": "bearer", "pat": "bearer", "personalaccesstoken": "bearer", "accesstoken": "bearer",
     "apikey": "api_key", "key": "api_key", "header": "api_key", "query": "api_key",
+    "googleserviceaccount": SERVICE_TYPE, "serviceaccount": SERVICE_TYPE, "jwt": SERVICE_TYPE,
     "basic": "basic", "basicauth": "basic", "password": "basic", "userpassword": "basic",
     "none": "none", "noauth": "none", "public": "none", "": "none",
 }
@@ -135,6 +137,13 @@ def normalize_auth(raw, base_url):
     auth["type"] = AUTH_ALIASES[kind]
     if compact(raw.get("type") if isinstance(raw, dict) else raw) == "query" and not auth.get("query_param"):
         auth["query_param"] = "key"
+    if auth["type"] == SERVICE_TYPE:
+        scopes = auth.get("scopes") or []
+        scopes = [str(item) for item in scopes] if isinstance(scopes, list) else [item for item in re.split(r"[\s,]+", str(scopes)) if item]
+        result = {"type": SERVICE_TYPE}
+        if scopes:
+            result["scopes"] = [item if "://" in item else GOOGLE_SCOPE_PREFIX + item for item in scopes]
+        return result
     if auth["type"] != "oauth2":
         return auth
     if google:
@@ -350,7 +359,7 @@ def mcp_handler(connector, tool):
         result = json.loads(await ecoBridge.mcpCall(connector["id"], tool["name"], json.dumps(args, ensure_ascii=False)))
         if result.get("error") == NOT_CONNECTED:
             reason = result.get("reason", "")
-            await ecoBridge.requestSignIn(connector["id"])
+            await ecoBridge.requestSignIn(connector["id"], "")
             return {"error": SIGN_IN_REQUESTED, "reason": reason, "detail": AUTH_REASONS.get(reason, "")}
         return result
     return handler
@@ -374,7 +383,8 @@ async def register_mcp(registry):
 
 
 async def request_sign_in(args):
-    return json.loads(await ecoBridge.requestSignIn(str(args.get("connector", ""))))
+    method = SERVICE_TYPE if str(args.get("method", "")) == SERVICE_TYPE else ""
+    return json.loads(await ecoBridge.requestSignIn(str(args.get("connector", "")), method))
 
 
 def build_request(operation, params):
@@ -424,7 +434,7 @@ async def call_connector(args):
     result = json.loads(raw)
     if result.get("error") == NOT_CONNECTED:
         reason = result.get("reason", "")
-        await ecoBridge.requestSignIn(connector_id)
+        await ecoBridge.requestSignIn(connector_id, "")
         detail = AUTH_REASONS.get(reason, "")
         if result.get("api_message"):
             detail += " Service response: " + str(result["api_message"])
@@ -463,6 +473,10 @@ def register(registry):
     )
     registry.add(
         "request_sign_in",
-        schema("Shows the person the secure form to sign in to a connector.", {"connector": {"type": "string"}}, ["connector"]),
+        schema(
+            "Shows the person the secure form to sign in to a connector. For Google connectors, method google_service_account asks for a service account JSON key instead of OAuth; the key never reaches the chat.",
+            {"connector": {"type": "string"}, "method": {"type": "string", "enum": ["", SERVICE_TYPE]}},
+            ["connector"],
+        ),
         request_sign_in,
     )

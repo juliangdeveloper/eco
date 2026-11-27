@@ -2,9 +2,9 @@
 
 An AI agent that lives in your browser: it talks with you, builds its own tools and remembers what matters.
 
-[App](https://juliangdeveloper.github.io/eco/) · Version 0.27.4
+[App](https://juliangdeveloper.github.io/eco/) · Version 0.28.0
 
-<img src="assets/screenshot.png?v=0.27.4" alt="Eco home screen on a phone" width="320">
+<img src="assets/screenshot.png?v=0.28.0" alt="Eco asking for a Google service account key on a phone" width="320">
 
 ## Get started
 
@@ -15,6 +15,10 @@ Your conversations, tools and routines stay on your device. Routines only run wh
 ## Shared memory
 
 If you want Eco to remember across devices and talk with other Ecos or with agents like Grok or Claude, ask it to connect to a Google Sheet, a database or an Obsidian vault; it walks you through it. You can connect several and Eco keeps a copy in each. When a visible error appears and shared memory is connected, Eco itself writes a help record with the exact notice, its version and a short browser and OS summary; the model is not called, and the same notice is not written again within an hour. Each Eco records its public IP along with its activity and keeps the last known one on the device. Eco adapts to your structure as it is: if you rename or move columns, it keeps working without you fixing anything.
+
+## Google service account
+
+Instead of signing in with OAuth, the Google Drive memory, Drive files and Google Sheets can use a service account key. Ask Eco to connect Google with a service account, or open **Use a service account key** in the Google sign-in card, then paste the JSON key or import the file. Eco keeps it encrypted in the browser like any other key, never shows it in the chat and renews access on its own every hour. Share the files and sheets Eco should use with the key's `client_email`.
 
 ## Dreaming
 

@@ -2,10 +2,13 @@ import { isWiping, redactSecurityData } from "./security.js";
 import { timedFetch } from "./network.js";
 import { all, remove, store } from "./storage.js";
 import { deleteSecret, hasSecret, readSecret, saveSecret } from "./vault.js";
+import { mintServiceToken, parseServiceAccount, SERVICE_ACCOUNT_SCOPES } from "./service-account.js";
 
 const CONNECTORS_STORE = "connectors";
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const AUTH_TYPES = ["none", "bearer", "api_key", "basic", "oauth2"];
+const AUTH_TYPES = ["none", "bearer", "api_key", "basic", "oauth2", "google_service_account"];
+const SERVICE_TYPE = "google_service_account";
+const SERVICE_MARGIN_MS = 300000;
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const OAUTH_FLOWS = ["pkce", "implicit"];
 const MAX_OPERATIONS = 30;
@@ -43,6 +46,10 @@ function isHttpsUrl(value) {
   } catch {
     return false;
   }
+}
+
+function serviceScopes(connector) {
+  return connector.auth.type === SERVICE_TYPE && connector.auth.scopes?.length ? connector.auth.scopes : SERVICE_ACCOUNT_SCOPES;
 }
 
 function secretId(connector) {
@@ -84,6 +91,9 @@ export function validateConnector(definition) {
       return { ok: false, error: "Invalid auth.renewal" };
     }
   }
+  if (auth.type === SERVICE_TYPE && auth.scopes !== undefined && !Array.isArray(auth.scopes)) {
+    return { ok: false, error: "auth.scopes must be a list" };
+  }
   if (definition.kind === MCP_KIND) {
     return MCP_AUTH_TYPES.includes(auth.type) ? { ok: true } : { ok: false, error: "MCP auth.type must be none or bearer" };
   }
@@ -111,6 +121,11 @@ export function normalizeConnector(definition) {
     auth.flow = auth.flow || "pkce";
     auth.scopes = Array.isArray(auth.scopes) ? auth.scopes.map(String) : [];
     auth.renewal = RENEWAL_MODES.includes(auth.renewal) ? auth.renewal : auth.flow === "implicit" ? "silent" : "refresh_token";
+  }
+  if (auth.type === SERVICE_TYPE) {
+    auth.scopes = Array.isArray(auth.scopes) && auth.scopes.length ? auth.scopes.map(String) : [...SERVICE_ACCOUNT_SCOPES];
+    delete auth.token_url;
+    delete auth.client_id;
   }
   if (definition.kind === MCP_KIND) {
     const headers = {};
@@ -186,6 +201,9 @@ export async function connectorStatus(id) {
   if (!secretValue(connector, secret)) {
     return STATUS.DISCONNECTED;
   }
+  if (secret.service_account) {
+    return STATUS.CONNECTED;
+  }
   if (connector.auth.type === "oauth2") {
     if (secret.auth_rejected || (secret.expires_at && secret.expires_at <= Date.now())) {
       return STATUS.EXPIRED;
@@ -200,6 +218,19 @@ export async function saveManualCredential(id, values) {
     return false;
   }
   const type = connector.auth.type;
+  if (values.service_account !== undefined && (type === SERVICE_TYPE || type === "oauth2")) {
+    const account = parseServiceAccount(values.service_account);
+    if (!account) {
+      return false;
+    }
+    const token = await mintServiceToken(account, serviceScopes(connector), timedFetch).catch(() => null);
+    if (!token) {
+      return false;
+    }
+    await saveSecret(id, { service_account: account, ...token });
+    window.dispatchEvent(new Event("eco-credentials-changed"));
+    return true;
+  }
   if (type === "bearer" && values.token) {
     await saveSecret(id, { token: values.token });
     return true;
@@ -259,6 +290,9 @@ function secretValue(connector, secret) {
   if (!secret) {
     return "";
   }
+  if (secret.service_account) {
+    return secret.service_account.client_email ? "service_account" : "";
+  }
   const type = connector.auth.type;
   if (type === "basic") {
     return secret.username ? secret.username + ":" + (secret.password ?? "") : "";
@@ -297,6 +331,16 @@ async function authorize(connector, url, headers) {
   const value = secretValue(connector, secret);
   if (!value) {
     return AUTH_MISSING;
+  }
+  if (secret.service_account) {
+    if (!secret.access_token || !secret.expires_at || secret.expires_at - SERVICE_MARGIN_MS <= Date.now()) {
+      if (!(await renewCredential(secretId(connector)))) {
+        return AUTH_EXPIRED;
+      }
+      secret = await readSecret(secretId(connector));
+    }
+    headers.Authorization = DEFAULT_BEARER_PREFIX + secret.access_token;
+    return AUTH_OK;
   }
   if (type === "bearer") {
     const header = connector.auth.header || AUTHORIZATION_HEADER;
@@ -371,6 +415,9 @@ export async function connectorFetch(id, method, path, query, body, complete = f
   let response;
   try {
     response = await timedFetch(url.href, init);
+    if (response.status === 401 && !options.retried && (await readSecret(secretId(connector)))?.service_account && await renewCredential(secretId(connector))) {
+      return connectorFetch(id, method, path, query, body, complete, signal, { ...options, retried: true });
+    }
   } catch {
     return { ok: false, error: "Could not connect to the service" };
   }
@@ -495,12 +542,32 @@ async function silentImplicit(connector, secret) {
 
 const renewals = new Map();
 
-async function renewNow(id) {
-  const connector = await getConnector(id);
-  if (!connector || connector.auth.type !== "oauth2") {
+async function renewService(connector, secret) {
+  const token = await mintServiceToken(secret.service_account, serviceScopes(connector), timedFetch).catch(() => null);
+  const latest = await readSecret(connector.id);
+  if (!latest?.service_account) return false;
+  if (!token) {
+    await saveSecret(connector.id, { ...latest, retry_after: Date.now() + RENEW_RETRY_MS });
     return false;
   }
-  const secret = await readSecret(id);
+  await saveSecret(connector.id, { service_account: latest.service_account, ...token });
+  window.dispatchEvent(new Event("eco-credentials-changed"));
+  return true;
+}
+
+async function renewNow(id) {
+  const connector = await getConnector(id);
+  if (!connector) {
+    return false;
+  }
+  const current = await readSecret(id);
+  if (current?.service_account) {
+    return renewService(connector, current);
+  }
+  if (connector.auth.type !== "oauth2") {
+    return false;
+  }
+  const secret = current;
   if (!secret || !secret.access_token || secret.retry_after > Date.now()) return false;
   let next = null;
   try {
@@ -535,10 +602,13 @@ export async function renewCredential(id) {
 export async function credentialsDue(aheadMs) {
   const due = [];
   for (const connector of await listConnectors()) {
-    if (connector.auth.type !== "oauth2" || connector.auth.renewal === "none" || connector.auth.secret_of) {
+    if (!["oauth2", SERVICE_TYPE].includes(connector.auth.type) || connector.auth.secret_of) {
       continue;
     }
     const secret = await readSecret(connector.id);
+    if (!secret?.service_account && (connector.auth.type !== "oauth2" || connector.auth.renewal === "none")) {
+      continue;
+    }
     if (!secret || !secret.access_token || secret.retry_after > Date.now() || !secret.expires_at) {
       continue;
     }
@@ -672,7 +742,7 @@ export async function publicConnectors() {
       name: connector.name,
       base_url: connector.base_url,
       auth_type: connector.auth.type,
-      renewal: connector.auth.renewal || "none",
+      renewal: connector.auth.type === SERVICE_TYPE ? "automatic" : connector.auth.renewal || "none",
       status: await connectorStatus(connector.id),
       ...(connector.kind === MCP_KIND
         ? { kind: MCP_KIND, tools: (connector.tools || []).map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema, readOnly: tool.readOnly })) }
