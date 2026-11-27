@@ -8,6 +8,7 @@ from .compression import compact
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 APP_TITLE = "Eco"
+APP_VERSION = "0.29.0"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
 CONTEXT_TOKEN_LIMIT = 128000
 LIMIT_PROMPT = (
@@ -75,6 +76,8 @@ async def reload_page(args):
 
 
 async def complete(config, messages, tools):
+    if str(config.get("version", "")) != APP_VERSION:
+        raise RuntimeError("Version mismatch: Python " + APP_VERSION + " vs JS " + str(config.get("version", "")))
     headers = {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + config.get("key", ""),
@@ -167,6 +170,8 @@ async def run_loop(messages, config, child=False, job=None):
         await tools_extra.refresh_speech(tools)
         if not child:
             await tools_extra.refresh_dreaming(tools)
+        if job:
+            job["step"] = "llamada al modelo"
         message = clean_message(await complete(config, messages, tools.tools()))
         if job and job["inbox"]:
             continue
@@ -178,6 +183,9 @@ async def run_loop(messages, config, child=False, job=None):
         for call in calls:
             name = call.get("function", {}).get("name", "")
             args = parse_arguments(call.get("function", {}).get("arguments"))
+            if job:
+                job["step"] = name
+                await subagents.publish(job)
             await ecoBridge.onToolStart(name, json.dumps(args, ensure_ascii=False))
             try:
                 if job and job["inbox"]:

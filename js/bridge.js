@@ -8,7 +8,9 @@ import { readDeviceDocumentation, listDeviceTools, manageDeviceTool, callDeviceT
 import { timedFetch } from "./network.js";
 import { passiveMemory, memoryCall, configureMemory, databaseMemoryGuide, topicSkill, topicSkills, devicePublicIp } from "./passive-skills.js";
 import { abortJob, jobRecords, jobSignal, jobSnapshot, jobUpdate, resumeJob } from "./subagents.js";
-import { DEFAULT_MODEL } from "./config.js";
+import { DEFAULT_MODEL, APP_VERSION } from "./config.js";
+import { requestHelp } from "./help.js";
+import { byId } from "./ui.js";
 import { emitActivity } from "./face-config.js";
 import { all, remove, setting, store } from "./storage.js";
 import { connectorFetch, deleteConnector, getConnector, normalizeConnector, publicConnectors, saveConnector, validateConnector } from "./connectors.js";
@@ -181,13 +183,15 @@ window.ecoBridge = {
     if (options.body == null) {
       delete options.body;
     }
-    options.signal = jobSignal(jobId);
+    const signal = jobSignal(jobId);
+    options.signal = signal && !signal.aborted ? signal : undefined;
     return timedFetch(url, options);
   },
   async config() {
     return JSON.stringify({
       key: setting("openrouterKey"),
       model: setting("model") || DEFAULT_MODEL,
+      version: APP_VERSION,
       ...stepLimits(),
       origin: location.origin
     });
@@ -223,7 +227,10 @@ window.ecoBridge = {
   async requestSignIn(id, method, sessionId, jobId) {
     const connector = await getConnector(String(id));
     if (!connector) {
-      return JSON.stringify({ ok: false, error: "Connector not found" });
+      const notice = "Connector not found: " + String(id || "");
+      byId("subagentError").textContent = notice;
+      requestHelp(notice);
+      return JSON.stringify({ ok: false, error: notice });
     }
     const options = jobId ? { jobId: String(jobId) } : {};
     if (method === "google_service_account") options.method = method;

@@ -13,17 +13,24 @@ let api;
 let selected = 0;
 
 export function jobSignal(id) {
-  return controllers.get(id)?.signal;
+  const controller = controllers.get(id);
+  if (!controller) return undefined;
+  if (controller.signal.aborted) {
+    controllers.set(id, new AbortController());
+    return controllers.get(id).signal;
+  }
+  return controller.signal;
 }
 
-export function abortJob(id) {
-  controllers.get(id)?.abort();
+export function abortJob(id, reason) {
+  controllers.get(id)?.abort(new Error(reason || "detenido"));
   window.ecoUI?.cancelJob(id);
 }
 
 export function resumeJob(id) {
   if (isWiping()) return;
-  controllers.set(id, new AbortController());
+  const current = controllers.get(id);
+  if (!current || current.signal.aborted) controllers.set(id, new AbortController());
 }
 
 export async function jobSnapshot(id, sessionId) {
@@ -51,7 +58,7 @@ export async function jobUpdate(raw, finished) {
   const before = previous?.status;
   if (previous) Object.assign(previous, next);
   else session.subagents.push(next);
-  if (value.status === ACTIVE && !controllers.has(value.id)) resumeJob(value.id);
+  if (value.status === ACTIVE && (!controllers.has(value.id) || controllers.get(value.id).signal.aborted)) resumeJob(value.id);
   if (value.status !== ACTIVE) controllers.delete(value.id);
   await api.persist(session);
   if (isWiping()) return;
@@ -178,7 +185,7 @@ export async function setupSubagents(options) {
 }
 
 export function stopSubagents() {
-  for (const id of controllers.keys()) { try { abortJob(id); } catch {} }
+  for (const id of controllers.keys()) { try { abortJob(id, "Eco se detuvo"); } catch {} }
   controllers.clear();
   api = null;
 }

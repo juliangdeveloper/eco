@@ -639,7 +639,7 @@ function waitForOAuth(popup, state) {
       finish(resolve, data.params);
     };
     const onMessage = (event) => {
-      if (event.origin === location.origin && event.source === popup) receive(event.data);
+      if (event.origin === location.origin) receive(event.data);
     };
     if (channel) channel.onmessage = (event) => receive(event.data);
     const poll = channel ? null : setInterval(() => {
@@ -660,6 +660,21 @@ export function redirectUri() {
 }
 
 export function openOAuthWindow() {
+  if (window.eco?.native?.invoke) {
+    const popup = {
+      closed: false,
+      location: { href: "" },
+      close() {
+        popup.closed = true;
+        window.eco.native.invoke("window", "closeOAuth").catch(() => {});
+      },
+      async setLocation(href) {
+        popup.location.href = href;
+        await window.eco.native.invoke("window", "openOAuth", { url: href });
+      }
+    };
+    return popup;
+  }
   return window.open("", "eco-oauth", POPUP_FEATURES);
 }
 
@@ -687,10 +702,19 @@ export async function startOAuth(id, clientId, openedPopup = null) {
     params.delete("prompt");
     if (previous?.login_hint) params.set("login_hint", previous.login_hint);
   }
-  const popup = openedPopup;
+  const popup = openedPopup || openOAuthWindow();
   if (!popup || popup.closed) return false;
   const response = waitForOAuth(popup, state);
-  popup.location.href = authorizeUrl(auth, params);
+  const url = authorizeUrl(auth, params);
+  if (typeof popup.setLocation === "function") {
+    try {
+      await popup.setLocation(url);
+    } catch {
+      return false;
+    }
+  } else {
+    popup.location.href = url;
+  }
   let result;
   try {
     result = await response;

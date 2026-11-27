@@ -35,6 +35,10 @@ export async function loadAgent() {
     }
     pyodide.FS.writeFile("/home/pyodide/eco/" + file, await response.text());
   }
-  await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); from eco.agent import run_turn; from eco.subagents import job_control, forget_jobs");
+  await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/home/pyodide'); from eco import APP_VERSION; from eco.agent import run_turn; from eco.subagents import job_control, forget_jobs");
+  const pyVersion = pyodide.globals.get("APP_VERSION");
+  if (String(pyVersion) !== APP_VERSION) {
+    throw new Error("Version mismatch: Python " + String(pyVersion) + " vs JS " + APP_VERSION);
+  }
   return pyodide;
 }

@@ -38,7 +38,8 @@ async def worker(job):
         pass
     except Exception as error:
         if job["status"] == "ejecutando":
-            job.update({"status": "error", "error": str(error), "summary": str(error)})
+            note = ("step " + str(job.get("step")) + ": " + str(error)) if job.get("step") else str(error)
+            job.update({"status": "error", "error": note, "summary": note})
             await publish(job, True)
     finally:
         if tasks.get(job["id"]) is asyncio.current_task():
@@ -90,10 +91,11 @@ async def control(args):
         if job["status"] != "ejecutando":
             return {"subagente": public(job)}
         job["status"] = "detenido"
+        job["step"] = "detenido"
         task = tasks.get(key)
         if task:
             task.cancel()
-        await bridge.abortJob(key)
+        await bridge.abortJob(key, "detenido por el usuario")
         await publish(job, True)
         return {"ok": True, "subagente": public(job)}
     if action != "modificar":
