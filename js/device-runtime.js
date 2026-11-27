@@ -235,7 +235,15 @@ export async function executeDeviceTool(tool, params, signal, options = {}) {
         if (message.kind === "construct" && message.path !== entry.feature.path && !(entry.feature.name === "browser" && message.path === entry.feature.path)) throw new Error("Constructor not allowed");
         const result = message.kind === "construct" ? Reflect.construct(entry.value, args) : Reflect.apply(entry.value, entry.owner, args);
         const callbacks = JSON.stringify(message.args).includes('"$callback"');
-        if (result?.then) result.then(respond, reject);
+        const isNative = entry.feature.name === "ecoNative" || message.path === "ecoNative.invoke" || message.path === "eco.native.invoke";
+        if (result?.then) {
+          if (isNative) {
+            const wait = new Promise((_, reject) => setTimeout(() => reject(new Error("Llamada nativa esperando permiso de Eco Desktop. Autoriza en la ventana Permiso y reintenta con el mismo comando.")), 12000));
+            Promise.race([result, wait]).then(respond, reject);
+          } else {
+            result.then(respond, reject);
+          }
+        }
         else if (!callbacks) respond(result);
       });
     }
