@@ -92,18 +92,28 @@ async def complete(config, messages, tools):
     if tools:
         payload["tools"] = tools
     init = {"method": "POST", "headers": headers, "body": json.dumps(payload, ensure_ascii=False)}
-    response = await ecoBridge.fetch(OPENROUTER_URL, js_value(init))
-    text = await response.text()
-    try:
-        data = json.loads(text)
-    except Exception:
-        data = {"error": text}
-    if not response.ok or "choices" not in data:
-        error = data.get("error", data)
-        if isinstance(error, dict):
-            error = error.get("message", json.dumps(error, ensure_ascii=False))
-        raise RuntimeError(str(error))
-    return data["choices"][0]["message"]
+    last_error = None
+    for attempt in range(2):
+        try:
+            response = await ecoBridge.fetch(OPENROUTER_URL, js_value(init))
+            text = await response.text()
+            try:
+                data = json.loads(text)
+            except Exception:
+                data = {"error": text}
+            if response.ok and "choices" in data:
+                return data["choices"][0]["message"]
+            error = data.get("error", data)
+            if isinstance(error, dict):
+                error = error.get("message", json.dumps(error, ensure_ascii=False))
+            raise RuntimeError(str(error))
+        except Exception as exc:
+            last_error = exc
+            message = str(exc)
+            if attempt == 0 and ("tardó demasiado" in message or "AbortError" in message or "aborted" in message.lower() or "timeout" in message.lower()):
+                continue
+            raise
+    raise last_error
 
 
 def parse_arguments(raw):

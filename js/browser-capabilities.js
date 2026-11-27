@@ -18,6 +18,7 @@ export function isSafeBrowserPath(path) {
   const parts = path.split(".");
   const root = parts[0];
   if (!root || DENIED_ROOTS.has(root)) return false;
+  if (root === "ecoNative" || root === "eco") return true;
   if (root === "navigator") {
     if (!parts[1] || DENIED_NAVIGATOR.has(parts[1])) return false;
   }
