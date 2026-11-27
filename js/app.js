@@ -159,8 +159,8 @@ function bindClarify() {
     dialog.returnValue = value;
     dialog.close();
   };
-  return (question, raw) => new Promise((done) => {
-    byId("clarifyQuestion").textContent = question;
+  return (question, raw, jobId) => new Promise((done) => {
+    byId("clarifyQuestion").textContent = jobId ? "Subagent " + String(jobId) + ": " + question : question;
     byId("clarifyText").value = "";
     const options = parseArgs(raw);
     emitActivity("asking", { on: true });

@@ -397,7 +397,8 @@ export async function executeDeviceTool(tool, params, signal, options = {}) {
       card.className = "deviceRequest message assistant";
       card.dataset.deviceRequest = "true";
       const text = document.createElement("p");
-      text.textContent = tool.name + (message.kind === "capture" ? " wants to take a photo" : " wants to access " + message.path);
+      text.textContent = (options.jobId ? "Subagent " + String(options.jobId) + ": " : "") + tool.name + (message.kind === "capture" ? " wants to take a photo" : " wants to access " + message.path);
+      if (options.jobId) card.dataset.subagent = String(options.jobId);
       const allow = document.createElement("button");
       allow.type = "button";
       allow.textContent = "Continue";

@@ -79,7 +79,7 @@ export function setBridgeState(api) {
   stateApi = api;
 }
 
-async function createConnectorSafely(raw) {
+async function createConnectorSafely(raw, sessionId, jobId) {
   let definition;
   try {
     definition = parsed(raw);
@@ -109,7 +109,7 @@ async function createConnectorSafely(raw) {
       return JSON.stringify({ ok: false, id: connector.id, status, error: check.error || "Could not read the tools" });
     }
   } else {
-    status = connector.auth.type === "none" ? "connected" : await showCredentialCard(connector);
+    status = connector.auth.type === "none" ? "connected" : await showCredentialCard(connector, jobId ? { jobId: String(jobId) } : {});
   }
   stateApi?.refreshConnectors();
   return JSON.stringify({ ok: true, id: connector.id, status });
@@ -137,7 +137,7 @@ window.ecoBridge = {
     return JSON.stringify(value);
   },
   async uploadAttachment(raw, sessionId) { return JSON.stringify(await uploadAttachment(parsed(raw), sessionId)); },
-  async deviceCall(name, raw, sessionId, jobId) { return JSON.stringify(await callDeviceTool(String(name), parsed(raw), jobSignal(jobId))); },
+  async deviceCall(name, raw, sessionId, jobId) { return JSON.stringify(await callDeviceTool(String(name), parsed(raw), jobSignal(jobId), jobId ? { jobId: String(jobId) } : {})); },
   async abortJob(id) { abortJob(id); return true; },
   async resumeJob(id) { resumeJob(id); return true; },
   jobUpdate,
@@ -213,19 +213,19 @@ window.ecoBridge = {
   async connectors() {
     return JSON.stringify(await publicConnectors());
   },
-  async createConnector(raw) {
+  async createConnector(raw, sessionId, jobId) {
     try {
-      return await createConnectorSafely(raw);
+      return await createConnectorSafely(raw, sessionId, jobId);
     } catch {
       return JSON.stringify({ ok: false, error: "Could not save the connector" });
     }
   },
-  async requestSignIn(id) {
+  async requestSignIn(id, sessionId, jobId) {
     const connector = await getConnector(String(id));
     if (!connector) {
       return JSON.stringify({ ok: false, error: "Connector not found" });
     }
-    const status = await showCredentialCard(connector);
+    const status = await showCredentialCard(connector, jobId ? { jobId: String(jobId) } : {});
     stateApi?.refreshConnectors();
     return JSON.stringify({ ok: true, id: connector.id, status });
   },
@@ -280,8 +280,8 @@ window.ecoBridge = {
   async passiveSkills() {
     return JSON.stringify(await passiveMemory());
   },
-  async configureMemory(action) {
-    const result = await configureMemory(typeof action === "string" && !action.trim().startsWith("{") ? action : parsed(action));
+  async configureMemory(action, sessionId, jobId) {
+    const result = await configureMemory(typeof action === "string" && !action.trim().startsWith("{") ? action : parsed(action), sessionId, jobId);
     stateApi?.refreshConnectors();
     return JSON.stringify(result);
   },

@@ -144,6 +144,10 @@ function renderCredentialCard(connector, options = {}) {
   const card = create("div", "", "credentialCard");
   card.dataset.connector = connector.id;
   const form = document.createElement("form");
+  if (options.jobId) {
+    card.dataset.subagent = String(options.jobId);
+    form.append(create("small", "Subagent " + String(options.jobId) + " needs your answer in this main chat. Your answer returns to that subagent."));
+  }
   const title = create("strong", "Sign in to " + connector.name);
   const note = create("small", options.expired ? EXPIRED_TEXT : "Your data is stored encrypted in this browser.");
   const error = create("p", "", "credentialError");

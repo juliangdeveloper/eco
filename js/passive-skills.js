@@ -266,7 +266,7 @@ function element(tag, text = "") {
   return node;
 }
 
-export async function configureMemory(input) {
+export async function configureMemory(input, sessionId, jobId) {
   const options = typeof input === "string" ? { accion: input } : input || {};
   const action = options.accion || "conectar";
   if (action === "desconectar") {
@@ -287,14 +287,14 @@ export async function configureMemory(input) {
     return { ok: true, quitada: options.memoria, estado: "Eco stopped using that memory; its data and credentials are untouched.", memorias: await memoryOverview(true) };
   }
   if (action !== "conectar") throw new Error("Unsupported memory action.");
-  if (options.backend === "obsidian") return configureObsidian(options);
-  if (options.backend && options.backend !== "google-drive") return configureDatabase(options);
+  if (options.backend === "obsidian") return configureObsidian(options, jobId);
+  if (options.backend && options.backend !== "google-drive") return configureDatabase(options, jobId);
   const definition = ADAPTERS["google-drive"];
   let connector = await getConnector(CONNECTOR_ID);
   if (!connector) connector = await saveConnector(definition.connector);
   await saveConnector({ ...DRIVE_FILES_CONNECTOR, createdAt: (await getConnector(DRIVE_FILES_CONNECTOR.id))?.createdAt });
   if (await connectorStatus(CONNECTOR_ID) !== STATUS.CONNECTED) {
-    const status = await showCredentialCard(connector);
+    const status = await showCredentialCard(connector, jobId ? { jobId: String(jobId) } : {});
     if (status !== STATUS.CONNECTED) return { ok: false, estado: "Memory is still local." };
   }
   const previous = json(CONFIG_KEY) || {};
@@ -302,7 +302,9 @@ export async function configureMemory(input) {
   document.getElementById("empty")?.remove();
   const card = element("div");
   card.className = "credentialCard";
+  if (jobId) card.dataset.subagent = String(jobId);
   const form = element("form");
+  if (jobId) form.append(element("small", "Subagent " + String(jobId) + " needs your answer in this main chat. Your answer returns to that subagent."));
   form.append(element("strong", "Connect memory to Google Drive"), element("small", "Paste a compatible sheet or leave the field empty to use your existing Eco · Memoria or create one."));
   const inputs = {};
   for (const [name, label, initial] of [["eco", "Memory ID of this Eco", previous.eco || "eco-" + crypto.randomUUID().slice(0, 6)], ["usuario", "Your alias", previous.usuario || "usuario"], ["sheet", "Spreadsheet (URL or ID, optional)", previous.sheet || ""]]) {
@@ -383,7 +385,7 @@ export async function databaseMemoryGuide() {
   return skillText(ADAPTERS.database.skill);
 }
 
-async function configureObsidian(options) {
+async function configureObsidian(options, jobId) {
   const previous = json(CONFIG_KEY) || {};
   const folder = String(options.folder || "Eco").trim().replace(/^\/+|\/+$/g, "");
   if (!folder || folder.length > 120 || folder.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Use a folder relative to the vault, without . or ..");
@@ -401,7 +403,7 @@ async function configureObsidian(options) {
     const fixed = Object.fromEntries(OBSIDIAN_ACTIONS.filter(action => options.operation_args?.[action] && typeof options.operation_args[action] === "object" && !Array.isArray(options.operation_args[action])).map(action => [action, options.operation_args[action]]));
     if (Object.keys(fixed).length) config.operation_args = fixed;
   }
-  if (await connectorStatus(config.connector) !== STATUS.CONNECTED && await showCredentialCard(connector) !== STATUS.CONNECTED) return { ok: false, estado: "Memory is still local." };
+  if (await connectorStatus(config.connector) !== STATUS.CONNECTED && await showCredentialCard(connector, jobId ? { jobId: String(jobId) } : {}) !== STATUS.CONNECTED) return { ok: false, estado: "Memory is still local." };
   const role = roleFor(config, options.rol);
   const named = nameFor(config, role);
   try {
@@ -415,7 +417,7 @@ async function configureObsidian(options) {
   return { ok: true, backend: config.backend, eco: named.eco, rol: role, memoria: memoryKey(named), carpeta: folder, estado: "Memory connected to the Obsidian vault." };
 }
 
-async function configureDatabase(options) {
+async function configureDatabase(options, jobId) {
   if (!["supabase", "database"].includes(options.backend)) throw new Error("Unsupported memory destination.");
   const previous = json(CONFIG_KEY) || {};
   const config = { backend: options.backend, connector: options.connector || (options.backend === "supabase" ? "eco-memory-supabase" : ""), eco: options.eco || previous.eco || "eco-" + crypto.randomUUID().slice(0, 6), usuario: options.usuario || previous.usuario || "usuario" };
@@ -429,7 +431,7 @@ async function configureDatabase(options) {
   }
   if (!connector) throw new Error("Connect the database first or give project_url for Supabase.");
   if (options.backend === "supabase" && (connector.kind === "mcp" || connector.auth.type !== "api_key" || connector.auth.header !== "apikey" || !connector.auth.bearer || new URL(connector.base_url).pathname !== "/")) throw new Error("Use a PostgREST connector with an apikey key for Supabase.");
-  if (await connectorStatus(config.connector) !== STATUS.CONNECTED && await showCredentialCard(connector) !== STATUS.CONNECTED) return { ok: false, estado: "Memory is still local." };
+  if (await connectorStatus(config.connector) !== STATUS.CONNECTED && await showCredentialCard(connector, jobId ? { jobId: String(jobId) } : {}) !== STATUS.CONNECTED) return { ok: false, estado: "Memory is still local." };
   if (options.backend === "database") {
     config.mode = options.mode || "operations";
     if (!["operations", "sql"].includes(config.mode)) throw new Error("Unsupported database mode.");
