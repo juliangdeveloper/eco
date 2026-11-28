@@ -1116,12 +1116,13 @@ dialog { z-index: 30; }
   .brand { font-size: 18px; }
 }
 @media (max-width: 340px) {
-  .brand small#version { display: none; }
   .brand .offlineCountdown { margin-left: 2px; }
 }
 @media (max-width: 340px) {
   .headerActions { gap: 0; }
   .iconButton { width: 32px; min-height: 32px; padding: 6px; }
+  .brand { font-size: 17px; }
+  .brand small { font-size: 11px; }
 }
 .voiceSwitches { display: grid; gap: 0; margin-bottom: 4px; }
 .voiceSwitch { margin-top: 10px; }
